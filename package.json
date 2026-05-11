@@ -1,0 +1,9 @@
+{
+  "name": "corn-agent-dashboard",
+  "private": true,
+  "scripts": {
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build",
+    "web:preview": "pnpm --filter web preview"
+  }
+}

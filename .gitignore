@@ -1,0 +1,20 @@
+# Node / frontend
+node_modules/
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+.pnpm-store/
+
+# Go build/test artifacts
+/corn-agent-dashboard
+*.test
+coverage.out
+
+# Local runtime data
+.corn-agent-dashboard/
+data.db
+data.db-*
+runs/
+
+# OS / editor
+.DS_Store

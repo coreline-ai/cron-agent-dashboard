@@ -316,7 +316,7 @@ corn-agent-dashboard/
 
 ### 8.1 Dispatch 트리거 (모두 = run row INSERT)
 1. 이슈 생성 시 → run INSERT (assignee 또는 메인 에이전트)
-2. 댓글에 `@AgentName` 멘션 → 같은 issue에 새 run INSERT (assignee 변경)
+2. 댓글에 `@AgentName` 멘션 → 같은 issue에 새 run INSERT (`issue.assignee_agent_id` 변경 없음, `run.agent_id`만 멘션된 에이전트)
 3. Autopilot cron 시각 도래 → issue + run INSERT
 4. 수동 `/rerun` 호출 → 같은 issue에 새 run INSERT (동일 agent)
 
@@ -326,11 +326,11 @@ corn-agent-dashboard/
 ```
 1. (HTTP) BEGIN; issue INSERT/UPDATE; run INSERT(status='queued'); COMMIT;
 2. (Worker poll, 1s) BEGIN IMMEDIATE;
-     SELECT id FROM run WHERE status='queued' AND <per-issue 직렬화> ORDER BY enqueued_at LIMIT 1;
+     SELECT id FROM run WHERE status='queued' AND <per-issue + per-workspace 직렬화> ORDER BY enqueued_at LIMIT 1;
      UPDATE run SET status='running', claimed_at, claimed_by, started_at WHERE id=? AND status='queued';
-     UPDATE issue SET status='running';
      INSERT system 댓글 "<agent> 실행을 시작했습니다 (run #N)";
    COMMIT;
+   ※ 실행 시작 시 issue.status는 변경하지 않는다. UI 실행 상태는 derived execution_status로 표시한다.
 3. adapter.BuildCommand(runContext) → *exec.Cmd
 4. cmd.SysProcAttr.Setpgid = true (process group)
 5. cmd.Start()
@@ -340,8 +340,9 @@ corn-agent-dashboard/
 7. cmd.Wait() 또는 ctx 만료/취소 → process group kill
 8. BEGIN;
      UPDATE run SET status=?, finished_at, exit_code, stdout_path, error_message;
-     INSERT comment (author_type='agent', run_id=?, content=stdout 또는 truncated);
-     UPDATE issue SET status=?;
+     INSERT comment (author_type='agent', run_id=?, content=stdout 64KB cap + log link);
+     성공(status='done')인 경우에만 issue.status='done'으로 전이;
+     실패/취소(status='failed'|'cancelled')인 경우 issue.status는 'open' 유지;
    COMMIT;
 ```
 
@@ -363,7 +364,7 @@ corn-agent-dashboard/
 ### 8.4 동시성
 - worker pool size: default 3 (설정 가능, CLI 플래그)
 - 같은 이슈에 동시 running run 불가 → claim 쿼리 `NOT EXISTS (SELECT 1 FROM run WHERE issue_id=r.issue_id AND status='running')`로 보장
-- 다른 이슈는 병렬 가능
+- 다른 workspace는 병렬 가능, 같은 workspace는 직렬
 - claim 충돌 (두 worker가 같은 row UPDATE 시도): SQLite `BEGIN IMMEDIATE`로 직렬화, `WHERE id=? AND status='queued'` 가드로 affected_rows=1 확인
 
 ### 8.5 취소
@@ -509,7 +510,7 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 | Frontend 스택 | **Vite + React Router SPA** (확정, Next.js/next-themes 미사용) | Phase 0 |
 | `issue.status` vs `run.status` 분리 | **분리** (issue: open/done/cancelled, run: queued/running/done/failed/cancelled). execution_status는 API derived | Phase 0 |
 | 워크스페이스 동시 실행 | **MVP는 워크스페이스당 1개** (per-run worktree는 Phase 2) | Phase 0 |
-| 멘션 시 assignee 변경 | **변경하지 않음** (run.agent_id만 다르게) | Phase 0 |
+| 멘션 시 담당자 유지 | **issue.assignee_agent_id는 유지** (`run.agent_id`만 멘션된 agent) | Phase 0 |
 | identifier URL 처리 | **`:idOrIdentifier` 다형 라우팅** | Phase 0 |
 | stdout → comment | **64KB cap + raw HTML 금지 + pipe drain** | Phase 0 |
 | run trigger fields | **`trigger_type / trigger_comment_id / trigger_content_snapshot` 추가** | Phase 0 |
