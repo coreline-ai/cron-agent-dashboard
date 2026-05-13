@@ -2,7 +2,7 @@
 
 > REST API 명세
 > Version: 0.1
-> Date: 2026-05-11
+> Date: 2026-05-12
 > Base URL: `http://127.0.0.1:8080/api`
 
 ---
@@ -35,7 +35,7 @@
 |---|---|---|
 | `VALIDATION_ERROR` | 400 | 입력 검증 실패 |
 | `UNAUTHORIZED` | 401 | 토큰 누락/잘못됨 |
-| `FORBIDDEN` | 403 | 작업 권한 없음 (예: agent/system 댓글 삭제 시도) |
+| `FORBIDDEN` | 403 | CORS origin 차단 등 요청 차단 |
 | `NOT_FOUND` | 404 | 리소스 없음 |
 | `CONFLICT` | 409 | 유일성 위반 (slug 중복 등) |
 | `STATE_ERROR` | 409 | 현재 상태에서 불가능한 작업 (예: queued 이슈에 cancel) |
@@ -45,8 +45,8 @@
 - 모든 timestamp: RFC 3339 UTC (예: `2026-05-11T09:00:00Z`)
 
 ### 0.5 페이지네이션
-- 쿼리 파라미터: `limit` (default 50, max 200), `cursor` (불투명 문자열)
-- 응답에 `next_cursor` 포함 (없으면 null)
+- MVP 구현: `limit` (default 50, max 200)만 적용
+- 응답에 `next_cursor: null` 포함. cursor 기반 페이지네이션은 후속 Phase
 
 ### 0.6 ID 형식
 - 모든 ID: UUID v4
@@ -167,14 +167,14 @@
 ```
 
 ### 2.2 `POST /api/workspaces/:id/agents`
-에이전트 추가 (추가 에이전트, `is_main`은 자동 false).
+에이전트 추가 (추가 에이전트, `is_main`은 자동 false). `model`은 선택 필드이며 빈 문자열이면 런타임 기본 모델을 사용합니다.
 
 **Request**:
 ```json
 {
   "name": "Writer",
   "runtime": "codex",
-  "model": "",
+  "model": "gpt-5.4-mini",
   "instructions": "..."
 }
 ```
@@ -188,7 +188,7 @@
 에이전트 상세.
 
 ### 2.4 `PUT /api/agents/:id`
-에이전트 수정 (`name`, `runtime`, `model`, `instructions`).
+에이전트 수정 (`name`, `runtime`, `model`, `instructions`). `model`은 빈 문자열로 보내면 런타임 기본값, 값이 있으면 해당 모델 ID를 사용합니다.
 
 **Request**: 위 필드 일부 또는 전체
 - `is_main` 변경 X (별도 엔드포인트)
@@ -284,10 +284,11 @@
 
 **Request 필드 (모두 선택)**:
 - `title`, `body`, `assignee_agent_id`
-- `status`: `done` 또는 `cancelled` 만 허용 (사용자 명시적 닫기/취소)
+- 필드 미전송은 기존 값 유지, `body: ""`는 본문 비우기로 처리
+- `status`: `open`, `done`, `cancelled` 허용
   - `done` → 명시적으로 이슈 완료 처리. 진행 중 run 있으면 409.
   - `cancelled` → 이슈 취소 + queued run 자동 cancel.
-  - `open`으로 되돌리기는 [재실행] (3.5)을 사용.
+  - [재실행] (3.5)은 이슈를 자동으로 `open`으로 되돌림.
 
 ### 3.5 `POST /api/issues/:id/rerun`
 **가장 최근 run의 agent**로 새 run dispatch.
@@ -325,8 +326,8 @@
 
 ### 3.7 `DELETE /api/issues/:id`
 이슈 + 댓글 + run 모두 삭제 (CASCADE).
-- run.stdout_path 파일도 삭제 (best-effort, 실패해도 DB row는 지움)
 - 진행 중이면 먼저 cancel 요구 (409 STATE_ERROR)
+- run stdout 파일은 현재 보존되며 `/api/system/cleanup-logs`로 정리한다. delete 시 log cleanup hook은 후속 hardening 항목.
 - 응답: `{ "deleted": true, "id": "..." }`
 
 ---
@@ -370,9 +371,9 @@
 
 **Comment 표시 cap (보안/성능)**:
 - `comment.content` 최대 64KB (UTF-8 기준)
-- 에이전트 결과가 초과하면 앞 60KB만 저장 + 본문 끝에 `\n\n---\n전체 로그(<size> KB)는 [로그 보기](<log_url>)에서 확인하세요.\n` append
+- 에이전트 결과가 초과하면 앞 60KB만 저장 + 본문 끝에 `...[truncated]`와 `[로그 보기](<log_url>)` 링크 append
 - `truncated=true` 플래그로 클라이언트가 표시
-- **markdown 렌더링은 `react-markdown` + `remark-gfm`만**. `rehype-raw` 금지 (HTML/script 인젝션 차단).
+- **현재 UI는 `react-markdown` + `remark-gfm` 렌더링**을 사용한다. `rehype-raw`를 쓰지 않아 raw HTML/script는 실행하지 않는다.
 
 ### 4.2 `POST /api/issues/:id/comments`
 사용자 댓글 추가. 본문에 `@AgentName` 멘션이 있으면 자동 dispatch.
@@ -524,7 +525,8 @@ run의 stdout 전체 파일.
 **Response 201**:
 ```json
 {
-  "issue": { ... }   // 새로 생성된 이슈
+  "issue": { ... },
+  "run": { ... }
 }
 ```
 
@@ -565,14 +567,14 @@ run의 stdout 전체 파일.
 ```
 
 ### 7.3 `POST /api/system/backup`
-SQLite DB 백업 (online backup API).
+SQLite DB 백업. 현재 구현은 `PRAGMA wal_checkpoint(FULL)` 후 0600 권한 파일 copy를 수행한다.
 
 **Request**: `{ "to": "/path/to/backup.db" }` (선택, 미지정 시 `~/.corn-agent-dashboard/data.db.<timestamp>`)
 
 **Response 200**: `{ "backup_path": "/...", "size_bytes": 1234567 }`
 
 ### 7.4 `POST /api/system/vacuum`
-`PRAGMA incremental_vacuum` 실행.
+SQLite `VACUUM` 실행. 실행 전후 page count/page size 기준으로 회수 추정치를 반환한다.
 
 **Response 200**: `{ "reclaimed_bytes": 12345 }`
 

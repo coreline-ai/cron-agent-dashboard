@@ -1,4 +1,4 @@
-module github.com/coreline-ai/cron-agent-dashboard
+module github.com/coreline-ai/corn-agent-dashboard
 
 go 1.24.0
 

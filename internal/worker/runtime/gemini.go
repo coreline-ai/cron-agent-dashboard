@@ -5,7 +5,7 @@ import (
 	"os/exec"
 )
 
-// GeminiAdapter builds commands for the gemini CLI using stdin for the prompt.
+// GeminiAdapter builds commands for the gemini CLI in headless prompt mode.
 type GeminiAdapter struct {
 	Executable string
 }
@@ -17,11 +17,11 @@ func (a GeminiAdapter) Detect(ctx context.Context) RuntimeInfo {
 }
 
 func (a GeminiAdapter) BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error) {
-	args := []string{}
+	args := []string{"--prompt", run.PromptText()}
 	if run.AgentModel != "" {
 		args = append(args, "--model", run.AgentModel)
 	}
-	return commandWithPrompt(ctx, a.executable(), args, run)
+	return commandWithoutStdin(ctx, a.executable(), args, run)
 }
 
 func (a GeminiAdapter) executable() string {

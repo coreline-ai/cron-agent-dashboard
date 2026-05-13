@@ -10,7 +10,7 @@
 ## 1. Tech Stack (기술 스택)
 
 ### 1.1 Backend
-- **언어**: Go 1.23+
+- **언어**: Go 1.24+
 - **HTTP 라우터**: `chi/v5` (Multica와 동일, 검증됨)
 - **DB 드라이버**: `modernc.org/sqlite` (pure Go, CGo 없음 → 크로스 컴파일 용이)
 - **SQL 빌더**: `sqlx` (가벼움, sqlc는 단일 프로젝트엔 과함)
@@ -31,7 +31,7 @@
 - **스타일**: Tailwind CSS v4 (PostCSS plugin)
 - **상태 관리**: TanStack Query v5
 - **폼**: `react-hook-form` + `zod`
-- **마크다운**: `react-markdown` + `remark-gfm` **만**. `rehype-raw` / raw HTML 렌더링 절대 금지 (에이전트 stdout의 스크립트 인젝션 차단).
+- **마크다운 렌더링**: MVP UI는 `react-markdown` + `remark-gfm`을 사용한다. `rehype-raw` / raw HTML 렌더링은 금지한다.
 - **i18n**: 한국어 only (기본 문자열 inline, i18next 불필요)
 - **다크모드**: `class` 기반 직접 토글 (next-themes 대체)
 
@@ -75,7 +75,7 @@
   - **단, stdout pipe는 io.Discard로 계속 drain** — child process가 pipe buffer 가득 차서 blocking되지 않도록
   - stderr → 메모리 ring buffer (마지막 4KB) → 종료 시 run.error_message에 기록
   - **결과 댓글 INSERT 시 추가 cap**: comment.content는 64KB 한도. 초과 시 앞 60KB + "전체 로그는 [로그 보기](/api/runs/<id>/log)" 링크 append
-  - **comment에서 markdown 렌더링은 raw HTML 허용 안 함** (react-markdown 기본 모드)
+  - **comment 렌더링은 raw HTML 허용 안 함** (`react-markdown` + `remark-gfm`, `rehype-raw` 금지)
 - **prompt 렌더링** (truncation, **요약 없음**):
   ```
   {agent.instructions}
@@ -285,7 +285,7 @@ corn-agent-dashboard/
 ### 6.2 보존 정책 (default)
 - 이슈/댓글/run row: 영구 (사용자가 명시적으로 삭제할 때까지)
 - run stdout log: 30일 후 자동 삭제 (옵션, default OFF)
-- DB vacuum: 부팅 시마다 incremental
+- DB vacuum: 사용자가 Settings/API에서 요청할 때 SQLite `VACUUM` 실행
 
 ### 6.3 마이그레이션 정책
 - 모든 스키마 변경은 `internal/db/migrations/NNNN_*.sql`
@@ -332,6 +332,9 @@ corn-agent-dashboard/
    COMMIT;
    ※ 실행 시작 시 issue.status는 변경하지 않는다. UI 실행 상태는 derived execution_status로 표시한다.
 3. adapter.BuildCommand(runContext) → *exec.Cmd
+   - codex: `codex exec [--model <model>] [--cd <workspace>] -` + stdin prompt
+   - claude: `claude --print [--model <model>]` + stdin prompt
+   - gemini: `gemini --prompt <prompt> [--model <model>]`
 4. cmd.SysProcAttr.Setpgid = true (process group)
 5. cmd.Start()
 6. stdout/stderr 동시 캡처:
@@ -340,7 +343,7 @@ corn-agent-dashboard/
 7. cmd.Wait() 또는 ctx 만료/취소 → process group kill
 8. BEGIN;
      UPDATE run SET status=?, finished_at, exit_code, stdout_path, error_message;
-     INSERT comment (author_type='agent', run_id=?, content=stdout 64KB cap + log link);
+     INSERT comment (author_type='agent', run_id=?, content=stdout 64KB cap + log link, truncated=?);
      성공(status='done')인 경우에만 issue.status='done'으로 전이;
      실패/취소(status='failed'|'cancelled')인 경우 issue.status는 'open' 유지;
    COMMIT;

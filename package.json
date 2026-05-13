@@ -4,6 +4,10 @@
   "scripts": {
     "web:dev": "pnpm --filter web dev",
     "web:build": "pnpm --filter web build",
-    "web:preview": "pnpm --filter web preview"
+    "web:preview": "pnpm --filter web preview",
+    "e2e:smoke": "playwright test --config playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
   }
 }

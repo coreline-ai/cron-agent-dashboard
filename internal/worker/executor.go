@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
+	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
 )
 
 const (
@@ -297,14 +297,21 @@ func CopyWithCapAndDrain(dst io.Writer, src io.Reader, capBytes int64, marker []
 // CapCommentForLog keeps generated markdown comments within a bounded payload.
 // It preserves roughly the first 60KB and points users to the full run log.
 func CapCommentForLog(content, logURL string) string {
+	out, _ := CapCommentForLogWithStatus(content, logURL)
+	return out
+}
+
+// CapCommentForLogWithStatus is the same cap policy as CapCommentForLog and
+// also reports whether the comment was truncated.
+func CapCommentForLogWithStatus(content, logURL string) (string, bool) {
 	if len([]byte(content)) <= DefaultCommentCapBytes {
-		return content
+		return content, false
 	}
 	prefix := firstUTF8Bytes(content, DefaultCommentHeadBytes)
 	if logURL == "" {
 		logURL = "로그 보기"
 	}
-	return prefix + fmt.Sprintf("\n\n...[truncated]\n\n전체 로그는 [로그 보기](%s)에서 확인하세요.", logURL)
+	return prefix + fmt.Sprintf("\n\n...[truncated]\n\n전체 로그는 [로그 보기](%s)에서 확인하세요.", logURL), true
 }
 
 func firstUTF8Bytes(s string, maxBytes int) string {

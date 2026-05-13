@@ -5,9 +5,7 @@ import (
 	"os/exec"
 )
 
-// CodexAdapter is a thin command builder for the codex CLI. The exact CLI flags
-// are intentionally conservative; integration tests can assert the command and
-// stdin without spawning a real process.
+// CodexAdapter builds commands for the codex CLI in non-interactive exec mode.
 type CodexAdapter struct {
 	Executable string
 }
@@ -19,10 +17,14 @@ func (a CodexAdapter) Detect(ctx context.Context) RuntimeInfo {
 }
 
 func (a CodexAdapter) BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error) {
-	args := []string{}
+	args := []string{"exec"}
 	if run.AgentModel != "" {
 		args = append(args, "--model", run.AgentModel)
 	}
+	if run.WorkspaceWorkingDir != "" {
+		args = append(args, "--cd", run.WorkspaceWorkingDir)
+	}
+	args = append(args, "-")
 	return commandWithPrompt(ctx, a.executable(), args, run)
 }
 

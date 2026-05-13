@@ -1,6 +1,20 @@
 package store
 
-import "database/sql"
+import (
+	"database/sql"
+	"strconv"
+)
+
+type NullInt64 struct {
+	sql.NullInt64
+}
+
+func (n NullInt64) MarshalJSON() ([]byte, error) {
+	if !n.Valid {
+		return []byte("null"), nil
+	}
+	return []byte(strconv.FormatInt(n.Int64, 10)), nil
+}
 
 type Workspace struct {
 	ID               string `db:"id" json:"id"`
@@ -75,7 +89,7 @@ type Run struct {
 	ClaimedBy              string         `db:"claimed_by" json:"claimed_by,omitempty"`
 	StartedAt              string         `db:"started_at" json:"started_at,omitempty"`
 	FinishedAt             string         `db:"finished_at" json:"finished_at,omitempty"`
-	ExitCode               sql.NullInt64  `db:"exit_code" json:"exit_code"`
+	ExitCode               NullInt64      `db:"exit_code" json:"exit_code"`
 	StdoutPath             sql.NullString `db:"stdout_path" json:"-"`
 	StdoutSizeBytes        int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
 	LogURL                 string         `db:"log_url" json:"log_url,omitempty"`
@@ -122,6 +136,13 @@ type CreateIssueInput struct {
 	CreatedBy       string `json:"created_by"`
 	AutopilotRuleID string `json:"autopilot_rule_id"`
 	TriggerType     string `json:"trigger_type"`
+}
+
+type UpdateIssueInput struct {
+	Title           *string `json:"title"`
+	Body            *string `json:"body"`
+	AssigneeAgentID *string `json:"assignee_agent_id"`
+	Status          *string `json:"status"`
 }
 
 type ListIssuesFilter struct {

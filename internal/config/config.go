@@ -16,13 +16,15 @@ const (
 )
 
 type Config struct {
-	DataDir  string   `json:"data_dir"`
-	DBPath   string   `json:"db_path"`
-	Bind     string   `json:"bind"`
-	Token    string   `json:"-"`
-	CORS     []string `json:"cors"`
-	Workers  int      `json:"workers"`
-	Timezone string   `json:"timezone"`
+	DataDir     string   `json:"data_dir"`
+	DBPath      string   `json:"db_path"`
+	Bind        string   `json:"bind"`
+	Token       string   `json:"-"`
+	CORS        []string `json:"cors"`
+	Workers     int      `json:"workers"`
+	Timezone    string   `json:"timezone"`
+	BackupTo    string   `json:"-"`
+	RestoreFrom string   `json:"-"`
 }
 
 func Default() (Config, error) {
@@ -57,6 +59,8 @@ func Load(args []string) (Config, []string, error) {
 	cors := fs.String("cors", strings.Join(cfg.CORS, ","), "comma-separated CORS allowed origins")
 	fs.IntVar(&cfg.Workers, "workers", cfg.Workers, "worker pool size")
 	fs.StringVar(&cfg.Timezone, "timezone", cfg.Timezone, "system timezone")
+	fs.StringVar(&cfg.BackupTo, "to", cfg.BackupTo, "backup destination path")
+	fs.StringVar(&cfg.RestoreFrom, "from", cfg.RestoreFrom, "restore source path")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, nil, err
 	}

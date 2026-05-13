@@ -61,7 +61,7 @@ CREATE TABLE agent (
   workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,                     -- "NewsLead", "Writer"
   runtime       TEXT NOT NULL,                     -- "codex" | "claude" | "gemini"
-  model         TEXT NOT NULL DEFAULT '',          -- "" = runtime 기본
+  model         TEXT NOT NULL DEFAULT '',          -- 빈 문자열이면 runtime 기본 모델
   instructions  TEXT NOT NULL DEFAULT '',          -- 시스템 프롬프트
   is_main       INTEGER NOT NULL DEFAULT 0 CHECK (is_main IN (0, 1)),
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -142,6 +142,8 @@ CREATE TABLE comment (
   run_id        TEXT REFERENCES run(id) ON DELETE SET NULL,
                      -- agent/system 댓글이 특정 run에 속할 때
   content       TEXT NOT NULL,                     -- markdown
+  truncated     INTEGER NOT NULL DEFAULT 0
+                CHECK (truncated IN (0, 1)),
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -160,6 +162,7 @@ CREATE INDEX idx_comment_run           ON comment(run_id);
   - `"멘션이 둘 이상이라 @<First>만 적용됩니다"` — run_id NULL
   - `"재시작 중 진행 작업이 취소되었습니다 (orphan recovered)"` — run_id 채움
 - `content`: markdown. 클라이언트에서 렌더링.
+- `truncated`: 에이전트 결과 댓글이 64KB cap으로 축약됐는지 나타내는 명시 필드. 사용자 댓글 본문 문자열로 추정하지 않는다.
 - 멘션은 `@AgentName` 형태로 본문에 포함됨 (별도 컬럼 없음, 백엔드가 정규식 파싱).
 - 멘션 파싱: `/@([A-Za-z0-9_\-가-힣]+)/g`, 첫 매칭만 사용. 매칭은 `lower(name)` 비교.
 
@@ -519,7 +522,7 @@ execution_status 도메인: `running | queued | done | failed | cancelled | idle
 - [x] 마이그레이션 적용 (idempotent)
 
 **Phase 6 부팅 시 자가검진**:
-- [ ] 워크스페이스마다 메인 에이전트 정확히 1개 (`SELECT workspace_id, COUNT(*) FROM agent WHERE is_main=1 GROUP BY workspace_id HAVING COUNT(*) != 1`)
+- [x] 워크스페이스마다 메인 에이전트 정확히 1개 (`startup self-check`에서 검증)
 - [ ] `issue.status='running'` 이슈는 진행 중 run (status='running') 보유
 - [ ] `comment.author_type='agent'` → `author_agent_id IS NOT NULL AND run_id IS NOT NULL`
 - [ ] run의 stdout_path 파일 존재 확인 (없으면 error_message에 "log file missing")
@@ -567,7 +570,7 @@ internal/db/migrations/
 ### 9.1 백업
 ```bash
 # 1. data.db 백업 (SQLite online backup)
-sqlite3 ~/.corn-agent-dashboard/data.db ".backup ~/backup/data.db"
+corn-agent-dashboard backup --to ~/backup/data.db
 
 # 2. runs/ 디렉토리 복사
 cp -r ~/.corn-agent-dashboard/runs ~/backup/runs
@@ -577,7 +580,7 @@ cp ~/.corn-agent-dashboard/config.toml ~/backup/
 ```
 
 ### 9.2 복구
-- 백업한 파일을 `~/.corn-agent-dashboard/` 에 복사 후 재시작
+- `corn-agent-dashboard restore --from ~/backup/data.db` 실행 후 재시작
 - 마이그레이션 자동 적용으로 스키마 호환
 
 ---
@@ -591,3 +594,6 @@ cp ~/.corn-agent-dashboard/config.toml ~/backup/
 - `audit_log` (관리자 감사용 — 단일 사용자엔 비필수)
 
 지금은 추가하지 않음.
+
+
+> 정책: `agent.model`은 사용자 선택값입니다. 빈 문자열은 runtime/CLI 기본 모델을 의미하며, 값이 있으면 해당 모델 ID를 adapter에 전달합니다.

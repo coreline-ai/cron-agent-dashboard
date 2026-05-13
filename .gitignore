@@ -7,8 +7,12 @@ web/tsconfig.tsbuildinfo
 
 # Go build/test artifacts
 /corn-agent-dashboard
+dist/
 *.test
 coverage.out
+test-results/
+playwright-report/
+.tmp/
 
 # Local runtime data
 .corn-agent-dashboard/

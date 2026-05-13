@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	appscheduler "github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
 	"github.com/robfig/cron/v3"
 )
 
@@ -17,7 +18,7 @@ SELECT c.id, c.issue_id, c.author_type,
        COALESCE(a.name,'') AS author_agent_name,
        COALESCE(c.run_id,'') AS run_id,
        c.content,
-       CASE WHEN c.content LIKE '%전체 로그%' THEN 1 ELSE 0 END AS truncated,
+       c.truncated,
        CASE WHEN c.run_id IS NOT NULL THEN '/api/runs/' || c.run_id || '/log' ELSE '' END AS log_url,
        c.created_at
 FROM comment c
@@ -61,25 +62,32 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 		name := mentions[0][1]
 		if len(mentions) > 1 {
 			warnings = append(warnings, "multiple mentions, only @"+name+" applied")
-			_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), issueID, "멘션이 둘 이상이라 @"+name+"만 적용됩니다", t)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), issueID, "멘션이 둘 이상이라 @"+name+"만 적용됩니다", t); err != nil {
+				return AddCommentResult{}, normalizeErr(err)
+			}
 		}
 		var agent Agent
 		err := tx.GetContext(ctx, &agent, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, iss.WorkspaceID, name)
 		if err != nil {
 			warnings = append(warnings, "@"+name+" not found")
-			_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), issueID, "에이전트 @"+name+"을 찾을 수 없습니다", t)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), issueID, "에이전트 @"+name+"을 찾을 수 없습니다", t); err != nil {
+				return AddCommentResult{}, normalizeErr(err)
+			}
 		} else {
-			runID = newID()
-			_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','mention',?,?,?)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t)
-			if err != nil {
-				if strings.Contains(strings.ToLower(err.Error()), "constraint") {
-					warnings = append(warnings, "already queued for @"+agent.Name)
-					runID = ""
-				} else {
+			var existingQueued int
+			if err := tx.GetContext(ctx, &existingQueued, `SELECT COUNT(*) FROM run WHERE issue_id=? AND agent_id=? AND status='queued'`, issueID, agent.ID); err != nil {
+				return AddCommentResult{}, normalizeErr(err)
+			}
+			if existingQueued > 0 {
+				warnings = append(warnings, "already queued for @"+agent.Name)
+			} else {
+				runID = newID()
+				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','mention',?,?,?)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t); err != nil {
 					return AddCommentResult{}, normalizeErr(err)
 				}
-			} else {
-				_, _ = tx.ExecContext(ctx, `UPDATE issue SET status='open', updated_at=? WHERE id=?`, t, issueID)
+				if _, err := tx.ExecContext(ctx, `UPDATE issue SET status='open', updated_at=? WHERE id=?`, t, issueID); err != nil {
+					return AddCommentResult{}, normalizeErr(err)
+				}
 			}
 		}
 	}
@@ -161,6 +169,9 @@ func validateAutopilot(in UpsertAutopilotInput) error {
 	if _, err := cron.ParseStandard(in.CronExpr); err != nil {
 		return ErrValidation
 	}
+	if appscheduler.ValidateTemplate(in.IssueTitleTemplate) != nil || appscheduler.ValidateTemplate(in.IssueBodyTemplate) != nil {
+		return ErrValidation
+	}
 	return nil
 }
 
@@ -170,11 +181,37 @@ func (s *Store) ListAutopilotRules(ctx context.Context, workspaceID string) ([]A
 	return out, normalizeErr(err)
 }
 
+func (s *Store) ListEnabledAutopilotRules(ctx context.Context) ([]AutopilotRule, error) {
+	var out []AutopilotRule
+	err := s.db.SelectContext(ctx, &out, autopilotSelectBase+` WHERE ar.enabled=1 ORDER BY ar.created_at ASC`)
+	return out, normalizeErr(err)
+}
+
+func (s *Store) SetAutopilotNextRun(ctx context.Context, id, nextRunAt string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule SET next_run_at=?, updated_at=? WHERE id=?`, nullIfEmpty(nextRunAt), now(), id)
+	if err != nil {
+		return normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) ClearDisabledAutopilotNextRuns(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule SET next_run_at=NULL, updated_at=? WHERE enabled=0 AND next_run_at IS NOT NULL`, now())
+	return normalizeErr(err)
+}
+
 func (s *Store) CreateAutopilotRule(ctx context.Context, workspaceID string, in UpsertAutopilotInput) (AutopilotRule, error) {
 	if err := validateAutopilot(in); err != nil {
 		return AutopilotRule{}, err
 	}
 	if _, _, err := s.GetWorkspace(ctx, workspaceID); err != nil {
+		return AutopilotRule{}, err
+	}
+	if err := s.validateAgentInWorkspace(ctx, workspaceID, in.AssigneeAgentID); err != nil {
 		return AutopilotRule{}, err
 	}
 	t := now()
@@ -183,7 +220,7 @@ func (s *Store) CreateAutopilotRule(ctx context.Context, workspaceID string, in 
 	if in.Enabled {
 		enabled = 1
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO autopilot_rule(id,workspace_id,name,cron_expr,issue_title_template,issue_body_template,assignee_agent_id,enabled,next_run_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, workspaceID, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, nullIfEmpty(in.NextRunAt), t, t)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO autopilot_rule(id,workspace_id,name,cron_expr,issue_title_template,issue_body_template,assignee_agent_id,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, workspaceID, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, t, t)
 	if err != nil {
 		return AutopilotRule{}, normalizeErr(err)
 	}
@@ -200,15 +237,36 @@ func (s *Store) UpdateAutopilotRule(ctx context.Context, id string, in UpsertAut
 	if err := validateAutopilot(in); err != nil {
 		return AutopilotRule{}, err
 	}
+	rule, err := s.GetAutopilotRule(ctx, id)
+	if err != nil {
+		return AutopilotRule{}, err
+	}
+	if err := s.validateAgentInWorkspace(ctx, rule.WorkspaceID, in.AssigneeAgentID); err != nil {
+		return AutopilotRule{}, err
+	}
 	enabled := 0
 	if in.Enabled {
 		enabled = 1
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule SET name=?, cron_expr=?, issue_title_template=?, issue_body_template=?, assignee_agent_id=?, enabled=?, next_run_at=?, updated_at=? WHERE id=?`, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, nullIfEmpty(in.NextRunAt), now(), id)
+	_, err = s.db.ExecContext(ctx, `UPDATE autopilot_rule SET name=?, cron_expr=?, issue_title_template=?, issue_body_template=?, assignee_agent_id=?, enabled=?, updated_at=? WHERE id=?`, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, now(), id)
 	if err != nil {
 		return AutopilotRule{}, normalizeErr(err)
 	}
 	return s.GetAutopilotRule(ctx, id)
+}
+
+func (s *Store) validateAgentInWorkspace(ctx context.Context, workspaceID, agentID string) error {
+	if agentID == "" {
+		return nil
+	}
+	agent, err := s.GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if agent.WorkspaceID != workspaceID {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) DeleteAutopilotRule(ctx context.Context, id string) error {
@@ -228,11 +286,21 @@ func (s *Store) TriggerAutopilotRule(ctx context.Context, id string) (Issue, Run
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	issue, run, err := s.CreateIssueWithInitialRun(ctx, rule.WorkspaceID, CreateIssueInput{Title: rule.IssueTitleTemplate, Body: rule.IssueBodyTemplate, AssigneeAgentID: rule.AssigneeAgentID, CreatedBy: "autopilot", AutopilotRuleID: rule.ID, TriggerType: "autopilot"})
+	return s.TriggerAutopilotRuleWithContent(ctx, id, rule.IssueTitleTemplate, rule.IssueBodyTemplate)
+}
+
+func (s *Store) TriggerAutopilotRuleWithContent(ctx context.Context, id, title, body string) (Issue, Run, error) {
+	rule, err := s.GetAutopilotRule(ctx, id)
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE autopilot_rule SET last_run_at=?, updated_at=? WHERE id=?`, now(), now(), id)
+	issue, run, err := s.CreateIssueWithInitialRun(ctx, rule.WorkspaceID, CreateIssueInput{Title: title, Body: body, AssigneeAgentID: rule.AssigneeAgentID, CreatedBy: "autopilot", AutopilotRuleID: rule.ID, TriggerType: "autopilot"})
+	if err != nil {
+		return Issue{}, Run{}, err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule SET last_run_at=?, updated_at=? WHERE id=?`, now(), now(), id); err != nil {
+		return Issue{}, Run{}, normalizeErr(err)
+	}
 	return issue, run, nil
 }
 

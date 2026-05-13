@@ -13,6 +13,7 @@ import (
 type ClaimedRun struct {
 	RunID               string
 	WorkspaceWorkingDir string
+	AgentRuntime        string
 	AgentInstructions   string
 	AgentModel          string
 	IssueTitle          string
@@ -202,6 +203,7 @@ func (p *Pool) claimOnce(workerID string) {
 	result := p.executor.Execute(runCtx, ExecutionContext{
 		RunID:               run.RunID,
 		WorkspaceWorkingDir: run.WorkspaceWorkingDir,
+		AgentRuntime:        run.AgentRuntime,
 		AgentInstructions:   run.AgentInstructions,
 		AgentModel:          run.AgentModel,
 		IssueTitle:          run.IssueTitle,

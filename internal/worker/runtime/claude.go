@@ -5,7 +5,7 @@ import (
 	"os/exec"
 )
 
-// ClaudeAdapter builds commands for the claude CLI using stdin for the prompt.
+// ClaudeAdapter builds commands for the claude CLI in non-interactive print mode.
 type ClaudeAdapter struct {
 	Executable string
 }
@@ -17,7 +17,7 @@ func (a ClaudeAdapter) Detect(ctx context.Context) RuntimeInfo {
 }
 
 func (a ClaudeAdapter) BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error) {
-	args := []string{}
+	args := []string{"--print"}
 	if run.AgentModel != "" {
 		args = append(args, "--model", run.AgentModel)
 	}

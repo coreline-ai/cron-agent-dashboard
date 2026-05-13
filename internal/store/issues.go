@@ -153,32 +153,45 @@ func (s *Store) LookupIssue(ctx context.Context, workspaceID, idOrIdentifier str
 	return out, normalizeErr(err)
 }
 
-func (s *Store) UpdateIssue(ctx context.Context, id string, title, body, assigneeAgentID, status string) (Issue, error) {
+func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput) (Issue, error) {
 	iss, err := s.GetIssue(ctx, id)
 	if err != nil {
 		return Issue{}, err
 	}
-	if title == "" {
-		title = iss.Title
+	title := iss.Title
+	if in.Title != nil {
+		title = *in.Title
 	}
-	if body == "\x00" {
-		body = iss.Body
+	body := iss.Body
+	if in.Body != nil {
+		body = *in.Body
 	}
-	if assigneeAgentID == "" {
-		assigneeAgentID = iss.AssigneeAgentID
+	assigneeAgentID := iss.AssigneeAgentID
+	if in.AssigneeAgentID != nil {
+		assigneeAgentID = *in.AssigneeAgentID
 	}
-	if status == "" {
-		status = iss.Status
+	if assigneeAgentID != "" {
+		a, err := s.GetAgent(ctx, assigneeAgentID)
+		if err != nil {
+			return Issue{}, err
+		}
+		if a.WorkspaceID != iss.WorkspaceID {
+			return Issue{}, ErrNotFound
+		}
+	}
+	status := iss.Status
+	if in.Status != nil {
+		status = *in.Status
 	}
 	if status != "open" && status != "done" && status != "cancelled" {
 		return Issue{}, ErrValidation
 	}
 	if status == "done" || status == "cancelled" {
-		var running int
-		if err := s.db.GetContext(ctx, &running, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status='running'`, id); err != nil {
+		var activeRuns int
+		if err := s.db.GetContext(ctx, &activeRuns, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status IN ('queued','running')`, id); err != nil {
 			return Issue{}, err
 		}
-		if running > 0 {
+		if activeRuns > 0 {
 			return Issue{}, ErrState
 		}
 	}
@@ -187,13 +200,18 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, title, body, assigne
 		return Issue{}, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `UPDATE issue SET title=?, body=?, assignee_agent_id=?, status=?, updated_at=? WHERE id=?`, title, body, nullIfEmpty(assigneeAgentID), status, now(), id)
+	t := now()
+	_, err = tx.ExecContext(ctx, `UPDATE issue SET title=?, body=?, assignee_agent_id=?, status=?, updated_at=? WHERE id=?`, title, body, nullIfEmpty(assigneeAgentID), status, t, id)
 	if err != nil {
 		return Issue{}, normalizeErr(err)
 	}
 	if status == "cancelled" {
-		_, _ = tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-1, finished_at=?, error_message='issue cancelled' WHERE issue_id=? AND status='queued'`, now(), id)
-		_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system','이슈가 취소되었습니다',?)`, newID(), id, now())
+		if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-1, finished_at=?, error_message='issue cancelled' WHERE issue_id=? AND status='queued'`, t, id); err != nil {
+			return Issue{}, normalizeErr(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system','이슈가 취소되었습니다',?)`, newID(), id, t); err != nil {
+			return Issue{}, normalizeErr(err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Issue{}, err
@@ -333,7 +351,9 @@ ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`)
 	if err := tx.GetContext(ctx, &r, runSelectBase+` WHERE r.id=?`, runID); err != nil {
 		return Run{}, false, normalizeErr(err)
 	}
-	_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?, 'system', ?, ?, ?)`, newID(), r.IssueID, r.ID, fmt.Sprintf("%s 실행을 시작했습니다", r.AgentName), t)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?, 'system', ?, ?, ?)`, newID(), r.IssueID, r.ID, fmt.Sprintf("%s 실행을 시작했습니다", r.AgentName), t); err != nil {
+		return Run{}, false, normalizeErr(err)
+	}
 	if err := tx.Commit(); err != nil {
 		return Run{}, false, err
 	}
@@ -341,7 +361,7 @@ ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`)
 	return r, true, nil
 }
 
-func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, stdoutPath, content, errMsg string) (Run, error) {
+func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, stdoutPath, content string, contentTruncated bool, errMsg string) (Run, error) {
 	status := "done"
 	if exitCode != 0 {
 		status = "failed"
@@ -356,15 +376,31 @@ func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, std
 	}
 	defer tx.Rollback()
 	t := now()
-	_, err = tx.ExecContext(ctx, `UPDATE run SET status=?, finished_at=?, exit_code=?, stdout_path=?, error_message=? WHERE id=?`, status, t, exitCode, nullIfEmpty(stdoutPath), errMsg, runID)
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status=?, finished_at=?, exit_code=?, stdout_path=?, error_message=? WHERE id=? AND status='running'`, status, t, exitCode, nullIfEmpty(stdoutPath), errMsg, runID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
-	if content != "" {
-		_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,author_agent_id,run_id,content,created_at) VALUES(?,?, 'agent', ?, ?, ?, ?)`, newID(), run.IssueID, run.AgentID, run.ID, content, t)
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		// Another path (user cancel, shutdown recovery, etc.) already moved this
+		// run out of running. Do not overwrite the terminal state or issue status.
+		_ = tx.Rollback()
+		return s.GetRun(ctx, runID)
+	}
+	if content == "" {
+		content = emptyRunComment(status, errMsg)
+	}
+	truncated := 0
+	if contentTruncated {
+		truncated = 1
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,author_agent_id,run_id,content,truncated,created_at) VALUES(?,?, 'agent', ?, ?, ?, ?, ?)`, newID(), run.IssueID, run.AgentID, run.ID, content, truncated, t); err != nil {
+		return Run{}, normalizeErr(err)
 	}
 	if status == "done" {
-		_, _ = tx.ExecContext(ctx, `UPDATE issue SET status='done', updated_at=? WHERE id=?`, t, run.IssueID)
+		if _, err := tx.ExecContext(ctx, `UPDATE issue SET status='done', updated_at=? WHERE id=?`, t, run.IssueID); err != nil {
+			return Run{}, normalizeErr(err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
@@ -372,14 +408,47 @@ func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, std
 	return s.GetRun(ctx, runID)
 }
 
+func emptyRunComment(status, errMsg string) string {
+	if status == "failed" {
+		if strings.TrimSpace(errMsg) != "" {
+			return "에이전트 실행이 실패했습니다: " + errMsg
+		}
+		return "에이전트 실행이 실패했지만 출력이 없습니다."
+	}
+	return "에이전트가 출력 없이 완료되었습니다."
+}
+
 func (s *Store) FailRun(ctx context.Context, runID string, errMsg string) (Run, error) {
-	return s.CompleteRun(ctx, runID, 1, "", "", errMsg)
+	return s.CompleteRun(ctx, runID, 1, "", "", false, errMsg)
 }
 
 func (s *Store) CancelRunningRun(ctx context.Context, issueID string) (Run, error) {
+	r, err := s.GetRunningRunByIssue(ctx, issueID)
+	if err != nil {
+		return Run{}, err
+	}
+	return s.CancelRun(ctx, r.ID, "user cancelled")
+}
+
+func (s *Store) GetRunningRunByIssue(ctx context.Context, issueID string) (Run, error) {
 	var r Run
 	if err := s.db.GetContext(ctx, &r, runSelectBase+` WHERE r.issue_id=? AND r.status='running' LIMIT 1`, issueID); err != nil {
 		return Run{}, normalizeErr(err)
+	}
+	decorateRun(&r)
+	return r, nil
+}
+
+func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error) {
+	if strings.TrimSpace(reason) == "" {
+		reason = "cancelled"
+	}
+	r, err := s.GetRun(ctx, runID)
+	if err != nil {
+		return Run{}, err
+	}
+	if r.Status != "running" && r.Status != "queued" {
+		return Run{}, ErrState
 	}
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -387,15 +456,24 @@ func (s *Store) CancelRunningRun(ctx context.Context, issueID string) (Run, erro
 	}
 	defer tx.Rollback()
 	t := now()
-	_, err = tx.ExecContext(ctx, `UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message='user cancelled' WHERE id=? AND status='running'`, t, r.ID)
+	_, err = tx.ExecContext(ctx, `UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message=? WHERE id=? AND status IN ('queued','running')`, t, reason, r.ID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
-	_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,'사용자가 실행을 취소했습니다',?)`, newID(), r.IssueID, r.ID, t)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,?,?)`, newID(), r.IssueID, r.ID, cancelComment(reason), t); err != nil {
+		return Run{}, normalizeErr(err)
+	}
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
 	return s.GetRun(ctx, r.ID)
+}
+
+func cancelComment(reason string) string {
+	if strings.Contains(strings.ToLower(reason), "shutdown") {
+		return "서버 종료로 실행이 취소되었습니다"
+	}
+	return "사용자가 실행을 취소했습니다"
 }
 
 func (s *Store) RecoverOrphanRuns(ctx context.Context) (int64, error) {
@@ -419,7 +497,9 @@ func (s *Store) RecoverOrphanRuns(ctx context.Context) (int64, error) {
 		if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-2, finished_at=?, error_message='orphan recovered' WHERE id=?`, t, row.ID); err != nil {
 			return 0, err
 		}
-		_, _ = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,'재시작 중 진행 작업이 취소되었습니다 (orphan recovered)',?)`, newID(), row.IssueID, row.ID, t)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,'재시작 중 진행 작업이 취소되었습니다 (orphan recovered)',?)`, newID(), row.IssueID, row.ID, t); err != nil {
+			return 0, normalizeErr(err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err

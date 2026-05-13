@@ -4,31 +4,61 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
-	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
+	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
 )
 
-const Version = "0.1.0"
+var Version = "0.1.0"
 
 type Server struct {
-	store     *store.Store
-	cfg       config.Config
-	startedAt time.Time
+	store            *store.Store
+	cfg              config.Config
+	startedAt        time.Time
+	runCanceller     RunCanceller
+	autopilotManager AutopilotManager
 }
 
-func New(st *store.Store, cfg config.Config) http.Handler {
+type RunCanceller interface {
+	CancelRun(runID string) bool
+}
+
+type AutopilotManager interface {
+	Reload(ctx context.Context) error
+	TriggerRuleResult(ctx context.Context, ruleID string) (store.Issue, store.Run, error)
+}
+
+type Option func(*Server)
+
+func WithRunCanceller(c RunCanceller) Option {
+	return func(s *Server) {
+		s.runCanceller = c
+	}
+}
+
+func WithAutopilotReloader(r AutopilotManager) Option {
+	return func(s *Server) {
+		s.autopilotManager = r
+	}
+}
+
+func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 	s := &Server{store: st, cfg: cfg, startedAt: time.Now()}
+	for _, opt := range opts {
+		opt(s)
+	}
 	r := chi.NewRouter()
 	r.Use(s.cors)
 	r.Get("/healthz", s.healthz)
@@ -72,6 +102,7 @@ func New(st *store.Store, cfg config.Config) http.Handler {
 		api.Delete("/api/autopilot/{id}", s.deleteAutopilot)
 		api.Post("/api/autopilot/{id}/trigger", s.triggerAutopilot)
 	})
+	r.HandleFunc("/*", s.static)
 	return r
 }
 
@@ -82,7 +113,12 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && (allowed[origin] || len(allowed) == 0) {
+		sameOrigin := isSameOrigin(r, origin)
+		if origin != "" && len(allowed) > 0 && !allowed[origin] && !sameOrigin {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "origin not allowed", nil)
+			return
+		}
+		if origin != "" && (allowed[origin] || len(allowed) == 0 || sameOrigin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
@@ -94,6 +130,17 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isSameOrigin(r *http.Request, origin string) bool {
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && strings.EqualFold(u.Host, r.Host)
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {
@@ -251,20 +298,11 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]any{"issue": iss}, err, http.StatusOK)
 }
 func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Title           string `json:"title"`
-		Body            string `json:"body"`
-		AssigneeAgentID string `json:"assignee_agent_id"`
-		Status          string `json:"status"`
-	}
+	var req store.UpdateIssueInput
 	if !decode(w, r, &req) {
 		return
 	}
-	body := req.Body
-	if body == "" {
-		body = "\x00"
-	}
-	iss, err := s.store.UpdateIssue(r.Context(), chi.URLParam(r, "id"), req.Title, body, req.AssigneeAgentID, req.Status)
+	iss, err := s.store.UpdateIssue(r.Context(), chi.URLParam(r, "id"), req)
 	respond(w, map[string]any{"issue": iss}, err, http.StatusOK)
 }
 func (s *Server) rerunIssue(w http.ResponseWriter, r *http.Request) {
@@ -276,8 +314,17 @@ func (s *Server) rerunIssue(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]any{"run": run}, err, http.StatusCreated)
 }
 func (s *Server) cancelIssueRun(w http.ResponseWriter, r *http.Request) {
-	run, err := s.store.CancelRunningRun(r.Context(), chi.URLParam(r, "id"))
-	respond(w, map[string]any{"run": run}, err, http.StatusOK)
+	run, err := s.store.GetRunningRunByIssue(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	if s.runCanceller != nil && s.runCanceller.CancelRun(run.ID) {
+		respond(w, map[string]any{"run": run, "cancel_requested": true}, nil, http.StatusOK)
+		return
+	}
+	cancelled, err := s.store.CancelRun(r.Context(), run.ID, "user cancelled")
+	respond(w, map[string]any{"run": cancelled, "cancel_requested": false}, err, http.StatusOK)
 }
 func (s *Server) deleteIssue(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -339,6 +386,9 @@ func (s *Server) createAutopilot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule, err := s.store.CreateAutopilotRule(r.Context(), ws.ID, req)
+	if err == nil {
+		s.reloadAutopilot(r.Context())
+	}
 	respond(w, map[string]any{"rule": rule}, err, http.StatusCreated)
 }
 func (s *Server) updateAutopilot(w http.ResponseWriter, r *http.Request) {
@@ -347,16 +397,29 @@ func (s *Server) updateAutopilot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule, err := s.store.UpdateAutopilotRule(r.Context(), chi.URLParam(r, "id"), req)
+	if err == nil {
+		s.reloadAutopilot(r.Context())
+	}
 	respond(w, map[string]any{"rule": rule}, err, http.StatusOK)
 }
 func (s *Server) deleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	err := s.store.DeleteAutopilotRule(r.Context(), id)
+	if err == nil {
+		s.reloadAutopilot(r.Context())
+	}
 	respond(w, map[string]any{"deleted": true, "id": id}, err, http.StatusOK)
 }
 func (s *Server) triggerAutopilot(w http.ResponseWriter, r *http.Request) {
-	issue, _, err := s.store.TriggerAutopilotRule(r.Context(), chi.URLParam(r, "id"))
-	respond(w, map[string]any{"issue": issue}, err, http.StatusCreated)
+	var issue store.Issue
+	var run store.Run
+	var err error
+	if s.autopilotManager != nil {
+		issue, run, err = s.autopilotManager.TriggerRuleResult(r.Context(), chi.URLParam(r, "id"))
+	} else {
+		issue, run, err = s.store.TriggerAutopilotRule(r.Context(), chi.URLParam(r, "id"))
+	}
+	respond(w, map[string]any{"issue": issue, "run": run}, err, http.StatusCreated)
 }
 
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
@@ -364,31 +427,33 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 		To string `json:"to"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.To == "" {
-		req.To = s.cfg.DBPath + "." + time.Now().UTC().Format("20060102T150405Z") + ".bak"
-	}
-	in, err := os.Open(s.cfg.DBPath)
+	result, err := backupops.Database(r.Context(), s.store.DB(), s.cfg.DBPath, req.To, time.Now().UTC())
 	if err != nil {
 		respond(w, nil, err, 0)
 		return
 	}
-	defer in.Close()
-	out, err := os.Create(req.To)
-	if err != nil {
-		respond(w, nil, err, 0)
-		return
-	}
-	defer out.Close()
-	n, err := io.Copy(out, in)
-	if err != nil {
-		respond(w, nil, err, 0)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"backup_path": req.To, "size_bytes": n})
+	writeJSON(w, http.StatusOK, map[string]any{"backup_path": result.Path, "size_bytes": result.SizeBytes})
 }
 func (s *Server) vacuum(w http.ResponseWriter, r *http.Request) {
-	_, err := s.store.DB().ExecContext(r.Context(), `PRAGMA incremental_vacuum`)
-	respond(w, map[string]any{"reclaimed_bytes": 0}, err, http.StatusOK)
+	before, _ := sqliteDBSizeBytes(r.Context(), s.store)
+	_, err := s.store.DB().ExecContext(r.Context(), `VACUUM`)
+	after, _ := sqliteDBSizeBytes(r.Context(), s.store)
+	reclaimed := before - after
+	if reclaimed < 0 {
+		reclaimed = 0
+	}
+	respond(w, map[string]any{"reclaimed_bytes": reclaimed}, err, http.StatusOK)
+}
+
+func sqliteDBSizeBytes(ctx context.Context, st *store.Store) (int64, error) {
+	var pageCount, pageSize int64
+	if err := st.DB().GetContext(ctx, &pageCount, `PRAGMA page_count`); err != nil {
+		return 0, err
+	}
+	if err := st.DB().GetContext(ctx, &pageSize, `PRAGMA page_size`); err != nil {
+		return 0, err
+	}
+	return pageCount * pageSize, nil
 }
 func (s *Server) cleanupLogs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -467,6 +532,12 @@ func split(v string) []string {
 	return out
 }
 
+func (s *Server) reloadAutopilot(ctx context.Context) {
+	if s.autopilotManager != nil {
+		_ = s.autopilotManager.Reload(ctx)
+	}
+}
+
 type RuntimeInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
@@ -481,7 +552,23 @@ func availableRuntimeNames() []string {
 	}
 	return out
 }
+
+var runtimeInfoCache = struct {
+	sync.Mutex
+	infos     []RuntimeInfo
+	expiresAt time.Time
+}{}
+
 func availableRuntimes() []RuntimeInfo {
+	now := time.Now()
+	runtimeInfoCache.Lock()
+	if now.Before(runtimeInfoCache.expiresAt) {
+		infos := cloneRuntimeInfos(runtimeInfoCache.infos)
+		runtimeInfoCache.Unlock()
+		return infos
+	}
+	runtimeInfoCache.Unlock()
+
 	names := []string{"codex", "claude", "gemini"}
 	out := []RuntimeInfo{}
 	for _, n := range names {
@@ -489,6 +576,17 @@ func availableRuntimes() []RuntimeInfo {
 			out = append(out, RuntimeInfo{Name: n, Path: p, Version: runtimeVersion(context.Background(), p)})
 		}
 	}
+
+	runtimeInfoCache.Lock()
+	runtimeInfoCache.infos = cloneRuntimeInfos(out)
+	runtimeInfoCache.expiresAt = now.Add(5 * time.Second)
+	runtimeInfoCache.Unlock()
+	return out
+}
+
+func cloneRuntimeInfos(in []RuntimeInfo) []RuntimeInfo {
+	out := make([]RuntimeInfo, len(in))
+	copy(out, in)
 	return out
 }
 func runtimeVersion(ctx context.Context, path string) string {

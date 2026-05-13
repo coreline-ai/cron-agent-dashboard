@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
+	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
 )
 
 const (

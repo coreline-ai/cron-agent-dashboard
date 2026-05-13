@@ -39,6 +39,7 @@ type CommentSnippet struct {
 type RunContext struct {
 	RunID               string
 	WorkspaceWorkingDir string
+	AgentRuntime        string
 	AgentInstructions   string
 	AgentModel          string
 	IssueTitle          string
@@ -89,7 +90,7 @@ type RuntimeAdapter interface {
 	BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error)
 }
 
-// DefaultAdapters returns the built-in adapter skeletons.
+// DefaultAdapters returns the built-in CLI adapters.
 func DefaultAdapters() []RuntimeAdapter {
 	return []RuntimeAdapter{CodexAdapter{}, ClaudeAdapter{}, GeminiAdapter{}}
 }
@@ -135,12 +136,28 @@ func detectExecutable(ctx context.Context, runtimeName, executable string, versi
 }
 
 func commandWithPrompt(ctx context.Context, executable string, args []string, run RunContext) (*exec.Cmd, []byte, error) {
+	cmd, err := command(ctx, executable, args, run)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cmd, []byte(run.PromptText()), nil
+}
+
+func commandWithoutStdin(ctx context.Context, executable string, args []string, run RunContext) (*exec.Cmd, []byte, error) {
+	cmd, err := command(ctx, executable, args, run)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cmd, nil, nil
+}
+
+func command(ctx context.Context, executable string, args []string, run RunContext) (*exec.Cmd, error) {
 	if executable == "" {
-		return nil, nil, errors.New("runtime executable is empty")
+		return nil, errors.New("runtime executable is empty")
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
 	if run.WorkspaceWorkingDir != "" {
 		cmd.Dir = run.WorkspaceWorkingDir
 	}
-	return cmd, []byte(run.PromptText()), nil
+	return cmd, nil
 }

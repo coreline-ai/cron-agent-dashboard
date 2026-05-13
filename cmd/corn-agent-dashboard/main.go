@@ -2,15 +2,25 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
 
-	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
-	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
-	"github.com/coreline-ai/cron-agent-dashboard/internal/httpapi"
-	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/app"
+	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/httpapi"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
+	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
 )
 
 func main() {
@@ -27,26 +37,116 @@ func main() {
 	if err := config.EnsureDirs(cfg); err != nil {
 		log.Fatal(err)
 	}
+	if cmd == "restore" {
+		if err := restoreDatabase(cfg); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("restored %s from %s\n", cfg.DBPath, cfg.RestoreFrom)
+		return
+	}
 	database, err := db.OpenAndMigrate(cfg.DBPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 	st := store.New(database)
-	if _, err := st.RecoverOrphanRuns(ctx()); err != nil {
-		log.Fatal(err)
-	}
 	switch cmd {
 	case "init":
 		fmt.Printf("initialized %s\n", cfg.DBPath)
 	case "serve":
-		log.Printf("corn-agent-dashboard listening on http://%s", cfg.Bind)
-		if err := http.ListenAndServe(cfg.Bind, httpapi.New(st, cfg)); err != nil {
+		if err := serve(cfg, st); err != nil {
 			log.Fatal(err)
 		}
+	case "backup":
+		path, err := backupDatabase(cfg, database)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("backup written to %s\n", path)
 	default:
-		log.Fatalf("unknown command %q (expected serve or init)", cmd)
+		log.Fatalf("unknown command %q (expected serve, init, backup, or restore)", cmd)
 	}
 }
 
-func ctx() context.Context { return context.Background() }
+func backupDatabase(cfg config.Config, database interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}) (string, error) {
+	result, err := backupops.Database(context.Background(), database, cfg.DBPath, cfg.BackupTo, time.Now().UTC())
+	return result.Path, err
+}
+
+func restoreDatabase(cfg config.Config) error {
+	_, err := backupops.Restore(cfg.RestoreFrom, cfg.DBPath, time.Now().UTC())
+	return err
+}
+
+func serve(cfg config.Config, st *store.Store) error {
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	report, err := app.RunStartupSelfCheck(runCtx, st)
+	if err != nil {
+		return err
+	}
+	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_runs_recovered=%d",
+		report.IntegrityCheck,
+		report.JournalMode,
+		report.ForeignKeysEnabled,
+		report.BusyTimeoutMS,
+		report.WorkspaceCount,
+		report.ForeignKeyViolationCount,
+		report.OrphanRunsRecovered,
+	)
+
+	workerStore := app.NewWorkerStore(st, app.WithDefaultWorkDir(filepath.Join(cfg.DataDir, "workdirs")))
+	executor := app.NewRuntimeExecutor(workerruntime.DefaultAdapters(), filepath.Join(cfg.DataDir, "runs"))
+	pool := worker.NewPool(workerStore, executor, worker.WithPoolSize(cfg.Workers))
+	if err := pool.Start(runCtx); err != nil {
+		return err
+	}
+	loc, err := scheduler.LoadLocation(cfg.Timezone)
+	if err != nil {
+		return err
+	}
+	autopilot := app.NewAutopilotRunner(st, loc)
+	if err := autopilot.Reload(runCtx); err != nil {
+		return err
+	}
+
+	srv := &http.Server{
+		Addr:              cfg.Bind,
+		Handler:           httpapi.New(st, cfg, httpapi.WithRunCanceller(pool), httpapi.WithAutopilotReloader(autopilot)),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("corn-agent-dashboard listening on http://%s", cfg.Bind)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case <-runCtx.Done():
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+	if err := autopilot.Stop(shutdownCtx); err != nil {
+		return err
+	}
+	if err := pool.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+	return nil
+}
