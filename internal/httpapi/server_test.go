@@ -44,12 +44,16 @@ func TestHTTPAPISmoke(t *testing.T) {
 	}
 	var issueResp struct {
 		Issue store.Issue `json:"issue"`
+		Run   store.Run   `json:"run"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&issueResp); err != nil {
 		t.Fatal(err)
 	}
 	if issueResp.Issue.ExecutionStatus != "queued" || issueResp.Issue.Identifier != "NEWS-1" {
 		t.Fatalf("bad issue: %#v", issueResp.Issue)
+	}
+	if issueResp.Run.Status != "queued" || issueResp.Run.IssueID != issueResp.Issue.ID {
+		t.Fatalf("bad initial run: %#v", issueResp.Run)
 	}
 
 	res = do(t, h, http.MethodPut, "/api/issues/"+issueResp.Issue.ID, `{"body":""}`)
@@ -74,6 +78,54 @@ func TestHTTPAPISmoke(t *testing.T) {
 	res = do(t, h, http.MethodGet, "/healthz", "")
 	if res.Code != http.StatusOK {
 		t.Fatalf("healthz status=%d", res.Code)
+	}
+}
+
+func TestHTTPAPICancelQueuedRun(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	body := `{"name":"AI News","slug":"ai-news","identifier_prefix":"NEWS","main_agent":{"name":"NewsLead","runtime":"codex","instructions":"lead"}}`
+	res := do(t, h, http.MethodPost, "/api/workspaces", body)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create workspace status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = do(t, h, http.MethodPost, "/api/workspaces/ai-news/issues", `{"title":"오늘 뉴스","body":"body"}`)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create issue status=%d body=%s", res.Code, res.Body.String())
+	}
+	var issueResp struct {
+		Issue store.Issue `json:"issue"`
+		Run   store.Run   `json:"run"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&issueResp); err != nil {
+		t.Fatal(err)
+	}
+
+	res = do(t, h, http.MethodPost, "/api/issues/"+issueResp.Issue.ID+"/cancel", `{}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("cancel queued status=%d body=%s", res.Code, res.Body.String())
+	}
+	var cancelResp struct {
+		Run struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"run"`
+		CancelRequested bool `json:"cancel_requested"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&cancelResp); err != nil {
+		t.Fatal(err)
+	}
+	if cancelResp.CancelRequested {
+		t.Fatal("queued run should be cancelled in-store without process cancel request")
+	}
+	if cancelResp.Run.ID != issueResp.Run.ID || cancelResp.Run.Status != "cancelled" {
+		t.Fatalf("bad cancelled run: %#v", cancelResp.Run)
 	}
 }
 

@@ -281,8 +281,8 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	issue, _, err := s.store.CreateIssueWithInitialRun(r.Context(), ws.ID, store.CreateIssueInput{Title: req.Title, Body: req.Body, AssigneeAgentID: req.AssigneeAgentID})
-	respond(w, map[string]any{"issue": issue}, err, http.StatusCreated)
+	issue, run, err := s.store.CreateIssueWithInitialRun(r.Context(), ws.ID, store.CreateIssueInput{Title: req.Title, Body: req.Body, AssigneeAgentID: req.AssigneeAgentID})
+	respond(w, map[string]any{"issue": issue, "run": run}, err, http.StatusCreated)
 }
 func (s *Server) getWorkspaceIssue(w http.ResponseWriter, r *http.Request) {
 	ws, _, err := s.store.GetWorkspace(r.Context(), chi.URLParam(r, "workspace"))
@@ -314,12 +314,12 @@ func (s *Server) rerunIssue(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]any{"run": run}, err, http.StatusCreated)
 }
 func (s *Server) cancelIssueRun(w http.ResponseWriter, r *http.Request) {
-	run, err := s.store.GetRunningRunByIssue(r.Context(), chi.URLParam(r, "id"))
+	run, err := s.store.GetActiveRunByIssue(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		respond(w, nil, err, 0)
 		return
 	}
-	if s.runCanceller != nil && s.runCanceller.CancelRun(run.ID) {
+	if run.Status == "running" && s.runCanceller != nil && s.runCanceller.CancelRun(run.ID) {
 		respond(w, map[string]any{"run": run, "cancel_requested": true}, nil, http.StatusOK)
 		return
 	}

@@ -253,11 +253,11 @@
 - **마지막 오류 메시지** (execution_status가 failed/cancelled일 때만 표시)
 - 작업 버튼:
   - [재실행]: execution_status가 done/failed/cancelled/idle일 때만 활성. 대상 agent는 **마지막 run의 agent**.
-  - [취소]: execution_status가 running일 때만 활성. 진행 중 run 한 개만 cancel.
+  - [대기 취소/실행 취소]: execution_status가 queued/running일 때 활성. active run 한 개만 cancel하고 issue.status는 open 유지.
   - [완료로 표시]: issue.status가 open이고 execution_status가 done/failed/cancelled/idle일 때 활성. PUT status='done'.
-  - [이슈 취소]: issue.status가 open일 때. PUT status='cancelled' (queued run도 자동 취소).
+  - [이슈 취소]: issue.status가 open이고 execution_status가 queued/running이 아닐 때 활성. PUT status='cancelled' (queued run은 백엔드에서 자동 취소하지만 UI는 실행 취소와 구분).
   - [편집]: 항상 활성.
-  - [삭제]: execution_status가 running이 아닐 때.
+  - [삭제]: execution_status가 queued/running이 아닐 때.
 - Run 이력 (최신 위, 접힘 가능). 각 run의 status 배지(`queued/running/done/failed/cancelled`) + trigger_type 라벨 (생성/멘션/자동/재실행)
 
 **스크롤/포커스 정책**:

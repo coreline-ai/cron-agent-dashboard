@@ -37,7 +37,21 @@ function executionLabel(status: string) {
   return labels[status] ?? status;
 }
 
-function IssueCard({ issue, slug, onStatusChange, isUpdating }: { issue: Issue; slug: string | undefined; onStatusChange: (issue: Issue, status: IssueStatus) => void; isUpdating: boolean }) {
+function IssueCard({
+  issue,
+  slug,
+  onStatusChange,
+  onCancelExecution,
+  isUpdating,
+  isCancelling
+}: {
+  issue: Issue;
+  slug: string | undefined;
+  onStatusChange: (issue: Issue, status: IssueStatus) => void;
+  onCancelExecution: (issue: Issue) => void;
+  isUpdating: boolean;
+  isCancelling: boolean;
+}) {
   const busy = issue.execution_status === 'queued' || issue.execution_status === 'running';
   return (
     <article className="kanban-card">
@@ -59,11 +73,15 @@ function IssueCard({ issue, slug, onStatusChange, isUpdating }: { issue: Issue; 
             완료
           </button>
         )}
-        {issue.status !== 'cancelled' && (
-          <button className="button micro danger" type="button" onClick={() => onStatusChange(issue, 'cancelled')} disabled={busy || isUpdating}>
-            취소
+        {busy ? (
+          <button className="button micro danger" type="button" onClick={() => onCancelExecution(issue)} disabled={isUpdating || isCancelling}>
+            {issue.execution_status === 'queued' ? '대기 취소' : '실행 취소'}
           </button>
-        )}
+        ) : issue.status !== 'cancelled' ? (
+          <button className="button micro danger" type="button" onClick={() => onStatusChange(issue, 'cancelled')} disabled={busy || isUpdating}>
+            이슈 취소
+          </button>
+        ) : null}
       </div>
     </article>
   );
@@ -79,6 +97,12 @@ export function BoardPage() {
   const [dialogStatus, setDialogStatus] = useState<IssueStatus | null>(null);
   const updateStatus = useMutation({
     mutationFn: ({ issue, status }: { issue: Issue; status: IssueStatus }) => apiClient.put(`/issues/${issue.id}`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['issues', slug] });
+    }
+  });
+  const cancelExecution = useMutation({
+    mutationFn: (issue: Issue) => apiClient.post(`/issues/${issue.id}/cancel`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['issues', slug] });
     }
@@ -119,6 +143,7 @@ export function BoardPage() {
   }, [filteredIssues]);
 
   const onStatusChange = (issue: Issue, status: IssueStatus) => updateStatus.mutate({ issue, status });
+  const onCancelExecution = (issue: Issue) => cancelExecution.mutate(issue);
 
   return (
     <section className="page-stack">
@@ -186,7 +211,9 @@ export function BoardPage() {
                     issue={issue}
                     slug={slug}
                     onStatusChange={onStatusChange}
+                    onCancelExecution={onCancelExecution}
                     isUpdating={updateStatus.isPending}
+                    isCancelling={cancelExecution.isPending}
                   />
                 ))}
                 {!grouped[status.value].length && <p className="column-empty">표시할 이슈가 없습니다.</p>}

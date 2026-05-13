@@ -43,21 +43,23 @@ type Pool struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
+	mu             sync.Mutex
+	cancels        map[string]context.CancelFunc
+	pendingCancels map[string]struct{}
 }
 
 type PoolOption func(*Pool)
 
 func NewPool(store ClaimStore, executor RunExecutor, opts ...PoolOption) *Pool {
 	p := &Pool{
-		store:        store,
-		executor:     executor,
-		workers:      3,
-		pollInterval: time.Second,
-		workerID:     defaultWorkerID(),
-		log:          slog.Default(),
-		cancels:      make(map[string]context.CancelFunc),
+		store:          store,
+		executor:       executor,
+		workers:        3,
+		pollInterval:   time.Second,
+		workerID:       defaultWorkerID(),
+		log:            slog.Default(),
+		cancels:        make(map[string]context.CancelFunc),
+		pendingCancels: make(map[string]struct{}),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -124,6 +126,7 @@ func (p *Pool) Shutdown(ctx context.Context) error {
 	for _, cancelRun := range p.cancels {
 		cancelRun()
 	}
+	clear(p.pendingCancels)
 	p.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -145,6 +148,9 @@ func (p *Pool) Shutdown(ctx context.Context) error {
 func (p *Pool) CancelRun(runID string) bool {
 	p.mu.Lock()
 	cancel, ok := p.cancels[runID]
+	if !ok {
+		p.pendingCancels[runID] = struct{}{}
+	}
 	p.mu.Unlock()
 	if ok {
 		cancel()
@@ -191,12 +197,18 @@ func (p *Pool) claimOnce(workerID string) {
 
 	runCtx, cancel := context.WithCancel(p.ctx)
 	p.mu.Lock()
+	_, cancelPending := p.pendingCancels[run.RunID]
+	delete(p.pendingCancels, run.RunID)
 	p.cancels[run.RunID] = cancel
 	p.mu.Unlock()
+	if cancelPending {
+		cancel()
+	}
 	defer func() {
 		cancel()
 		p.mu.Lock()
 		delete(p.cancels, run.RunID)
+		delete(p.pendingCancels, run.RunID)
 		p.mu.Unlock()
 	}()
 

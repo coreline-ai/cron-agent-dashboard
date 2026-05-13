@@ -401,12 +401,18 @@ BEGIN;
 COMMIT;
 ```
 
-### 4.5 사용자 cancel (진행 중 run 취소)
+### 4.5 사용자 cancel (대기/진행 중 run 취소)
 ```
-1. HTTP 핸들러: cancellable_run = SELECT id FROM run WHERE issue_id=? AND status='running' LIMIT 1;
-2. worker에게 cancellation 신호 (in-memory map[run_id]context.CancelFunc로 process group SIGTERM)
-3. worker의 종료 처리(4.4)가 run.status='cancelled', exit_code=-1, error_message='user cancelled'로 진행
-4. issue.status는 그대로 'open' 유지 (사용자가 이슈를 닫은 게 아니라 한 번의 실행만 취소함)
+1. HTTP 핸들러: cancellable_run =
+   SELECT id FROM run
+    WHERE issue_id=? AND status IN ('running','queued')
+    ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, enqueued_at ASC
+    LIMIT 1;
+2. running이면 worker에게 cancellation 신호 (in-memory map[run_id]context.CancelFunc로 process group SIGTERM)
+   - run claim 직후 cancel func 등록 전 race는 pending-cancel set으로 보존
+3. queued이면 DB에서 즉시 run.status='cancelled'로 전환해 worker claim 대상에서 제외
+4. worker의 종료 처리 또는 HTTP fallback이 run.status='cancelled', exit_code=-1, error_message='user cancelled'로 진행
+5. issue.status는 그대로 'open' 유지 (사용자가 이슈를 닫은 게 아니라 한 번의 실행만 취소함)
 ```
 
 ### 4.5b 사용자가 이슈 자체를 취소 (보존하고 닫음)

@@ -154,7 +154,13 @@ func (s *Store) LookupIssue(ctx context.Context, workspaceID, idOrIdentifier str
 }
 
 func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput) (Issue, error) {
-	iss, err := s.GetIssue(ctx, id)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Issue{}, err
+	}
+	defer tx.Rollback()
+
+	iss, err := txGetIssue(ctx, tx, id)
 	if err != nil {
 		return Issue{}, err
 	}
@@ -171,9 +177,10 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput)
 		assigneeAgentID = *in.AssigneeAgentID
 	}
 	if assigneeAgentID != "" {
-		a, err := s.GetAgent(ctx, assigneeAgentID)
+		var a Agent
+		err := tx.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE id=?`, assigneeAgentID)
 		if err != nil {
-			return Issue{}, err
+			return Issue{}, normalizeErr(err)
 		}
 		if a.WorkspaceID != iss.WorkspaceID {
 			return Issue{}, ErrNotFound
@@ -186,24 +193,32 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput)
 	if status != "open" && status != "done" && status != "cancelled" {
 		return Issue{}, ErrValidation
 	}
-	if status == "done" || status == "cancelled" {
+	if status == "done" {
 		var activeRuns int
-		if err := s.db.GetContext(ctx, &activeRuns, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status IN ('queued','running')`, id); err != nil {
+		if err := tx.GetContext(ctx, &activeRuns, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status IN ('queued','running')`, id); err != nil {
 			return Issue{}, err
 		}
 		if activeRuns > 0 {
 			return Issue{}, ErrState
 		}
 	}
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return Issue{}, err
+	if status == "cancelled" {
+		var runningRuns int
+		if err := tx.GetContext(ctx, &runningRuns, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status='running'`, id); err != nil {
+			return Issue{}, err
+		}
+		if runningRuns > 0 {
+			return Issue{}, ErrState
+		}
 	}
-	defer tx.Rollback()
 	t := now()
-	_, err = tx.ExecContext(ctx, `UPDATE issue SET title=?, body=?, assignee_agent_id=?, status=?, updated_at=? WHERE id=?`, title, body, nullIfEmpty(assigneeAgentID), status, t, id)
+	res, err := tx.ExecContext(ctx, `UPDATE issue SET title=?, body=?, assignee_agent_id=?, status=?, updated_at=? WHERE id=?`, title, body, nullIfEmpty(assigneeAgentID), status, t, id)
 	if err != nil {
 		return Issue{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return Issue{}, ErrNotFound
 	}
 	if status == "cancelled" {
 		if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-1, finished_at=?, error_message='issue cancelled' WHERE issue_id=? AND status='queued'`, t, id); err != nil {
@@ -220,14 +235,19 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput)
 }
 
 func (s *Store) DeleteIssue(ctx context.Context, id string) error {
-	var running int
-	if err := s.db.GetContext(ctx, &running, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status='running'`, id); err != nil {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var active int
+	if err := tx.GetContext(ctx, &active, `SELECT COUNT(*) FROM run WHERE issue_id=? AND status IN ('queued','running')`, id); err != nil {
 		return normalizeErr(err)
 	}
-	if running > 0 {
+	if active > 0 {
 		return ErrState
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM issue WHERE id=?`, id)
+	res, err := tx.ExecContext(ctx, `DELETE FROM issue WHERE id=?`, id)
 	if err != nil {
 		return normalizeErr(err)
 	}
@@ -235,7 +255,7 @@ func (s *Store) DeleteIssue(ctx context.Context, id string) error {
 	if aff == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) RerunIssue(ctx context.Context, issueID, agentID string) (Run, error) {
@@ -430,6 +450,15 @@ func (s *Store) CancelRunningRun(ctx context.Context, issueID string) (Run, erro
 	return s.CancelRun(ctx, r.ID, "user cancelled")
 }
 
+func (s *Store) GetActiveRunByIssue(ctx context.Context, issueID string) (Run, error) {
+	var r Run
+	if err := s.db.GetContext(ctx, &r, runSelectBase+` WHERE r.issue_id=? AND r.status IN ('running','queued') ORDER BY CASE r.status WHEN 'running' THEN 0 ELSE 1 END, r.enqueued_at ASC LIMIT 1`, issueID); err != nil {
+		return Run{}, normalizeErr(err)
+	}
+	decorateRun(&r)
+	return r, nil
+}
+
 func (s *Store) GetRunningRunByIssue(ctx context.Context, issueID string) (Run, error) {
 	var r Run
 	if err := s.db.GetContext(ctx, &r, runSelectBase+` WHERE r.issue_id=? AND r.status='running' LIMIT 1`, issueID); err != nil {
@@ -456,9 +485,13 @@ func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error
 	}
 	defer tx.Rollback()
 	t := now()
-	_, err = tx.ExecContext(ctx, `UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message=? WHERE id=? AND status IN ('queued','running')`, t, reason, r.ID)
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message=? WHERE id=? AND status IN ('queued','running')`, t, reason, r.ID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return Run{}, ErrState
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,?,?)`, newID(), r.IssueID, r.ID, cancelComment(reason), t); err != nil {
 		return Run{}, normalizeErr(err)

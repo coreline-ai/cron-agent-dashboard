@@ -200,7 +200,7 @@ func TestCompleteRunDoesNotOverwriteCancelledRun(t *testing.T) {
 	}
 }
 
-func TestUpdateIssueRejectsDoneOrCancelledWithQueuedRun(t *testing.T) {
+func TestUpdateIssueActiveRunTransitions(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{Name: "Queued", Slug: "queued", IdentifierPrefix: "QUE", MainAgent: CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"}})
@@ -216,15 +216,58 @@ func TestUpdateIssueRejectsDoneOrCancelledWithQueuedRun(t *testing.T) {
 		t.Fatalf("done with queued run err=%v, want ErrState", err)
 	}
 	cancelled := "cancelled"
-	if _, err := st.UpdateIssue(ctx, issue.ID, UpdateIssueInput{Status: &cancelled}); !errors.Is(err, ErrState) {
-		t.Fatalf("cancelled with queued run err=%v, want ErrState", err)
+	cancelledIssue, err := st.UpdateIssue(ctx, issue.ID, UpdateIssueInput{Status: &cancelled})
+	if err != nil {
+		t.Fatalf("cancelled with queued run: %v", err)
+	}
+	if cancelledIssue.Status != "cancelled" {
+		t.Fatalf("issue status=%s, want cancelled", cancelledIssue.Status)
 	}
 	refetchedRun, err := st.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refetchedRun.Status != "queued" {
-		t.Fatalf("queued run should remain queued after rejected update: %#v", refetchedRun)
+	if refetchedRun.Status != "cancelled" {
+		t.Fatalf("queued run should be cancelled with issue: %#v", refetchedRun)
+	}
+}
+
+func TestUpdateIssueRejectsCancelledWithRunningRun(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{Name: "Running", Slug: "running", IdentifierPrefix: "RUN", MainAgent: CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, _, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "running task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	cancelled := "cancelled"
+	if _, err := st.UpdateIssue(ctx, issue.ID, UpdateIssueInput{Status: &cancelled}); !errors.Is(err, ErrState) {
+		t.Fatalf("cancelled with running run err=%v, want ErrState", err)
+	}
+}
+
+func TestDeleteIssueAndWorkspaceRejectQueuedRuns(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{Name: "Queued Delete", Slug: "queued-delete", IdentifierPrefix: "DEL", MainAgent: CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, _, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "queued task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteIssue(ctx, issue.ID); !errors.Is(err, ErrState) {
+		t.Fatalf("delete issue err=%v, want ErrState", err)
+	}
+	if err := st.DeleteWorkspace(ctx, ws.ID); !errors.Is(err, ErrState) {
+		t.Fatalf("delete workspace err=%v, want ErrState", err)
 	}
 }
 

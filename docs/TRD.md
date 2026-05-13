@@ -372,14 +372,16 @@ corn-agent-dashboard/
 
 ### 8.5 취소
 - `POST /api/issues/:id/cancel` 핸들러:
-  1. 진행 중 run 조회 (`status='running'`)
-  2. in-memory `map[run_id]context.CancelFunc` 로 워커에게 신호
-  3. 워커는 ctx.Done() 받으면 `syscall.Kill(-pgid, SIGTERM)` → 30초 후 SIGKILL
-  4. cmd.Wait() 종료 후 트랜잭션에서 `run.status='cancelled', exit_code=-1, error_message='user cancelled'`
-  5. **issue.status는 그대로 'open' 유지** (이슈는 살아있음)
-  6. system 댓글 "사용자가 실행을 취소했습니다" INSERT
+  1. active run 조회 (`status IN ('running','queued')`, running 우선)
+  2. running이면 in-memory `map[run_id]context.CancelFunc` 로 워커에게 신호
+     - worker claim 직후 cancel func 등록 전 race는 pending-cancel set으로 보존
+  3. queued이면 DB에서 즉시 `run.status='cancelled'`로 전환해 claim 대상에서 제외
+  4. 워커는 ctx.Done() 받으면 `syscall.Kill(-pgid, SIGTERM)` → 30초 후 SIGKILL
+  5. 종료/HTTP fallback 트랜잭션에서 `run.status='cancelled', exit_code=-1, error_message='user cancelled'`
+  6. **issue.status는 그대로 'open' 유지** (이슈는 살아있음)
+  7. system 댓글 "사용자가 실행을 취소했습니다" INSERT
 
-이슈 자체를 닫으려면 `PUT /api/issues/:id { status: 'cancelled' }` 사용 (별도 흐름).
+이슈 자체를 닫으려면 `PUT /api/issues/:id { status: 'cancelled' }` 사용 (별도 흐름, running run이 있으면 먼저 cancel).
 
 ### 8.6 Stdout cap (이중)
 - **파일 cap**: 단일 run 10MB. 도달 시 파일 append 중단 + truncation 표시, **pipe는 io.Discard로 계속 drain**

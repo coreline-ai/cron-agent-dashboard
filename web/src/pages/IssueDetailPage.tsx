@@ -61,8 +61,8 @@ export function IssueDetailPage() {
           <button className="button secondary" type="button" onClick={() => rerun.mutate()} disabled={!issue.data || busy || rerun.isPending}>
             재실행
           </button>
-          <button className="button secondary" type="button" onClick={() => cancelRun.mutate()} disabled={!issue.data || issue.data.execution_status !== 'running'}>
-            실행 취소
+          <button className="button secondary" type="button" onClick={() => cancelRun.mutate()} disabled={!issue.data || !busy || cancelRun.isPending}>
+            {issue.data?.execution_status === 'queued' ? '대기 취소' : '실행 취소'}
           </button>
           <button className="button secondary" type="button" onClick={() => markDone.mutate()} disabled={!issue.data || busy}>
             완료 처리

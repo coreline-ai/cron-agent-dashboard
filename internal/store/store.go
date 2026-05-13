@@ -156,14 +156,19 @@ func (s *Store) DeleteWorkspace(ctx context.Context, idOrSlug string) error {
 	if err != nil {
 		return err
 	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var n int
-	if err := s.db.GetContext(ctx, &n, `SELECT COUNT(*) FROM run r JOIN issue i ON i.id=r.issue_id WHERE i.workspace_id=? AND r.status='running'`, w.ID); err != nil {
+	if err := tx.GetContext(ctx, &n, `SELECT COUNT(*) FROM run r JOIN issue i ON i.id=r.issue_id WHERE i.workspace_id=? AND r.status IN ('queued','running')`, w.ID); err != nil {
 		return err
 	}
 	if n > 0 {
 		return ErrState
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM workspace WHERE id=?`, w.ID)
+	res, err := tx.ExecContext(ctx, `DELETE FROM workspace WHERE id=?`, w.ID)
 	if err != nil {
 		return normalizeErr(err)
 	}
@@ -171,7 +176,7 @@ func (s *Store) DeleteWorkspace(ctx context.Context, idOrSlug string) error {
 	if aff == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) CreateAgent(ctx context.Context, workspaceID string, in CreateAgentInput) (Agent, error) {
