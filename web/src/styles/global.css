@@ -531,7 +531,7 @@ p {
   top: 0;
   z-index: 5;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.55rem;
   min-height: 3rem;
@@ -576,6 +576,14 @@ h2 {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
   white-space: nowrap;
 }
 
@@ -1626,6 +1634,54 @@ textarea {
 
 .toolbar-search {
   max-width: 18rem;
+}
+
+.mention-autocomplete {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field-hint {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.mention-suggestions {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 12rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  padding: 0.35rem;
+  box-shadow: var(--shadow-card);
+}
+
+.mention-suggestions button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: calc(var(--radius) * 0.75);
+  background: transparent;
+  color: var(--foreground);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mention-suggestions button.active,
+.mention-suggestions button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.mention-suggestions small {
+  color: var(--muted-foreground);
+  white-space: nowrap;
 }
 
 .segmented {

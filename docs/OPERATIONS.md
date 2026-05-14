@@ -82,13 +82,14 @@ API check:
 
 ```bash
 curl -fsS http://127.0.0.1:8080/api/workspaces/<workspace-slug>/autopilot \
-  | jq '.rules[] | {name, enabled, consecutive_failures, last_error, last_triggered_issue_id, next_run_at}'
+  | jq '.rules[] | {name, enabled, snooze_until, consecutive_failures, last_error, last_triggered_issue_id, next_run_at}'
 ```
 
 Notes:
 
 - A rule auto-disables after five consecutive trigger failures.
-- Manual `지금 실행` uses the same trigger path, so a failure there should be treated like a scheduled failure.
+- `snooze_until`이 미래면 scheduled/manual trigger 모두 no-op이며 failure count를 증가시키지 않는다.
+- Manual `지금 실행` uses the same trigger path, so a failure there should be treated like a scheduled failure unless the rule is snoozed.
 - In token mode, add `-H "Authorization: Bearer $CORN_AGENT_DASHBOARD_TOKEN"` to curl requests.
 
 ## Run event and failure investigation

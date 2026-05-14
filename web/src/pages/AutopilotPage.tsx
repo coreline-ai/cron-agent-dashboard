@@ -17,7 +17,7 @@ type TriggerNotice = {
 const filters: Array<{ value: RuleFilter; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'enabled', label: 'ON' },
-  { value: 'paused', label: 'OFF' }
+  { value: 'paused', label: 'OFF/일시정지' }
 ];
 
 const templates: Array<AutopilotTemplate & { summary: string }> = [
@@ -55,6 +55,9 @@ export function AutopilotPage() {
   const [editingRule, setEditingRule] = useState<AutopilotRule | null>(null);
   const [triggerNotice, setTriggerNotice] = useState<TriggerNotice | null>(null);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['autopilot', slug] });
+  const refreshRules = () => {
+    void rules.refetch();
+  };
   const triggerRule = useMutation({
     mutationFn: (rule: AutopilotRule) => apiClient.post<AutopilotTriggerResponse>(`/autopilot/${rule.id}/trigger`),
     onSuccess: (data, rule) => {
@@ -81,7 +84,8 @@ export function AutopilotPage() {
         issue_title_template: rule.issue_title_template,
         issue_body_template: rule.issue_body_template ?? '',
         assignee_agent_id: rule.assignee_agent_id ?? '',
-        enabled: !rule.enabled
+        enabled: !rule.enabled,
+        snooze_until: rule.snooze_until ?? ''
       }),
     onSuccess: invalidate
   });
@@ -90,10 +94,11 @@ export function AutopilotPage() {
   const visibleRules = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (rules.data ?? []).filter((rule) => {
-      if (filter === 'enabled' && !rule.enabled) {
+      const snoozed = isRuleSnoozed(rule);
+      if (filter === 'enabled' && (!rule.enabled || snoozed)) {
         return false;
       }
-      if (filter === 'paused' && rule.enabled) {
+      if (filter === 'paused' && rule.enabled && !snoozed) {
         return false;
       }
       if (!q) {
@@ -108,8 +113,8 @@ export function AutopilotPage() {
     const xs = rules.data ?? [];
     return {
       all: xs.length,
-      enabled: xs.filter((rule) => rule.enabled).length,
-      paused: xs.filter((rule) => !rule.enabled).length,
+      enabled: xs.filter((rule) => rule.enabled && !isRuleSnoozed(rule)).length,
+      paused: xs.filter((rule) => !rule.enabled || isRuleSnoozed(rule)).length,
       failed: xs.filter((rule) => (rule.consecutive_failures ?? 0) > 0).length
     };
   }, [rules.data]);
@@ -136,6 +141,11 @@ export function AutopilotPage() {
         eyebrow={`워크스페이스 / ${slug}`}
         title="오토파일럿"
         description="cron 기반 정기 이슈 생성 규칙을 테이블과 템플릿으로 관리합니다."
+        actions={
+          <button className="button micro secondary" type="button" onClick={refreshRules} disabled={rules.isFetching}>
+            {rules.isFetching ? '새로고침 중' : '새로고침'}
+          </button>
+        }
       />
 
       <div className="board-toolbar panel">
@@ -209,6 +219,7 @@ export function AutopilotPage() {
           </div>
           {visibleRules.map((rule) => {
             const triggerBusy = triggerRule.isPending && triggerRule.variables?.id === rule.id;
+            const snoozed = isRuleSnoozed(rule);
             return (
               <div className="data-row" key={rule.id}>
                 <span>
@@ -222,10 +233,13 @@ export function AutopilotPage() {
                 </span>
                 <span>{rule.cron_expr}</span>
                 <span>{rule.assignee_agent_name ? `@${rule.assignee_agent_name}` : '메인 에이전트'}</span>
-                <span>{formatDateTime(rule.next_run_at)}</span>
+                <span>
+                  {snoozed ? <small className="badge warning">{formatSnooze(rule.snooze_until)}</small> : null}
+                  <span>{formatDateTime(rule.next_run_at)}</span>
+                </span>
                 <span>{formatDateTime(rule.last_run_at)}</span>
                 <span className="row-actions">
-                  <span className={rule.enabled ? 'badge' : 'badge muted'}>{rule.enabled ? 'ON' : 'OFF'}</span>
+                  <span className={snoozed ? 'badge warning' : rule.enabled ? 'badge' : 'badge muted'}>{snoozed ? '일시정지' : rule.enabled ? 'ON' : 'OFF'}</span>
                   {(rule.consecutive_failures ?? 0) > 0 && <span className="badge danger">실패 {rule.consecutive_failures}</span>}
                   <button className="button micro secondary" type="button" onClick={() => openEdit(rule)}>
                     편집
@@ -233,8 +247,8 @@ export function AutopilotPage() {
                   <button className="button micro secondary" type="button" onClick={() => toggleRule.mutate(rule)}>
                     {rule.enabled ? '끄기' : '켜기'}
                   </button>
-                  <button className="button micro secondary" type="button" onClick={() => triggerRule.mutate(rule)} disabled={triggerBusy}>
-                    {triggerBusy ? '실행 중' : '지금 실행'}
+                  <button className="button micro secondary" type="button" onClick={() => triggerRule.mutate(rule)} disabled={triggerBusy || snoozed}>
+                    {snoozed ? '정지 중' : triggerBusy ? '실행 중' : '지금 실행'}
                   </button>
                   {rule.last_triggered_issue_id && (
                     <Link className="button micro secondary" to={`/w/${slug}/issues/${rule.last_triggered_issue_id}`}>
@@ -255,6 +269,21 @@ export function AutopilotPage() {
       <AutopilotDialog open={dialogOpen} slug={slug} template={selectedTemplate} rule={editingRule} onClose={closeDialog} />
     </section>
   );
+}
+
+function isRuleSnoozed(rule: AutopilotRule) {
+  if (!rule.snooze_until) {
+    return false;
+  }
+  const date = new Date(rule.snooze_until);
+  return !Number.isNaN(date.getTime()) && date.getTime() > Date.now();
+}
+
+function formatSnooze(value?: string) {
+  if (!value) {
+    return '일시정지';
+  }
+  return `정지 해제 ${formatDateTime(value)}`;
 }
 
 function formatDateTime(value?: string) {

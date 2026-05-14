@@ -498,6 +498,10 @@ run의 stdout 전체 파일.
       "enabled": true,
       "last_run_at": "2026-05-11T09:00:00Z",
       "next_run_at": "2026-05-12T09:00:00Z",
+      "snooze_until": "2026-05-20T00:00:00Z",
+      "last_error": "",
+      "consecutive_failures": 0,
+      "last_triggered_issue_id": "",
       "created_at": "..."
     }
   ]
@@ -515,7 +519,8 @@ run의 stdout 전체 파일.
   "issue_title_template": "{{date}} AI 뉴스",
   "issue_body_template": "",
   "assignee_agent_id": null,
-  "enabled": true
+  "enabled": true,
+  "snooze_until": ""
 }
 ```
 
@@ -526,13 +531,13 @@ run의 stdout 전체 파일.
 - 400: 알 수 없는 템플릿 변수
 
 ### 6.3 `PUT /api/autopilot/:id`
-룰 수정. 가능한 필드: name, cron_expr, issue_title_template, issue_body_template, assignee_agent_id, enabled.
+룰 수정. 가능한 필드: name, cron_expr, issue_title_template, issue_body_template, assignee_agent_id, enabled, snooze_until. `snooze_until`은 RFC3339 문자열이며 빈 값이면 일시 정지를 해제한다.
 
 ### 6.4 `DELETE /api/autopilot/:id`
 룰 삭제. 이 룰로 생성된 기존 이슈는 보존.
 
 ### 6.5 `POST /api/autopilot/:id/trigger`
-지금 즉시 실행 (수동 트리거).
+지금 즉시 실행 (수동 트리거). 룰이 disabled이거나 `snooze_until`이 미래면 409 `STATE_ERROR`이며 issue/run을 생성하지 않는다.
 
 **Response 201**:
 ```json
@@ -722,6 +727,7 @@ run별 기술 audit timeline을 반환한다. system comment는 사용자 스레
 | `last_error` | 마지막 trigger 실패 메시지 |
 | `consecutive_failures` | 연속 실패 횟수 |
 | `last_triggered_issue_id` | 마지막 수동/cron trigger로 생성된 issue id |
+| `snooze_until` | 미래 시각이면 trigger를 일시 정지하는 RFC3339 timestamp |
 
 `POST /api/autopilot/:id/trigger`는 기존 호환을 위해 top-level `issue`, `run`, `rule`을 유지하고, 상세 결과를 `trigger_result`에 함께 담는다.
 

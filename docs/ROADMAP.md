@@ -192,6 +192,7 @@ cron 기반 자동 이슈 생성.
   - [x] rule.last_run_at / next_run_at 업데이트
 - [x] 수동 트리거 엔드포인트 (`POST /autopilot/:id/trigger`)
 - [x] cron expression 검증 (룰 생성/수정 시)
+- [x] 룰별 `snooze_until` 일시정지 + 만료 이후 `next_run_at` 동기화
 
 ### 완료 기준
 - 1분 cron (`* * * * *`) 룰 생성 → 1분 후 이슈 자동 생성 확인
@@ -244,8 +245,9 @@ cron 기반 자동 이슈 생성.
 
 #### P4.6 Autopilot 페이지 (1일)
 - [x] `/w/:slug/autopilot` — 룰 카드 + on/off
-- [x] 룰 생성 form + toggle update (편집 모달은 후속)
+- [x] 룰 생성/편집 모달 + toggle update
 - [x] [지금 실행] / [삭제]
+- [x] 일시정지 quick action(1일/1주/1개월/해제) + snooze 상태 표시
 
 #### P4.7 설정 페이지 (0.5일)
 - [x] `/settings` — 버전 + 런타임 가용성 + 워커 수 + 인증 모드 + 운영 actions

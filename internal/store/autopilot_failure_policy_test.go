@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestAutopilotFailurePolicyDisablesAfterFiveFailures(t *testing.T) {
@@ -130,4 +131,49 @@ func countAutopilotFailurePolicyRows(t *testing.T, ctx context.Context, st *Stor
 		t.Fatalf("count rows: %v", err)
 	}
 	return count
+}
+
+func TestSnoozedAutopilotRuleTriggerDoesNotCreateIssueOrCountFailure(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, rule := createAutopilotFailurePolicyFixture(t, ctx, st)
+	until := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	updated, err := st.UpdateAutopilotRule(ctx, rule.ID, UpsertAutopilotInput{
+		Name:               rule.Name,
+		CronExpr:           rule.CronExpr,
+		IssueTitleTemplate: rule.IssueTitleTemplate,
+		IssueBodyTemplate:  rule.IssueBodyTemplate,
+		AssigneeAgentID:    rule.AssigneeAgentID,
+		Enabled:            true,
+		SnoozeUntil:        until,
+	})
+	if err != nil {
+		t.Fatalf("snooze rule: %v", err)
+	}
+	if updated.SnoozeUntil == "" {
+		t.Fatalf("snooze_until should be persisted: %#v", updated)
+	}
+	beforeIssues := countAutopilotFailurePolicyRows(t, ctx, st, `SELECT COUNT(*) FROM issue WHERE workspace_id=?`, ws.ID)
+	beforeRuns := countAutopilotFailurePolicyRows(t, ctx, st, `SELECT COUNT(*) FROM run`)
+
+	result, err := st.TriggerAutopilotRuleWithContentResult(ctx, rule.ID, "should not run", "body", "2026-05-15T00:00:00Z")
+	if !errors.Is(err, ErrState) {
+		t.Fatalf("trigger snoozed rule err=%v, want ErrState", err)
+	}
+	if result.OK || result.Issue != nil || result.Run != nil || result.Error == "" {
+		t.Fatalf("snoozed trigger should be a no-op result: %#v", result)
+	}
+	if got := countAutopilotFailurePolicyRows(t, ctx, st, `SELECT COUNT(*) FROM issue WHERE workspace_id=?`, ws.ID); got != beforeIssues {
+		t.Fatalf("issue count=%d, want %d", got, beforeIssues)
+	}
+	if got := countAutopilotFailurePolicyRows(t, ctx, st, `SELECT COUNT(*) FROM run`); got != beforeRuns {
+		t.Fatalf("run count=%d, want %d", got, beforeRuns)
+	}
+	after, err := st.GetAutopilotRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ConsecutiveFailures != 0 || after.LastError != "" {
+		t.Fatalf("snooze no-op should not count failure: %#v", after)
+	}
 }

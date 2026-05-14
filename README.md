@@ -114,6 +114,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 ### ⏰ Autopilot
 cron 기반 정기 이슈 자동 생성.
 `매일 09:00 → NewsLead → 뉴스 정리`.
+룰별 일시정지(snooze), 실패 가시성, 5회 연속 실패 자동 OFF를 지원한다.
 
 </td>
 </tr>

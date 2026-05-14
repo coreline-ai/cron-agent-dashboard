@@ -78,8 +78,15 @@ func (r *AutopilotRunner) TriggerRuleResult(ctx context.Context, ruleID string) 
 	}
 	now := r.now().In(r.loc)
 	nextRunAt := ""
-	if next, ok := r.nextRunAt(rule.CronExpr); ok {
+	if next, ok := r.nextRunAtForRule(rule); ok {
 		nextRunAt = next
+	}
+	if until, snoozed := store.AutopilotSnoozedUntil(rule, now); snoozed {
+		err := fmt.Errorf("%w: autopilot rule is snoozed until %s", store.ErrState, until.UTC().Format(time.RFC3339Nano))
+		return store.AutopilotTriggerResult{
+			Rule:  rule,
+			Error: store.AutopilotTriggerErrorMessage(err),
+		}, err
 	}
 	title, err := scheduler.RenderTemplate(rule.IssueTitleTemplate, now)
 	if err != nil {
@@ -106,7 +113,7 @@ func (r *AutopilotRunner) recordTriggerFailure(ctx context.Context, rule store.A
 
 func (r *AutopilotRunner) syncNextRunAt(ctx context.Context, rules []store.AutopilotRule) error {
 	for _, rule := range rules {
-		next, ok := r.nextRunAt(rule.CronExpr)
+		next, ok := r.nextRunAtForRule(rule)
 		if !ok {
 			continue
 		}
@@ -117,11 +124,14 @@ func (r *AutopilotRunner) syncNextRunAt(ctx context.Context, rules []store.Autop
 	return nil
 }
 
-func (r *AutopilotRunner) nextRunAt(cronExpr string) (string, bool) {
-	schedule, err := cron.ParseStandard(cronExpr)
+func (r *AutopilotRunner) nextRunAtForRule(rule store.AutopilotRule) (string, bool) {
+	schedule, err := cron.ParseStandard(rule.CronExpr)
 	if err != nil {
 		return "", false
 	}
 	base := r.now().In(r.loc)
+	if until, snoozed := store.AutopilotSnoozedUntil(rule, base); snoozed && until.After(base) {
+		base = until.In(r.loc)
+	}
 	return schedule.Next(base).UTC().Format(time.RFC3339Nano), true
 }

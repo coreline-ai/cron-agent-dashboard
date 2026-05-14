@@ -56,4 +56,5 @@ Corn Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 
 - [x] `make check` verification baseline established
 - [x] Startup self-check, clean clone verification script, Playwright browser smoke, token 401 UX, GitHub Release upload workflow added
 - [x] Expert review gap closure: explicit `comment.truncated`, Autopilot `next_run_at` sync, safe markdown renderer, real `VACUUM`, pointer-based issue update, CLI-specific runtime adapter arguments
+- [x] Post-release v0.1.x polish: focus refetch, explicit refresh buttons, agent mention autocomplete, Autopilot snooze_until
 - [x] Startup orphan process cleanup safety guard: `process_recorded_at` freshness check + process metadata retry

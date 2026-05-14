@@ -2,12 +2,13 @@ import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { useCommentsQuery, useRunEventsQuery, useRunsQuery, useWorkspaceIssueQuery } from '../api/queries';
+import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useWorkspaceIssueQuery } from '../api/queries';
 import type { Comment, IssueStatus, Run, RunEvent } from '../api/queries';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DateTimeText } from '../components/DateTimeText';
 import { IssueSummaryRail } from '../components/IssueSummaryRail';
 import { MarkdownText } from '../components/MarkdownText';
+import { MentionAutocomplete } from '../components/MentionAutocomplete';
 import { MutationErrorAlert } from '../components/MutationErrorAlert';
 import { PageHeader } from '../components/PageHeader';
 import { StatusPill } from '../components/StatusPill';
@@ -33,6 +34,7 @@ export function IssueDetailPage() {
   const issue = useWorkspaceIssueQuery(slug, identifier);
   const comments = useCommentsQuery(issue.data?.id, issue.data?.execution_status);
   const runs = useRunsQuery(issue.data?.id, issue.data?.execution_status);
+  const agents = useAgentsQuery(slug);
   const queryClient = useQueryClient();
   const toast = useToast();
   const [content, setContent] = useState('');
@@ -96,6 +98,17 @@ export function IssueDetailPage() {
   });
 
   const actionPending = rerun.isPending || cancelRun.isPending || updateStatus.isPending;
+  const refreshPending = issue.isFetching || comments.isFetching || runs.isFetching || agents.isFetching;
+  const refreshIssue = () => {
+    const tasks: Array<Promise<unknown>> = [issue.refetch(), agents.refetch()];
+    if (issue.data?.id) {
+      tasks.push(comments.refetch(), runs.refetch());
+      for (const run of runList) {
+        queryClient.invalidateQueries({ queryKey: ['run-events', run.id] });
+      }
+    }
+    void Promise.all(tasks);
+  };
 
   const onCommentSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -138,6 +151,11 @@ export function IssueDetailPage() {
             ? `${issue.data.status} · ${issue.data.execution_status} · 댓글 ${issue.data.comment_count}개`
             : '실행 로그, 댓글, 멘션 위임 흐름을 안전한 텍스트 렌더링으로 표시합니다.'
         }
+        actions={
+          <button className="button micro secondary" type="button" onClick={refreshIssue} disabled={refreshPending}>
+            {refreshPending ? '새로고침 중' : '새로고침'}
+          </button>
+        }
       />
 
       {issue.isError ? <MutationErrorAlert error={issue.error} title="이슈 로드 실패" /> : null}
@@ -174,7 +192,13 @@ export function IssueDetailPage() {
             ))}
             {!comments.isLoading && !comments.data?.length && <p>아직 댓글이 없습니다.</p>}
             <form className="form-grid comment-form" onSubmit={onCommentSubmit}>
-              <textarea placeholder="@AgentName 멘션으로 위임할 수 있습니다." value={content} onChange={(e) => setContent(e.target.value)} required />
+              <MentionAutocomplete
+                placeholder="@AgentName 멘션으로 위임할 수 있습니다."
+                value={content}
+                agents={agents.data ?? []}
+                onChange={setContent}
+                required
+              />
               <button className="button" type="submit" disabled={!issue.data || addComment.isPending || !content.trim()}>
                 {addComment.isPending ? '등록 중' : '댓글 등록'}
               </button>

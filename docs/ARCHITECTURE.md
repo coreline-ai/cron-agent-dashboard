@@ -165,8 +165,9 @@ COMMIT
 ```
 robfig/cron Scheduler (in-process, 등록 방식)
   - 부팅 시 enabled 룰을 cron.AddFunc(spec, callback)으로 전부 등록
-  - 룰 CRUD 시 scheduler 전체 reload (단순함 우선)
+  - 룰 CRUD/snooze 변경 시 scheduler 전체 reload (단순함 우선)
   - cron.Location = CORN_AGENT_DASHBOARD_TIMEZONE (기본 Asia/Seoul)
+  - snooze_until > now 이면 callback/manual trigger는 issue/run 생성 없이 no-op
   │
   ▼ (룰의 시각 도래 시 callback 호출)
   │
@@ -181,6 +182,7 @@ BEGIN
     - autopilot_rule_id = rule.id
   run INSERT (status='queued')
   rule UPDATE: last_run_at = now, next_run_at = cron.Next()
+  (snooze_until이 미래면 BEGIN 이전 no-op, failure count 증가 없음)
 COMMIT
 
 (이후 워커가 polling으로 claim — 2.1 흐름으로 합류)
@@ -188,7 +190,7 @@ COMMIT
 
 **꺼져 있는 동안의 시각**:
 - 서버가 꺼져 있던 시간에 도래했어야 할 시각은 **실행하지 않는다** (robfig 기본 동작)
-- 부팅 시 `next_run_at`을 재계산 (cron.Next from now)
+- 부팅 시 `next_run_at`을 재계산 (cron.Next from now, snooze 중이면 만료 이후 첫 cron)
 - 사용자 안내: Autopilot UI 카드에 "마지막 실행: ..." 표시로 누락 여부 확인 가능
 
 ---

@@ -25,7 +25,8 @@ const emptyForm = {
   issue_title_template: '{{date}} 정기 작업',
   issue_body_template: '',
   assignee_agent_id: '',
-  enabled: true
+  enabled: true,
+  snooze_until: ''
 };
 
 const cronPresets = [
@@ -53,7 +54,8 @@ export function AutopilotDialog({ open, slug, template, rule, onClose }: Autopil
         issue_title_template: rule.issue_title_template,
         issue_body_template: rule.issue_body_template ?? '',
         assignee_agent_id: rule.assignee_agent_id ?? '',
-        enabled: rule.enabled
+        enabled: rule.enabled,
+        snooze_until: rule.snooze_until ?? ''
       });
       return;
     }
@@ -145,6 +147,35 @@ export function AutopilotDialog({ open, slug, template, rule, onClose }: Autopil
             onChange={(e) => setForm({ ...form, issue_body_template: e.target.value })}
           />
         </label>
+        <div className="field-label">
+          일시 정지
+          <div className="cron-preset-grid">
+            <button type="button" onClick={() => setForm({ ...form, snooze_until: snoozeForDays(1) })}>
+              <span>1일 정지</span>
+              <small>내일까지 자동 생성 중지</small>
+            </button>
+            <button type="button" onClick={() => setForm({ ...form, snooze_until: snoozeForDays(7) })}>
+              <span>1주일 정지</span>
+              <small>7일 후 재개</small>
+            </button>
+            <button type="button" onClick={() => setForm({ ...form, snooze_until: snoozeForDays(30) })}>
+              <span>한 달 정지</span>
+              <small>30일 후 재개</small>
+            </button>
+            <button type="button" onClick={() => setForm({ ...form, snooze_until: '' })}>
+              <span>해제</span>
+              <small>정상 스케줄 복귀</small>
+            </button>
+          </div>
+          <input
+            type="datetime-local"
+            value={toDateTimeLocalInput(form.snooze_until)}
+            onChange={(e) => setForm({ ...form, snooze_until: fromDateTimeLocalInput(e.target.value) })}
+            aria-label="일시 정지 해제 시각"
+          />
+          <p className="field-hint">설정한 시각 전까지 cron 자동 실행과 수동 실행을 막습니다.</p>
+        </div>
+
         <label className="check-row">
           <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> ON
         </label>
@@ -152,4 +183,30 @@ export function AutopilotDialog({ open, slug, template, rule, onClose }: Autopil
       </form>
     </Modal>
   );
+}
+function snoozeForDays(days: number) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function toDateTimeLocalInput(value?: string) {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDateTimeLocalInput(value: string) {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toISOString();
 }

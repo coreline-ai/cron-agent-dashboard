@@ -205,6 +205,7 @@ type AutopilotRule struct {
 	Enabled              bool   `db:"enabled" json:"enabled"`
 	LastRunAt            string `db:"last_run_at" json:"last_run_at,omitempty"`
 	NextRunAt            string `db:"next_run_at" json:"next_run_at,omitempty"`
+	SnoozeUntil          string `db:"snooze_until" json:"snooze_until,omitempty"`
 	LastError            string `db:"last_error" json:"last_error,omitempty"`
 	ConsecutiveFailures  int    `db:"consecutive_failures" json:"consecutive_failures"`
 	LastTriggeredIssueID string `db:"last_triggered_issue_id" json:"last_triggered_issue_id,omitempty"`

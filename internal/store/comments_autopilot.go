@@ -162,6 +162,7 @@ SELECT ar.id, ar.workspace_id, ar.name, ar.cron_expr, ar.issue_title_template, a
        ar.enabled,
        COALESCE(ar.last_run_at,'') AS last_run_at,
        COALESCE(ar.next_run_at,'') AS next_run_at,
+       COALESCE(ar.snooze_until,'') AS snooze_until,
        COALESCE(ar.last_error,'') AS last_error,
        ar.consecutive_failures,
        COALESCE(ar.last_triggered_issue_id,'') AS last_triggered_issue_id,
@@ -178,6 +179,7 @@ type UpsertAutopilotInput struct {
 	IssueBodyTemplate  string `json:"issue_body_template"`
 	AssigneeAgentID    string `json:"assignee_agent_id"`
 	Enabled            bool   `json:"enabled"`
+	SnoozeUntil        string `json:"snooze_until"`
 	NextRunAt          string `json:"next_run_at"`
 }
 
@@ -197,6 +199,9 @@ func validateAutopilot(in UpsertAutopilotInput) error {
 		return ErrValidation
 	}
 	if appscheduler.ValidateTemplate(in.IssueTitleTemplate) != nil || appscheduler.ValidateTemplate(in.IssueBodyTemplate) != nil {
+		return ErrValidation
+	}
+	if _, err := normalizeSnoozeUntil(in.SnoozeUntil); err != nil {
 		return ErrValidation
 	}
 	return nil
@@ -282,7 +287,11 @@ func (s *Store) CreateAutopilotRule(ctx context.Context, workspaceID string, in 
 	if in.Enabled {
 		enabled = 1
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO autopilot_rule(id,workspace_id,name,cron_expr,issue_title_template,issue_body_template,assignee_agent_id,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, workspaceID, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, t, t)
+	snoozeUntil, err := normalizeSnoozeUntil(in.SnoozeUntil)
+	if err != nil {
+		return AutopilotRule{}, ErrValidation
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO autopilot_rule(id,workspace_id,name,cron_expr,issue_title_template,issue_body_template,assignee_agent_id,enabled,snooze_until,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, workspaceID, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, nullIfEmpty(snoozeUntil), t, t)
 	if err != nil {
 		return AutopilotRule{}, normalizeErr(err)
 	}
@@ -310,7 +319,11 @@ func (s *Store) UpdateAutopilotRule(ctx context.Context, id string, in UpsertAut
 	if in.Enabled {
 		enabled = 1
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE autopilot_rule SET name=?, cron_expr=?, issue_title_template=?, issue_body_template=?, assignee_agent_id=?, enabled=?, updated_at=? WHERE id=?`, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, now(), id)
+	snoozeUntil, err := normalizeSnoozeUntil(in.SnoozeUntil)
+	if err != nil {
+		return AutopilotRule{}, ErrValidation
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE autopilot_rule SET name=?, cron_expr=?, issue_title_template=?, issue_body_template=?, assignee_agent_id=?, enabled=?, snooze_until=?, updated_at=? WHERE id=?`, in.Name, in.CronExpr, in.IssueTitleTemplate, in.IssueBodyTemplate, nullIfEmpty(in.AssigneeAgentID), enabled, nullIfEmpty(snoozeUntil), now(), id)
 	if err != nil {
 		return AutopilotRule{}, normalizeErr(err)
 	}
@@ -359,7 +372,7 @@ func (s *Store) TriggerAutopilotRuleResult(ctx context.Context, id string) (Auto
 	if err != nil {
 		return AutopilotTriggerResult{}, err
 	}
-	nextRunAt := nextAutopilotRunAt(rule.CronExpr)
+	nextRunAt := nextAutopilotRunAtForRule(rule, time.Now())
 	return s.triggerAutopilotRuleWithContentResult(ctx, rule, rule.IssueTitleTemplate, rule.IssueBodyTemplate, nextRunAt)
 }
 
@@ -368,7 +381,7 @@ func (s *Store) TriggerAutopilotRuleWithContent(ctx context.Context, id, title, 
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	result, err := s.triggerAutopilotRuleWithContentResult(ctx, rule, title, body, nextAutopilotRunAt(rule.CronExpr))
+	result, err := s.triggerAutopilotRuleWithContentResult(ctx, rule, title, body, nextAutopilotRunAtForRule(rule, time.Now()))
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
@@ -390,6 +403,11 @@ func (s *Store) triggerAutopilotRuleWithContentResult(ctx context.Context, rule 
 	result := AutopilotTriggerResult{Rule: rule}
 	if !rule.Enabled {
 		err := fmt.Errorf("%w: autopilot rule is disabled", ErrState)
+		result.Error = AutopilotTriggerErrorMessage(err)
+		return result, err
+	}
+	if until, snoozed := AutopilotSnoozedUntil(rule, time.Now()); snoozed {
+		err := fmt.Errorf("%w: autopilot rule is snoozed until %s", ErrState, until.UTC().Format(time.RFC3339Nano))
 		result.Error = AutopilotTriggerErrorMessage(err)
 		return result, err
 	}
@@ -491,12 +509,40 @@ func AutopilotTriggerErrorMessage(err error) string {
 	return capSnapshot(msg)
 }
 
-func nextAutopilotRunAt(cronExpr string) string {
-	schedule, err := cron.ParseStandard(cronExpr)
+func nextAutopilotRunAtForRule(rule AutopilotRule, base time.Time) string {
+	schedule, err := cron.ParseStandard(rule.CronExpr)
 	if err != nil {
 		return ""
 	}
-	return schedule.Next(time.Now()).UTC().Format(time.RFC3339Nano)
+	anchor := base
+	if until, snoozed := AutopilotSnoozedUntil(rule, base); snoozed && until.After(anchor) {
+		anchor = until
+	}
+	return schedule.Next(anchor).UTC().Format(time.RFC3339Nano)
+}
+
+func normalizeSnoozeUntil(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return "", err
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), nil
+}
+
+func AutopilotSnoozedUntil(rule AutopilotRule, base time.Time) (time.Time, bool) {
+	value := strings.TrimSpace(rule.SnoozeUntil)
+	if value == "" {
+		return time.Time{}, false
+	}
+	until, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return until, until.After(base.UTC())
 }
 
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }

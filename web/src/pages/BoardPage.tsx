@@ -180,6 +180,10 @@ export function BoardPage() {
     cancelExecution.mutate(pendingAction.issue);
   };
   const anyMutationPending = updateStatus.isPending || cancelExecution.isPending;
+  const refreshPending = issues.isFetching || agents.isFetching;
+  const refreshBoard = () => {
+    void Promise.all([issues.refetch(), agents.refetch()]);
+  };
 
   return (
     <section className="page-stack">
@@ -187,6 +191,11 @@ export function BoardPage() {
         eyebrow={`워크스페이스 / ${slug}`}
         title="이슈 보드"
         description="기존 이슈, 완료 이슈, 취소 이슈를 보드/리스트로 전환하며 추적합니다."
+        actions={
+          <button className="button micro secondary" type="button" onClick={refreshBoard} disabled={refreshPending}>
+            {refreshPending ? '새로고침 중' : '새로고침'}
+          </button>
+        }
       />
 
       <div className="board-toolbar panel">

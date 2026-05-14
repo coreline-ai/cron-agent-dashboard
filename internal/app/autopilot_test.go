@@ -140,3 +140,58 @@ func TestAutopilotRuleRejectsUnknownTemplateVariable(t *testing.T) {
 		t.Fatalf("err=%v, want validation", err)
 	}
 }
+
+func TestAutopilotRunnerSkipsSnoozedRuleAndSyncsNextAfterSnooze(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Snooze",
+		Slug:             "snooze",
+		IdentifierPrefix: "SNZ",
+		MainAgent:        store.CreateAgentInput{Name: "Lead", Runtime: "fake", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	loc, _ := time.LoadLocation("Asia/Seoul")
+	now := time.Date(2026, 5, 12, 9, 30, 0, 0, loc)
+	snoozeUntil := time.Date(2026, 5, 14, 10, 0, 0, 0, loc).UTC().Format(time.RFC3339Nano)
+	rule, err := st.CreateAutopilotRule(ctx, ws.ID, store.UpsertAutopilotInput{
+		Name:               "daily",
+		CronExpr:           "0 9 * * *",
+		IssueTitleTemplate: "{{date}} daily",
+		IssueBodyTemplate:  "body",
+		AssigneeAgentID:    main.ID,
+		Enabled:            true,
+		SnoozeUntil:        snoozeUntil,
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	runner := NewAutopilotRunner(st, loc)
+	runner.now = func() time.Time { return now }
+	if err := runner.Reload(ctx); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	reloaded, err := st.GetAutopilotRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.NextRunAt != "2026-05-15T00:00:00Z" {
+		t.Fatalf("next_run_at=%q, want first cron after snooze", reloaded.NextRunAt)
+	}
+	result, err := runner.TriggerRuleResult(ctx, rule.ID)
+	if !errors.Is(err, store.ErrState) {
+		t.Fatalf("trigger snoozed err=%v, want ErrState", err)
+	}
+	if result.OK || result.Issue != nil || result.Run != nil || result.Error == "" {
+		t.Fatalf("snoozed trigger should be no-op: %#v", result)
+	}
+	after, err := st.GetAutopilotRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ConsecutiveFailures != 0 || after.LastError != "" || after.LastTriggeredIssueID != "" {
+		t.Fatalf("snoozed trigger should not record failure: %#v", after)
+	}
+}

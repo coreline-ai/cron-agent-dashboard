@@ -447,6 +447,7 @@ Auto-chain은 agent 결과 댓글의 mention을 자동으로 다음 run으로 di
 - DB의 `autopilot_rule WHERE enabled=true` 부팅 시 전체 로드 → AddFunc로 등록
 - 룰 변경(CRUD) 시 scheduler 전체 reload (단순함 우선)
 - `next_run_at` 계산해서 룰 카드에 표시
+- `snooze_until`이 미래면 enabled 상태를 유지하되 callback/manual trigger가 issue/run 생성 없이 no-op 처리. failure count는 증가하지 않음.
 
 ### 9.4 꺼져 있는 동안의 cron
 - **누락된 시각은 실행하지 않음** (robfig 기본 동작)

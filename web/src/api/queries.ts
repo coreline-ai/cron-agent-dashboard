@@ -102,6 +102,7 @@ export type AutopilotRule = {
   enabled: boolean;
   last_run_at?: string;
   next_run_at?: string;
+  snooze_until?: string;
   last_error?: string;
   consecutive_failures: number;
   last_triggered_issue_id?: string;

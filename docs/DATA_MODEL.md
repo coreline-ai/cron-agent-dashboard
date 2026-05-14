@@ -292,6 +292,10 @@ CREATE TABLE autopilot_rule (
   enabled               INTEGER NOT NULL DEFAULT 1,
   last_run_at           TEXT,
   next_run_at           TEXT,
+  snooze_until          TEXT,              -- future RFC3339 = 일시 정지
+  last_error            TEXT NOT NULL DEFAULT '',
+  consecutive_failures  INTEGER NOT NULL DEFAULT 0,
+  last_triggered_issue_id TEXT REFERENCES issue(id) ON DELETE SET NULL,
   created_at            TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -303,9 +307,10 @@ CREATE INDEX idx_autopilot_enabled_next
 
 **제약 / 규칙**:
 - `cron_expr`: 표준 5필드. 백엔드에서 robfig/cron 파싱 검증.
-- `next_run_at`: 룰 생성/수정 시 cron 평가로 계산해서 저장 (시스템 timezone 기준).
-- `enabled` 변경 시 scheduler 전체 reload (단순함 우선).
-- 룰 실행이 issue 생성 실패하면 룰은 살아있고 다음 tick에 재시도.
+- `next_run_at`: 룰 생성/수정/Reload 시 cron 평가로 계산해서 저장 (시스템 timezone 기준).
+- `snooze_until`: 미래 시각이면 enabled 상태를 유지하되 cron/manual trigger를 no-op으로 처리. `next_run_at`은 snooze 만료 이후 첫 cron 시각을 가리킨다.
+- `enabled` 또는 `snooze_until` 변경 시 scheduler 전체 reload (단순함 우선).
+- 룰 실행이 issue 생성 실패하면 `consecutive_failures`가 증가하고 5회 연속 실패 시 자동 OFF.
 - **시간대**:
   - 시스템 전역: 환경변수 `CORN_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
   - 룰별 timezone 컬럼은 두지 않음 — 시스템 전역으로 단순화
@@ -560,7 +565,15 @@ execution_status 도메인: `running | queued | done | failed | cancelled | idle
 ```
 internal/db/migrations/
 ├── 0001_init.sql           # workspace, agent, issue, comment, run, autopilot_rule + schema_migrations
-└── 0002_indexes.sql        # 모든 인덱스 (partial 포함)
+├── 0002_indexes.sql        # 모든 인덱스 (partial 포함)
+├── 0003_comment_truncated.sql
+├── 0004_agent_model_user_selectable.sql
+├── 0005_run_lifecycle_hardening.sql
+├── 0006_run_event.sql
+├── 0007_autopilot_failure_visibility.sql
+├── 0008_process_tracking.sql
+├── 0009_process_tracking_safety.sql
+└── 0010_autopilot_snooze.sql
 ```
 
 이후 변경은 `0003_*.sql` 등으로 누적. forward-only.
@@ -659,7 +672,7 @@ CREATE TABLE run_event (
 
 ### 7.3 autopilot_rule failure 필드
 
-`autopilot_rule`은 마지막 실패 및 마지막 생성 이슈 추적을 위해 `last_error`, `consecutive_failures`, `last_triggered_issue_id`를 가진다.
+`autopilot_rule`은 마지막 실패 및 마지막 생성 이슈 추적을 위해 `last_error`, `consecutive_failures`, `last_triggered_issue_id`를 가진다. `snooze_until`은 일시 정지 만료 시각이며, 미래 시각이면 failure count를 올리지 않고 trigger를 건너뛴다.
 
 ---
 
