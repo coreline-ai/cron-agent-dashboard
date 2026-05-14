@@ -3,6 +3,7 @@
 package worker
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 	"time"
@@ -10,6 +11,20 @@ import (
 
 func configureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
+func commandProcessInfo(cmd *exec.Cmd) ProcessInfo {
+	if cmd == nil || cmd.Process == nil {
+		return ProcessInfo{}
+	}
+	pid := cmd.Process.Pid
+	pgid := 0
+	if pid > 0 {
+		if got, err := syscall.Getpgid(pid); err == nil {
+			pgid = got
+		}
+	}
+	return ProcessInfo{PID: pid, PGID: pgid}
 }
 
 func terminateProcessGroup(cmd *exec.Cmd, grace time.Duration) {
@@ -21,13 +36,25 @@ func terminateProcessGroup(cmd *exec.Cmd, grace time.Duration) {
 		_ = cmd.Process.Kill()
 		return
 	}
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	_ = TerminateProcessGroupID(pgid, grace)
+}
+
+func TerminateProcessGroupID(pgid int, grace time.Duration) error {
+	if pgid <= 1 {
+		return nil
+	}
+	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+		return err
+	}
 	if grace <= 0 {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		return
+		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
 	}
 	go func() {
 		<-time.After(grace)
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	}()
+	return nil
 }

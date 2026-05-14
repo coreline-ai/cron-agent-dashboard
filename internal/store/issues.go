@@ -357,7 +357,9 @@ SELECT r.id, r.issue_id, r.agent_id, COALESCE(a.name,'') AS agent_name, r.status
        COALESCE(r.trigger_comment_id,'') AS trigger_comment_id, r.trigger_content_snapshot,
        r.enqueued_at, COALESCE(r.claimed_at,'') AS claimed_at, r.claimed_by,
        COALESCE(r.started_at,'') AS started_at, COALESCE(r.heartbeat_at,'') AS heartbeat_at,
-       COALESCE(r.finished_at,'') AS finished_at, r.exit_code, r.stdout_path, r.error_message,
+       COALESCE(r.finished_at,'') AS finished_at,
+       COALESCE(r.process_pid, 0) AS process_pid, COALESCE(r.process_pgid, 0) AS process_pgid,
+       r.exit_code, r.stdout_path, r.error_message,
        r.terminal_reason, r.failure_kind, r.cancel_reason
 FROM run r
 LEFT JOIN agent a ON a.id = r.agent_id`
@@ -664,6 +666,50 @@ func (s *Store) HeartbeatRun(ctx context.Context, runID string) error {
 		return ErrState
 	}
 	return nil
+}
+
+func (s *Store) MarkRunProcess(ctx context.Context, runID string, pid, pgid int) error {
+	if strings.TrimSpace(runID) == "" || pid < 0 || pgid < 0 {
+		return ErrValidation
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE run SET process_pid=?, process_pgid=? WHERE id=? AND status='running'`, pid, pgid, runID)
+	if err != nil {
+		return normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return ErrState
+	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     runID,
+		EventType: RunEventStarting,
+		Message:   "Executor process started",
+		Details: map[string]any{
+			"pid":  pid,
+			"pgid": pgid,
+		},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListRunningProcessGroups(ctx context.Context) ([]int, error) {
+	var pgids []int
+	if err := s.db.SelectContext(ctx, &pgids, `
+SELECT process_pgid
+FROM run
+WHERE status='running' AND process_pgid > 1
+GROUP BY process_pgid
+ORDER BY process_pgid`); err != nil {
+		return nil, normalizeErr(err)
+	}
+	return pgids, nil
 }
 
 func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error) {

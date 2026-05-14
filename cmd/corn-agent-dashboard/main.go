@@ -91,18 +91,23 @@ func serve(cfg config.Config, st *store.Store) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_runs_recovered=%d",
+	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_process_groups_terminated=%d orphan_runs_recovered=%d",
 		report.IntegrityCheck,
 		report.JournalMode,
 		report.ForeignKeysEnabled,
 		report.BusyTimeoutMS,
 		report.WorkspaceCount,
 		report.ForeignKeyViolationCount,
+		report.OrphanProcessGroupsTerminated,
 		report.OrphanRunsRecovered,
 	)
 
 	workerStore := app.NewWorkerStore(st, app.WithDefaultWorkDir(filepath.Join(cfg.DataDir, "workdirs")))
-	executor := app.NewRuntimeExecutor(workerruntime.DefaultAdapters(), filepath.Join(cfg.DataDir, "runs"))
+	executor := app.NewRuntimeExecutor(
+		workerruntime.DefaultAdapters(),
+		filepath.Join(cfg.DataDir, "runs"),
+		app.WithRunProcessMarker(st),
+	)
 	pool := worker.NewPool(workerStore, executor, worker.WithPoolSize(cfg.Workers))
 	if err := pool.Start(runCtx); err != nil {
 		return err

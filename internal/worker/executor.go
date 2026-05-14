@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,15 +45,21 @@ func (f CommandBuilderFunc) BuildCommand(ctx context.Context, run ExecutionConte
 }
 
 type Executor struct {
-	Adapter       CommandBuilder
-	Timeout       time.Duration
-	KillGrace     time.Duration
-	StdoutCap     int64
-	StderrRingCap int
-	LogDir        string
-	Now           func() time.Time
-	OnStart       func(context.Context, ExecutionContext, string) error
-	OnFinish      func(context.Context, ExecutionContext, ExecutionResult) error
+	Adapter        CommandBuilder
+	Timeout        time.Duration
+	KillGrace      time.Duration
+	StdoutCap      int64
+	StderrRingCap  int
+	LogDir         string
+	Now            func() time.Time
+	OnStart        func(context.Context, ExecutionContext, string) error
+	OnProcessStart func(context.Context, ExecutionContext, ProcessInfo) error
+	OnFinish       func(context.Context, ExecutionContext, ExecutionResult) error
+}
+
+type ProcessInfo struct {
+	PID  int
+	PGID int
 }
 
 type ExecutionResult struct {
@@ -66,6 +73,8 @@ type ExecutionResult struct {
 	StartedAt       time.Time
 	FinishedAt      time.Time
 	ProcessStarted  bool
+	ProcessPID      int
+	ProcessPGID     int
 	TimedOut        bool
 	Cancelled       bool
 	CancelReason    string
@@ -149,6 +158,14 @@ func (e *Executor) Execute(ctx context.Context, run ExecutionContext) ExecutionR
 		return result
 	}
 	result.ProcessStarted = true
+	processInfo := commandProcessInfo(cmd)
+	result.ProcessPID = processInfo.PID
+	result.ProcessPGID = processInfo.PGID
+	if e.OnProcessStart != nil {
+		if err := e.OnProcessStart(ctx, run, processInfo); err != nil {
+			slog.Warn("process start callback failed", "run_id", run.RunID, "pid", processInfo.PID, "pgid", processInfo.PGID, "error", err)
+		}
+	}
 
 	stderrRing := NewRingBuffer(e.stderrRingCap())
 	var wg sync.WaitGroup

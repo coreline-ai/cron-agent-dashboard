@@ -497,6 +497,9 @@ corn-agent-dashboard serve   # 마이그레이션 자동 적용
 | [🎨 UX FLOW](docs/UX_FLOW.md) | 7 페이지 화면 · 배지 · 사이드바 · empty state |
 | [🔗 CHAINING](docs/CHAINING.md) | explicit-only 현재 정책 · auto-chain opt-in 후보 설계(미구현) |
 | [🗺️ ROADMAP](docs/ROADMAP.md) | Phase 0~7 · 의존성 · 리스크 |
+| [📝 CHANGELOG](CHANGELOG.md) | v0.1.0 변경 이력 · 릴리스별 추가/변경/운영 주의사항 |
+| [🚀 RELEASE NOTES v0.1.0](docs/RELEASE_NOTES_v0.1.0.md) | GitHub Release body로 사용할 수 있는 사용자 관점 릴리스 노트 |
+| [🛠️ OPERATIONS](docs/OPERATIONS.md) | daily-use 운영 체크리스트 · 백업 · run event · 로그 정리 · artifact 검증 |
 | [✅ TODO](TODO.md) | scaffold 이후 남은 항목 · P0/P1/P2/P3 우선순위 |
 | [🧩 후속 개발 계획](dev-plan/implement_20260512_180648.md) | worker/scheduler/frontend/embed/release 남은 작업 분해 |
 | [🤝 CLAUDE.md](CLAUDE.md) | LLM 코딩 어시스턴트용 작업 가이드라인 |

@@ -90,6 +90,8 @@ type Run struct {
 	StartedAt              string         `db:"started_at" json:"started_at,omitempty"`
 	HeartbeatAt            string         `db:"heartbeat_at" json:"heartbeat_at,omitempty"`
 	FinishedAt             string         `db:"finished_at" json:"finished_at,omitempty"`
+	ProcessPID             int            `db:"process_pid" json:"-"`
+	ProcessPGID            int            `db:"process_pgid" json:"-"`
 	ExitCode               NullInt64      `db:"exit_code" json:"exit_code"`
 	StdoutPath             sql.NullString `db:"stdout_path" json:"-"`
 	StdoutSizeBytes        int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
