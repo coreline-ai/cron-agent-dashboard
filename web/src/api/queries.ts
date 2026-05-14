@@ -13,6 +13,8 @@ export type WorkspaceSummary = {
 
 export type IssueStatus = 'open' | 'done' | 'cancelled';
 export type ExecutionStatus = 'idle' | 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+export type RunStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+export type RunEventSeverity = 'debug' | 'info' | 'warn' | 'error';
 
 export type Agent = {
   id: string;
@@ -25,14 +27,21 @@ export type Agent = {
 
 export type Issue = {
   id: string;
+  workspace_id?: string;
   identifier: string;
   title: string;
   body: string;
   status: IssueStatus;
   execution_status: ExecutionStatus;
+  assignee_agent_id?: string;
   assignee_agent_name?: string;
+  created_by?: string;
+  autopilot_rule_id?: string;
+  last_run_agent_id?: string;
   last_run_agent_name?: string;
   comment_count: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type Comment = {
@@ -41,22 +50,45 @@ export type Comment = {
   author_agent_name?: string;
   run_id?: string;
   content: string;
+  truncated?: boolean;
   log_url?: string;
   created_at: string;
 };
 
 export type Run = {
   id: string;
+  issue_id?: string;
+  agent_id?: string;
   agent_name?: string;
-  status: string;
+  status: RunStatus | string;
   trigger_type: string;
+  trigger_comment_id?: string;
+  trigger_content_snapshot?: string;
   log_url?: string;
   error_message?: string;
   exit_code?: number | null;
   stdout_size_bytes?: number;
   enqueued_at?: string;
+  claimed_at?: string;
+  claimed_by?: string;
   started_at?: string;
+  heartbeat_at?: string;
   finished_at?: string;
+  terminal_reason?: string;
+  failure_kind?: string;
+  cancel_reason?: string;
+};
+
+export type RunEvent = {
+  id: string;
+  run_id: string;
+  issue_id: string;
+  seq: number;
+  event_type: string;
+  severity: RunEventSeverity | string;
+  message?: string;
+  details?: Record<string, unknown>;
+  created_at: string;
 };
 
 export type AutopilotRule = {
@@ -70,6 +102,24 @@ export type AutopilotRule = {
   enabled: boolean;
   last_run_at?: string;
   next_run_at?: string;
+  last_error?: string;
+  consecutive_failures: number;
+  last_triggered_issue_id?: string;
+};
+
+export type AutopilotTriggerResult = {
+  ok: boolean;
+  rule: AutopilotRule;
+  issue?: Issue;
+  run?: Run;
+  error?: string;
+};
+
+export type AutopilotTriggerResponse = {
+  trigger_result: AutopilotTriggerResult;
+  rule: AutopilotRule;
+  issue?: Issue;
+  run?: Run;
 };
 
 export type HealthResponse = {
@@ -86,11 +136,24 @@ export type SettingsResponse = {
   worker_pool_size: number;
   auth_mode: string;
   timezone: string;
+  run_lifecycle?: {
+    heartbeat_interval_seconds: number;
+    stale_after_seconds: number;
+    stale_scan_interval_seconds: number;
+  };
   available_runtimes: Array<{
     name: string;
     version: string;
     path: string;
   }>;
+};
+
+export type IssuesQueryParams = {
+  status?: IssueStatus | 'all';
+  execution?: ExecutionStatus | 'all';
+  assignee?: string;
+  q?: string;
+  limit?: number;
 };
 
 async function fetchHealth(): Promise<HealthResponse> {
@@ -146,12 +209,13 @@ export function useAgentQuery(id: string | undefined) {
   });
 }
 
-export function useIssuesQuery(slug: string | undefined) {
+export function useIssuesQuery(slug: string | undefined, params: IssuesQueryParams = {}) {
+  const queryString = buildIssuesQuery(params);
   return useQuery({
-    queryKey: ['issues', slug],
+    queryKey: ['issues', slug, queryString],
     enabled: Boolean(slug),
     refetchInterval: 5_000,
-    queryFn: async () => (await apiClient.get<{ issues: Issue[] | null }>(`/workspaces/${slug}/issues`)).issues ?? []
+    queryFn: async () => (await apiClient.get<{ issues: Issue[] | null }>(`/workspaces/${slug}/issues${queryString}`)).issues ?? []
   });
 }
 
@@ -186,10 +250,41 @@ export function useRunsQuery(issueId: string | undefined, executionStatus: strin
   });
 }
 
+export function useRunEventsQuery(runId: string | undefined, executionStatus?: string) {
+  return useQuery({
+    queryKey: ['run-events', runId],
+    enabled: Boolean(runId),
+    refetchInterval: executionStatus === 'queued' || executionStatus === 'running' ? 3_000 : false,
+    queryFn: async () => (await apiClient.get<{ events: RunEvent[] }>(`/runs/${runId}/events`)).events ?? []
+  });
+}
+
 export function useAutopilotRulesQuery(slug: string | undefined) {
   return useQuery({
     queryKey: ['autopilot', slug],
     enabled: Boolean(slug),
     queryFn: async () => (await apiClient.get<{ rules: AutopilotRule[] | null }>(`/workspaces/${slug}/autopilot`)).rules ?? []
   });
+}
+
+function buildIssuesQuery(params: IssuesQueryParams) {
+  const search = new URLSearchParams();
+  if (params.status && params.status !== 'all') {
+    search.set('status', params.status);
+  }
+  if (params.execution && params.execution !== 'all') {
+    search.set('execution', params.execution);
+  }
+  if (params.assignee) {
+    search.set('assignee', params.assignee);
+  }
+  const q = params.q?.trim();
+  if (q) {
+    search.set('q', q);
+  }
+  if (params.limit) {
+    search.set('limit', String(params.limit));
+  }
+  const value = search.toString();
+  return value ? `?${value}` : '';
 }

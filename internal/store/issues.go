@@ -82,6 +82,18 @@ func (s *Store) CreateIssueWithInitialRun(ctx context.Context, workspaceID strin
 	if err != nil {
 		return Issue{}, Run{}, normalizeErr(err)
 	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     runID,
+		IssueID:   issueID,
+		EventType: RunEventQueued,
+		Message:   "Run queued by " + trigger,
+		Details: map[string]any{
+			"trigger_type": trigger,
+			"created_by":   createdBy,
+		},
+	}); err != nil {
+		return Issue{}, Run{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Issue{}, Run{}, err
 	}
@@ -221,8 +233,28 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput)
 		return Issue{}, ErrNotFound
 	}
 	if status == "cancelled" {
-		if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-1, finished_at=?, error_message='issue cancelled' WHERE issue_id=? AND status='queued'`, t, id); err != nil {
+		var queuedRuns []struct {
+			ID string `db:"id"`
+		}
+		if err := tx.SelectContext(ctx, &queuedRuns, `SELECT id FROM run WHERE issue_id=? AND status='queued' ORDER BY enqueued_at ASC`, id); err != nil {
 			return Issue{}, normalizeErr(err)
+		}
+		for _, queued := range queuedRuns {
+			if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-1, finished_at=?, error_message='issue cancelled', terminal_reason=?, cancel_reason=? WHERE id=? AND status='queued'`, t, TerminalReasonIssueCancelled, CancelReasonIssue, queued.ID); err != nil {
+				return Issue{}, normalizeErr(err)
+			}
+			if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+				RunID:     queued.ID,
+				IssueID:   id,
+				EventType: RunEventCancelled,
+				Message:   "Run cancelled because issue was cancelled",
+				Details: map[string]any{
+					"terminal_reason": TerminalReasonIssueCancelled,
+					"cancel_reason":   CancelReasonIssue,
+				},
+			}); err != nil {
+				return Issue{}, err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system','이슈가 취소되었습니다',?)`, newID(), id, t); err != nil {
 			return Issue{}, normalizeErr(err)
@@ -297,6 +329,17 @@ func (s *Store) RerunIssue(ctx context.Context, issueID, agentID string) (Run, e
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     runID,
+		IssueID:   issueID,
+		EventType: RunEventQueued,
+		Message:   "Run queued by rerun",
+		Details: map[string]any{
+			"trigger_type": "rerun",
+		},
+	}); err != nil {
+		return Run{}, err
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE issue SET status='open', updated_at=? WHERE id=?`, t, issueID)
 	if err != nil {
 		return Run{}, err
@@ -313,8 +356,9 @@ const runSelectBase = `
 SELECT r.id, r.issue_id, r.agent_id, COALESCE(a.name,'') AS agent_name, r.status, r.trigger_type,
        COALESCE(r.trigger_comment_id,'') AS trigger_comment_id, r.trigger_content_snapshot,
        r.enqueued_at, COALESCE(r.claimed_at,'') AS claimed_at, r.claimed_by,
-       COALESCE(r.started_at,'') AS started_at, COALESCE(r.finished_at,'') AS finished_at,
-       r.exit_code, r.stdout_path, r.error_message
+       COALESCE(r.started_at,'') AS started_at, COALESCE(r.heartbeat_at,'') AS heartbeat_at,
+       COALESCE(r.finished_at,'') AS finished_at, r.exit_code, r.stdout_path, r.error_message,
+       r.terminal_reason, r.failure_kind, r.cancel_reason
 FROM run r
 LEFT JOIN agent a ON a.id = r.agent_id`
 
@@ -359,7 +403,7 @@ ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`)
 		return Run{}, false, normalizeErr(err)
 	}
 	t := now()
-	res, err := tx.ExecContext(ctx, `UPDATE run SET status='running', claimed_at=?, claimed_by=?, started_at=? WHERE id=? AND status='queued'`, t, workerID, t, runID)
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status='running', claimed_at=?, claimed_by=?, started_at=?, heartbeat_at=? WHERE id=? AND status='queued'`, t, workerID, t, t, runID)
 	if err != nil {
 		return Run{}, false, err
 	}
@@ -374,6 +418,17 @@ ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?, 'system', ?, ?, ?)`, newID(), r.IssueID, r.ID, fmt.Sprintf("%s 실행을 시작했습니다", r.AgentName), t); err != nil {
 		return Run{}, false, normalizeErr(err)
 	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     r.ID,
+		IssueID:   r.IssueID,
+		EventType: RunEventClaimed,
+		Message:   "Run claimed by worker",
+		Details: map[string]any{
+			"worker_id": workerID,
+		},
+	}); err != nil {
+		return Run{}, false, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Run{}, false, err
 	}
@@ -382,9 +437,39 @@ ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`)
 }
 
 func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, stdoutPath, content string, contentTruncated bool, errMsg string) (Run, error) {
-	status := "done"
+	terminalReason := TerminalReasonCompleted
+	failureKind := ""
 	if exitCode != 0 {
+		terminalReason = TerminalReasonExitNonzero
+		failureKind = FailureKindExitNonzero
+	}
+	return s.CompleteRunWithReason(ctx, runID, FinishRunInput{
+		ExitCode:         exitCode,
+		StdoutPath:       stdoutPath,
+		Content:          content,
+		ContentTruncated: contentTruncated,
+		ErrorMessage:     errMsg,
+		TerminalReason:   terminalReason,
+		FailureKind:      failureKind,
+	})
+}
+
+func (s *Store) CompleteRunWithReason(ctx context.Context, runID string, in FinishRunInput) (Run, error) {
+	if in.TerminalReason == "" {
+		in.TerminalReason = TerminalReasonCompleted
+		if in.ExitCode != 0 {
+			in.TerminalReason = TerminalReasonExitNonzero
+		}
+	}
+	status := "done"
+	if in.ExitCode != 0 || in.TerminalReason != TerminalReasonCompleted {
 		status = "failed"
+	}
+	if status == "failed" && in.FailureKind == "" {
+		in.FailureKind = FailureKindUnknown
+	}
+	if status == "done" {
+		in.FailureKind = ""
 	}
 	run, err := s.GetRun(ctx, runID)
 	if err != nil {
@@ -396,7 +481,7 @@ func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, std
 	}
 	defer tx.Rollback()
 	t := now()
-	res, err := tx.ExecContext(ctx, `UPDATE run SET status=?, finished_at=?, exit_code=?, stdout_path=?, error_message=? WHERE id=? AND status='running'`, status, t, exitCode, nullIfEmpty(stdoutPath), errMsg, runID)
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status=?, finished_at=?, exit_code=?, stdout_path=?, error_message=?, terminal_reason=?, failure_kind=?, cancel_reason='' WHERE id=? AND status='running'`, status, t, in.ExitCode, nullIfEmpty(in.StdoutPath), in.ErrorMessage, in.TerminalReason, in.FailureKind, runID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
@@ -405,17 +490,51 @@ func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, std
 		// Another path (user cancel, shutdown recovery, etc.) already moved this
 		// run out of running. Do not overwrite the terminal state or issue status.
 		_ = tx.Rollback()
+		s.recoverRunStdoutPath(ctx, runID, in.StdoutPath)
 		return s.GetRun(ctx, runID)
 	}
-	if content == "" {
-		content = emptyRunComment(status, errMsg)
+	if in.Content == "" {
+		in.Content = emptyRunComment(status, in.ErrorMessage)
 	}
 	truncated := 0
-	if contentTruncated {
+	if in.ContentTruncated {
 		truncated = 1
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,author_agent_id,run_id,content,truncated,created_at) VALUES(?,?, 'agent', ?, ?, ?, ?, ?)`, newID(), run.IssueID, run.AgentID, run.ID, content, truncated, t); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,author_agent_id,run_id,content,truncated,created_at) VALUES(?,?, 'agent', ?, ?, ?, ?, ?)`, newID(), run.IssueID, run.AgentID, run.ID, in.Content, truncated, t); err != nil {
 		return Run{}, normalizeErr(err)
+	}
+	if in.StdoutTruncated {
+		if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+			RunID:     run.ID,
+			IssueID:   run.IssueID,
+			EventType: RunEventStdoutTrunc,
+			Severity:  RunEventSeverityWarn,
+			Message:   "Stdout was truncated by output cap",
+		}); err != nil {
+			return Run{}, err
+		}
+	}
+	eventType := RunEventCompleted
+	severity := RunEventSeverityInfo
+	message := "Run completed"
+	if status == "failed" {
+		eventType = RunEventFailed
+		severity = RunEventSeverityError
+		message = "Run failed"
+	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     run.ID,
+		IssueID:   run.IssueID,
+		EventType: eventType,
+		Severity:  severity,
+		Message:   message,
+		Details: map[string]any{
+			"exit_code":       in.ExitCode,
+			"terminal_reason": in.TerminalReason,
+			"failure_kind":    in.FailureKind,
+		},
+	}); err != nil {
+		return Run{}, err
 	}
 	if status == "done" {
 		if _, err := tx.ExecContext(ctx, `UPDATE issue SET status='done', updated_at=? WHERE id=?`, t, run.IssueID); err != nil {
@@ -426,6 +545,14 @@ func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, std
 		return Run{}, err
 	}
 	return s.GetRun(ctx, runID)
+}
+
+func (s *Store) recoverRunStdoutPath(ctx context.Context, runID, stdoutPath string) {
+	stdoutPath = strings.TrimSpace(stdoutPath)
+	if stdoutPath == "" {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE run SET stdout_path=? WHERE id=? AND (stdout_path IS NULL OR stdout_path='')`, stdoutPath, runID)
 }
 
 func emptyRunComment(status, errMsg string) string {
@@ -439,7 +566,62 @@ func emptyRunComment(status, errMsg string) string {
 }
 
 func (s *Store) FailRun(ctx context.Context, runID string, errMsg string) (Run, error) {
-	return s.CompleteRun(ctx, runID, 1, "", "", false, errMsg)
+	return s.CompleteRunWithReason(ctx, runID, FinishRunInput{ExitCode: 1, ErrorMessage: errMsg, TerminalReason: TerminalReasonUnknownFailure, FailureKind: FailureKindUnknown})
+}
+
+func (s *Store) FailInfrastructureRun(ctx context.Context, runID, terminalReason, failureKind, errMsg string) (Run, error) {
+	if terminalReason == "" {
+		terminalReason = TerminalReasonUnknownFailure
+	}
+	if failureKind == "" {
+		failureKind = FailureKindUnknown
+	}
+	run, err := s.GetRun(ctx, runID)
+	if err != nil {
+		return Run{}, err
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Run{}, err
+	}
+	defer tx.Rollback()
+	t := now()
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status='failed', finished_at=?, exit_code=1, error_message=?, terminal_reason=?, failure_kind=?, cancel_reason='' WHERE id=? AND status IN ('queued','running')`, t, errMsg, terminalReason, failureKind, runID)
+	if err != nil {
+		return Run{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		_ = tx.Rollback()
+		return s.GetRun(ctx, runID)
+	}
+	comment := emptyRunComment("failed", errMsg)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,author_agent_id,run_id,content,truncated,created_at) VALUES(?,?, 'agent', ?, ?, ?, 0, ?)`, newID(), run.IssueID, run.AgentID, run.ID, comment, t); err != nil {
+		return Run{}, normalizeErr(err)
+	}
+	eventType := RunEventFailed
+	message := "Run failed"
+	if terminalReason == TerminalReasonClaimPreparationFailed {
+		eventType = RunEventPrepareFailed
+		message = "Run preparation failed"
+	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     run.ID,
+		IssueID:   run.IssueID,
+		EventType: eventType,
+		Severity:  RunEventSeverityError,
+		Message:   message,
+		Details: map[string]any{
+			"terminal_reason": terminalReason,
+			"failure_kind":    failureKind,
+		},
+	}); err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, err
+	}
+	return s.GetRun(ctx, runID)
 }
 
 func (s *Store) CancelRunningRun(ctx context.Context, issueID string) (Run, error) {
@@ -447,7 +629,11 @@ func (s *Store) CancelRunningRun(ctx context.Context, issueID string) (Run, erro
 	if err != nil {
 		return Run{}, err
 	}
-	return s.CancelRun(ctx, r.ID, "user cancelled")
+	return s.CancelRunWithReason(ctx, r.ID, CancelReasonInput{
+		Message:        defaultCancelMessage(CancelReasonUser),
+		TerminalReason: TerminalReasonUserCancelled,
+		CancelReason:   CancelReasonUser,
+	})
 }
 
 func (s *Store) GetActiveRunByIssue(ctx context.Context, issueID string) (Run, error) {
@@ -468,10 +654,24 @@ func (s *Store) GetRunningRunByIssue(ctx context.Context, issueID string) (Run, 
 	return r, nil
 }
 
-func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error) {
-	if strings.TrimSpace(reason) == "" {
-		reason = "cancelled"
+func (s *Store) HeartbeatRun(ctx context.Context, runID string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE run SET heartbeat_at=? WHERE id=? AND status='running'`, now(), runID)
+	if err != nil {
+		return normalizeErr(err)
 	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return ErrState
+	}
+	return nil
+}
+
+func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error) {
+	return s.CancelRunWithReason(ctx, runID, classifyCancelReason(reason))
+}
+
+func (s *Store) CancelRunWithReason(ctx context.Context, runID string, reason CancelReasonInput) (Run, error) {
+	reason = normalizeCancelReason(reason)
 	r, err := s.GetRun(ctx, runID)
 	if err != nil {
 		return Run{}, err
@@ -485,7 +685,7 @@ func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error
 	}
 	defer tx.Rollback()
 	t := now()
-	res, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message=? WHERE id=? AND status IN ('queued','running')`, t, reason, r.ID)
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message=?, terminal_reason=?, cancel_reason=? WHERE id=? AND status IN ('queued','running')`, t, reason.Message, reason.TerminalReason, reason.CancelReason, r.ID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
@@ -496,17 +696,127 @@ func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error
 	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,?,?)`, newID(), r.IssueID, r.ID, cancelComment(reason), t); err != nil {
 		return Run{}, normalizeErr(err)
 	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     r.ID,
+		IssueID:   r.IssueID,
+		EventType: RunEventCancelled,
+		Message:   "Run cancelled",
+		Details: map[string]any{
+			"terminal_reason": reason.TerminalReason,
+			"cancel_reason":   reason.CancelReason,
+		},
+	}); err != nil {
+		return Run{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
 	return s.GetRun(ctx, r.ID)
 }
 
-func cancelComment(reason string) string {
-	if strings.Contains(strings.ToLower(reason), "shutdown") {
-		return "서버 종료로 실행이 취소되었습니다"
+func normalizeCancelReason(reason CancelReasonInput) CancelReasonInput {
+	if reason.TerminalReason == "" {
+		reason.TerminalReason = terminalReasonForCancelReason(reason.CancelReason)
 	}
-	return "사용자가 실행을 취소했습니다"
+	if reason.CancelReason == "" {
+		reason.CancelReason = cancelReasonForTerminalReason(reason.TerminalReason)
+	}
+	if reason.TerminalReason == "" || reason.CancelReason == "" {
+		classified := classifyCancelReason(reason.Message)
+		if reason.TerminalReason == "" {
+			reason.TerminalReason = classified.TerminalReason
+		}
+		if reason.CancelReason == "" {
+			reason.CancelReason = classified.CancelReason
+		}
+	}
+	if strings.TrimSpace(reason.Message) == "" {
+		reason.Message = defaultCancelMessage(reason.CancelReason)
+	}
+	return reason
+}
+
+func classifyCancelReason(message string) CancelReasonInput {
+	if strings.TrimSpace(message) == "" {
+		message = "cancelled"
+	}
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "shutdown"):
+		return CancelReasonInput{Message: message, TerminalReason: TerminalReasonShutdown, CancelReason: CancelReasonShutdown}
+	case strings.Contains(lower, "issue"):
+		return CancelReasonInput{Message: message, TerminalReason: TerminalReasonIssueCancelled, CancelReason: CancelReasonIssue}
+	case strings.Contains(lower, "orphan"):
+		return CancelReasonInput{Message: message, TerminalReason: TerminalReasonOrphanRecovered, CancelReason: CancelReasonOrphan}
+	case strings.Contains(lower, "stale"):
+		return CancelReasonInput{Message: message, TerminalReason: TerminalReasonStaleRecovered, CancelReason: CancelReasonStale}
+	default:
+		return CancelReasonInput{Message: message, TerminalReason: TerminalReasonUserCancelled, CancelReason: CancelReasonUser}
+	}
+}
+
+func terminalReasonForCancelReason(reason string) string {
+	switch reason {
+	case CancelReasonShutdown:
+		return TerminalReasonShutdown
+	case CancelReasonIssue:
+		return TerminalReasonIssueCancelled
+	case CancelReasonOrphan:
+		return TerminalReasonOrphanRecovered
+	case CancelReasonStale:
+		return TerminalReasonStaleRecovered
+	case CancelReasonUser:
+		return TerminalReasonUserCancelled
+	default:
+		return ""
+	}
+}
+
+func cancelReasonForTerminalReason(reason string) string {
+	switch reason {
+	case TerminalReasonShutdown:
+		return CancelReasonShutdown
+	case TerminalReasonIssueCancelled:
+		return CancelReasonIssue
+	case TerminalReasonOrphanRecovered:
+		return CancelReasonOrphan
+	case TerminalReasonStaleRecovered:
+		return CancelReasonStale
+	case TerminalReasonUserCancelled:
+		return CancelReasonUser
+	default:
+		return ""
+	}
+}
+
+func defaultCancelMessage(reason string) string {
+	switch reason {
+	case CancelReasonShutdown:
+		return "shutdown"
+	case CancelReasonIssue:
+		return "issue cancelled"
+	case CancelReasonOrphan:
+		return "orphan recovered"
+	case CancelReasonStale:
+		return "stale recovered"
+	default:
+		return "user cancelled"
+	}
+}
+
+func cancelComment(reason CancelReasonInput) string {
+	switch reason.CancelReason {
+	case CancelReasonShutdown:
+		return "서버 종료로 실행이 취소되었습니다"
+	case CancelReasonIssue:
+		return "이슈 취소로 실행이 취소되었습니다"
+	case CancelReasonOrphan:
+		return "재시작 중 진행 작업이 취소되었습니다 (orphan recovered)"
+	case CancelReasonStale:
+		return "오래된 진행 작업이 취소되었습니다 (stale recovered)"
+	default:
+		return "사용자가 실행을 취소했습니다"
+	}
 }
 
 func (s *Store) RecoverOrphanRuns(ctx context.Context) (int64, error) {
@@ -527,11 +837,85 @@ func (s *Store) RecoverOrphanRuns(ctx context.Context) (int64, error) {
 	defer tx.Rollback()
 	t := now()
 	for _, row := range ids {
-		if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-2, finished_at=?, error_message='orphan recovered' WHERE id=?`, t, row.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-2, finished_at=?, error_message='orphan recovered', terminal_reason=?, cancel_reason=? WHERE id=?`, t, TerminalReasonOrphanRecovered, CancelReasonOrphan, row.ID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,'재시작 중 진행 작업이 취소되었습니다 (orphan recovered)',?)`, newID(), row.IssueID, row.ID, t); err != nil {
 			return 0, normalizeErr(err)
+		}
+		if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+			RunID:     row.ID,
+			IssueID:   row.IssueID,
+			EventType: RunEventOrphan,
+			Severity:  RunEventSeverityWarn,
+			Message:   "Orphan running run recovered",
+			Details: map[string]any{
+				"terminal_reason": TerminalReasonOrphanRecovered,
+				"cancel_reason":   CancelReasonOrphan,
+			},
+		}); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(ids)), nil
+}
+
+func (s *Store) RecoverStaleRuns(ctx context.Context, cutoff string, excludeRunIDs []string) (int64, error) {
+	if strings.TrimSpace(cutoff) == "" {
+		return 0, ErrValidation
+	}
+	args := []any{cutoff, cutoff}
+	where := `status='running' AND finished_at IS NULL AND (heartbeat_at IS NULL OR heartbeat_at < ? OR (heartbeat_at = '' AND claimed_at < ?))`
+	if len(excludeRunIDs) > 0 {
+		where += ` AND id NOT IN (` + placeholders(len(excludeRunIDs)) + `)`
+		for _, id := range excludeRunIDs {
+			args = append(args, id)
+		}
+	}
+	var ids []struct {
+		ID      string `db:"id"`
+		IssueID string `db:"issue_id"`
+	}
+	if err := s.db.SelectContext(ctx, &ids, `SELECT id, issue_id FROM run WHERE `+where+` ORDER BY heartbeat_at ASC, claimed_at ASC`, args...); err != nil {
+		return 0, normalizeErr(err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	t := now()
+	for _, row := range ids {
+		res, err := tx.ExecContext(ctx, `UPDATE run SET status='cancelled', exit_code=-3, finished_at=?, error_message='stale recovered', terminal_reason=?, cancel_reason=? WHERE id=? AND status='running'`, t, TerminalReasonStaleRecovered, CancelReasonStale, row.ID)
+		if err != nil {
+			return 0, normalizeErr(err)
+		}
+		aff, _ := res.RowsAffected()
+		if aff == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,'오래된 진행 작업이 취소되었습니다 (stale recovered)',?)`, newID(), row.IssueID, row.ID, t); err != nil {
+			return 0, normalizeErr(err)
+		}
+		if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+			RunID:     row.ID,
+			IssueID:   row.IssueID,
+			EventType: RunEventStale,
+			Severity:  RunEventSeverityWarn,
+			Message:   "Stale running run recovered",
+			Details: map[string]any{
+				"terminal_reason": TerminalReasonStaleRecovered,
+				"cancel_reason":   CancelReasonStale,
+				"cutoff":          cutoff,
+			},
+		}); err != nil {
+			return 0, err
 		}
 	}
 	if err := tx.Commit(); err != nil {

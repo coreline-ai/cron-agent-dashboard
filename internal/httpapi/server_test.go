@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/coreline-ai/corn-agent-dashboard/internal/app"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
@@ -79,6 +81,131 @@ func TestHTTPAPISmoke(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("healthz status=%d", res.Code)
 	}
+
+	res = do(t, h, http.MethodGet, "/api/settings", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", res.Code, res.Body.String())
+	}
+	var settingsResp struct {
+		RunLifecycle struct {
+			HeartbeatIntervalSeconds int `json:"heartbeat_interval_seconds"`
+			StaleAfterSeconds        int `json:"stale_after_seconds"`
+			StaleScanIntervalSeconds int `json:"stale_scan_interval_seconds"`
+		} `json:"run_lifecycle"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&settingsResp); err != nil {
+		t.Fatal(err)
+	}
+	if settingsResp.RunLifecycle.HeartbeatIntervalSeconds <= 0 || settingsResp.RunLifecycle.StaleAfterSeconds <= 0 || settingsResp.RunLifecycle.StaleScanIntervalSeconds <= 0 {
+		t.Fatalf("bad lifecycle settings: %#v", settingsResp.RunLifecycle)
+	}
+}
+
+func TestHTTPAPIAutopilotTriggerResponseIncludesResultAndRule(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	loc, _ := time.LoadLocation("Asia/Seoul")
+	runner := app.NewAutopilotRunner(st, loc)
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"}, WithAutopilotReloader(runner))
+
+	ctx := t.Context()
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "AI News",
+		Slug:             "ai-news",
+		IdentifierPrefix: "NEWS",
+		MainAgent:        store.CreateAgentInput{Name: "NewsLead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	rule, err := st.CreateAutopilotRule(ctx, ws.ID, store.UpsertAutopilotInput{
+		Name:               "daily",
+		CronExpr:           "0 9 * * *",
+		IssueTitleTemplate: "{{date}} 뉴스",
+		IssueBodyTemplate:  "body",
+		AssigneeAgentID:    main.ID,
+		Enabled:            true,
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	res := do(t, h, http.MethodPost, "/api/autopilot/"+rule.ID+"/trigger", `{}`)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("trigger status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		TriggerResult store.AutopilotTriggerResult `json:"trigger_result"`
+		Rule          store.AutopilotRule          `json:"rule"`
+		Issue         store.Issue                  `json:"issue"`
+		Run           store.Run                    `json:"run"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.TriggerResult.OK || payload.TriggerResult.Issue == nil || payload.TriggerResult.Run == nil {
+		t.Fatalf("bad trigger_result: %#v", payload.TriggerResult)
+	}
+	if payload.Issue.ID == "" || payload.Run.ID == "" || payload.Rule.LastTriggeredIssueID != payload.Issue.ID {
+		t.Fatalf("response should include legacy issue/run and updated rule: %#v", payload)
+	}
+}
+
+func TestHTTPAPIAutopilotTriggerFailurePersistsRuleState(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	loc, _ := time.LoadLocation("Asia/Seoul")
+	runner := app.NewAutopilotRunner(st, loc)
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"}, WithAutopilotReloader(runner))
+
+	ctx := t.Context()
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "AI News",
+		Slug:             "ai-news",
+		IdentifierPrefix: "NEWS",
+		MainAgent:        store.CreateAgentInput{Name: "NewsLead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	rule, err := st.CreateAutopilotRule(ctx, ws.ID, store.UpsertAutopilotInput{
+		Name:               "daily",
+		CronExpr:           "0 9 * * *",
+		IssueTitleTemplate: "{{date}} 뉴스",
+		AssigneeAgentID:    main.ID,
+		Enabled:            true,
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE autopilot_rule SET issue_title_template='{{workspace}} 뉴스' WHERE id=?`, rule.ID); err != nil {
+		t.Fatalf("corrupt template: %v", err)
+	}
+
+	res := do(t, h, http.MethodPost, "/api/autopilot/"+rule.ID+"/trigger", `{}`)
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("trigger failure status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !bytes.Contains(res.Body.Bytes(), []byte(`"code":"AUTOPILOT_TRIGGER_FAILED"`)) || !bytes.Contains(res.Body.Bytes(), []byte(`"trigger_result"`)) {
+		t.Fatalf("failure response missing trigger result: %s", res.Body.String())
+	}
+	reloaded, err := st.GetAutopilotRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.ConsecutiveFailures != 1 || reloaded.LastError == "" {
+		t.Fatalf("failure state not persisted: %#v", reloaded)
+	}
 }
 
 func TestHTTPAPICancelQueuedRun(t *testing.T) {
@@ -88,7 +215,8 @@ func TestHTTPAPICancelQueuedRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+	canceller := &recordingRunCanceller{}
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"}, WithRunCanceller(canceller))
 
 	body := `{"name":"AI News","slug":"ai-news","identifier_prefix":"NEWS","main_agent":{"name":"NewsLead","runtime":"codex","instructions":"lead"}}`
 	res := do(t, h, http.MethodPost, "/api/workspaces", body)
@@ -127,6 +255,86 @@ func TestHTTPAPICancelQueuedRun(t *testing.T) {
 	if cancelResp.Run.ID != issueResp.Run.ID || cancelResp.Run.Status != "cancelled" {
 		t.Fatalf("bad cancelled run: %#v", cancelResp.Run)
 	}
+	if got := canceller.cancelledRunIDs; len(got) != 1 || got[0] != issueResp.Run.ID {
+		t.Fatalf("queued cancel should record worker cancel intent before DB fallback, got %#v", got)
+	}
+	if got := canceller.forgottenRunIDs; len(got) != 1 || got[0] != issueResp.Run.ID {
+		t.Fatalf("unclaimed queued cancel should clean pending worker intent, got %#v", got)
+	}
+}
+
+func TestHTTPAPICancelRunningFallbackKeepsPendingIntent(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	canceller := &recordingRunCanceller{}
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"}, WithRunCanceller(canceller))
+
+	body := `{"name":"AI News","slug":"ai-news","identifier_prefix":"NEWS","main_agent":{"name":"NewsLead","runtime":"codex","instructions":"lead"}}`
+	res := do(t, h, http.MethodPost, "/api/workspaces", body)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create workspace status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = do(t, h, http.MethodPost, "/api/workspaces/ai-news/issues", `{"title":"오늘 뉴스","body":"body"}`)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create issue status=%d body=%s", res.Code, res.Body.String())
+	}
+	var issueResp struct {
+		Issue store.Issue `json:"issue"`
+		Run   store.Run   `json:"run"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&issueResp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(t.Context(), "worker"); err != nil || !ok {
+		t.Fatalf("claim run ok=%v err=%v", ok, err)
+	}
+
+	res = do(t, h, http.MethodPost, "/api/issues/"+issueResp.Issue.ID+"/cancel", `{}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("cancel running status=%d body=%s", res.Code, res.Body.String())
+	}
+	var cancelResp struct {
+		Run struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"run"`
+		CancelRequested bool `json:"cancel_requested"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&cancelResp); err != nil {
+		t.Fatal(err)
+	}
+	if cancelResp.CancelRequested {
+		t.Fatal("inactive fake canceller should force DB fallback")
+	}
+	if cancelResp.Run.ID != issueResp.Run.ID || cancelResp.Run.Status != "cancelled" {
+		t.Fatalf("bad cancelled run: %#v", cancelResp.Run)
+	}
+	if got := canceller.cancelledRunIDs; len(got) != 1 || got[0] != issueResp.Run.ID {
+		t.Fatalf("running fallback should still record worker cancel intent, got %#v", got)
+	}
+	if len(canceller.forgottenRunIDs) != 0 {
+		t.Fatalf("claimed run pending intent must remain for worker registration race, got %#v", canceller.forgottenRunIDs)
+	}
+}
+
+type recordingRunCanceller struct {
+	cancelledRunIDs []string
+	forgottenRunIDs []string
+}
+
+func (c *recordingRunCanceller) CancelRun(runID string) bool {
+	c.cancelledRunIDs = append(c.cancelledRunIDs, runID)
+	return false
+}
+
+func (c *recordingRunCanceller) ForgetPendingCancel(runID string) bool {
+	c.forgottenRunIDs = append(c.forgottenRunIDs, runID)
+	return true
 }
 
 func TestHTTPAPIAuthCORSAndStaticFallback(t *testing.T) {
@@ -236,6 +444,55 @@ func TestHTTPAPIRunListDoesNotExposeStdoutPath(t *testing.T) {
 	}
 	if bytes.Contains(res.Body.Bytes(), []byte(`"Valid"`)) || bytes.Contains(res.Body.Bytes(), []byte(`"Int64"`)) {
 		t.Fatalf("run list leaked database nullable internals: %s", res.Body.String())
+	}
+}
+
+func TestHTTPAPIRunEvents(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	body := `{"name":"AI News","slug":"ai-news","identifier_prefix":"NEWS","main_agent":{"name":"NewsLead","runtime":"codex","instructions":"lead"}}`
+	res := do(t, h, http.MethodPost, "/api/workspaces", body)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create workspace status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = do(t, h, http.MethodPost, "/api/workspaces/ai-news/issues", `{"title":"오늘 뉴스","body":"body"}`)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create issue status=%d body=%s", res.Code, res.Body.String())
+	}
+	var issueResp struct {
+		Run store.Run `json:"run"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&issueResp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(t.Context(), "worker"); err != nil || !ok {
+		t.Fatalf("claim run ok=%v err=%v", ok, err)
+	}
+
+	res = do(t, h, http.MethodGet, "/api/runs/"+issueResp.Run.ID+"/events", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("events status=%d body=%s", res.Code, res.Body.String())
+	}
+	var eventsResp struct {
+		Events []store.RunEvent `json:"events"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&eventsResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(eventsResp.Events) < 2 || eventsResp.Events[0].Seq != 1 || eventsResp.Events[0].EventType != store.RunEventQueued || eventsResp.Events[1].EventType != store.RunEventClaimed {
+		t.Fatalf("bad events response: %#v", eventsResp.Events)
+	}
+
+	res = do(t, h, http.MethodGet, "/api/runs/missing/events", "")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("missing run events status=%d body=%s", res.Code, res.Body.String())
 	}
 }
 

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { ToastProvider } from './components/ToastProvider';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { AgentDetailPage } from './pages/AgentDetailPage';
 import { AgentsPage } from './pages/AgentsPage';
@@ -10,17 +11,19 @@ import { SettingsPage } from './pages/SettingsPage';
 
 export function App() {
   return (
-    <Routes>
-      <Route element={<DashboardLayout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/w/:slug/board" element={<BoardPage />} />
-        <Route path="/w/:slug/issues/:identifier" element={<IssueDetailPage />} />
-        <Route path="/w/:slug/agents" element={<AgentsPage />} />
-        <Route path="/w/:slug/agents/:id" element={<AgentDetailPage />} />
-        <Route path="/w/:slug/autopilot" element={<AutopilotPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <ToastProvider>
+      <Routes>
+        <Route element={<DashboardLayout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/w/:slug/board" element={<BoardPage />} />
+          <Route path="/w/:slug/issues/:identifier" element={<IssueDetailPage />} />
+          <Route path="/w/:slug/agents" element={<AgentsPage />} />
+          <Route path="/w/:slug/agents/:id" element={<AgentDetailPage />} />
+          <Route path="/w/:slug/autopilot" element={<AutopilotPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ToastProvider>
   );
 }

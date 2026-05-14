@@ -88,28 +88,119 @@ type Run struct {
 	ClaimedAt              string         `db:"claimed_at" json:"claimed_at,omitempty"`
 	ClaimedBy              string         `db:"claimed_by" json:"claimed_by,omitempty"`
 	StartedAt              string         `db:"started_at" json:"started_at,omitempty"`
+	HeartbeatAt            string         `db:"heartbeat_at" json:"heartbeat_at,omitempty"`
 	FinishedAt             string         `db:"finished_at" json:"finished_at,omitempty"`
 	ExitCode               NullInt64      `db:"exit_code" json:"exit_code"`
 	StdoutPath             sql.NullString `db:"stdout_path" json:"-"`
 	StdoutSizeBytes        int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
 	LogURL                 string         `db:"log_url" json:"log_url,omitempty"`
 	ErrorMessage           string         `db:"error_message" json:"error_message"`
+	TerminalReason         string         `db:"terminal_reason" json:"terminal_reason"`
+	FailureKind            string         `db:"failure_kind" json:"failure_kind"`
+	CancelReason           string         `db:"cancel_reason" json:"cancel_reason"`
+}
+
+const (
+	TerminalReasonCompleted              = "completed"
+	TerminalReasonExitNonzero            = "exit_nonzero"
+	TerminalReasonTimeout                = "timeout"
+	TerminalReasonExecutorError          = "executor_error"
+	TerminalReasonWorkerPanic            = "worker_panic"
+	TerminalReasonClaimPreparationFailed = "claim_preparation_failed"
+	TerminalReasonUnknownFailure         = "unknown_failure"
+	TerminalReasonUserCancelled          = "user_cancelled"
+	TerminalReasonIssueCancelled         = "issue_cancelled"
+	TerminalReasonShutdown               = "shutdown"
+	TerminalReasonOrphanRecovered        = "orphan_recovered"
+	TerminalReasonStaleRecovered         = "stale_recovered"
+
+	FailureKindExitNonzero            = "exit_nonzero"
+	FailureKindTimeout                = "timeout"
+	FailureKindExecutorError          = "executor_error"
+	FailureKindWorkerPanic            = "worker_panic"
+	FailureKindClaimPreparationFailed = "claim_preparation_failed"
+	FailureKindUnknown                = "unknown"
+
+	CancelReasonUser     = "user"
+	CancelReasonIssue    = "issue"
+	CancelReasonShutdown = "shutdown"
+	CancelReasonOrphan   = "orphan"
+	CancelReasonStale    = "stale"
+
+	RunEventQueued        = "run_queued"
+	RunEventClaimed       = "run_claimed"
+	RunEventPrepareFailed = "run_prepare_failed"
+	RunEventStarting      = "executor_starting"
+	RunEventStdoutTrunc   = "stdout_truncated"
+	RunEventCancelRequest = "cancel_requested"
+	RunEventCancelled     = "run_cancelled"
+	RunEventCompleted     = "run_completed"
+	RunEventFailed        = "run_failed"
+	RunEventOrphan        = "orphan_recovered"
+	RunEventStale         = "stale_recovered"
+
+	RunEventSeverityDebug = "debug"
+	RunEventSeverityInfo  = "info"
+	RunEventSeverityWarn  = "warn"
+	RunEventSeverityError = "error"
+)
+
+type FinishRunInput struct {
+	ExitCode         int
+	StdoutPath       string
+	Content          string
+	ContentTruncated bool
+	StdoutTruncated  bool
+	ErrorMessage     string
+	TerminalReason   string
+	FailureKind      string
+}
+
+type CancelReasonInput struct {
+	Message        string
+	TerminalReason string
+	CancelReason   string
+}
+
+type RunEvent struct {
+	ID         string         `db:"id" json:"id"`
+	RunID      string         `db:"run_id" json:"run_id"`
+	IssueID    string         `db:"issue_id" json:"issue_id"`
+	Seq        int64          `db:"seq" json:"seq"`
+	EventType  string         `db:"event_type" json:"event_type"`
+	Severity   string         `db:"severity" json:"severity"`
+	Message    string         `db:"message" json:"message"`
+	DetailJSON sql.NullString `db:"detail_json" json:"-"`
+	Details    map[string]any `db:"-" json:"details"`
+	CreatedAt  string         `db:"created_at" json:"created_at"`
+}
+
+type RunEventInput struct {
+	RunID     string
+	IssueID   string
+	EventType string
+	Severity  string
+	Message   string
+	Details   map[string]any
 }
 
 type AutopilotRule struct {
-	ID                 string `db:"id" json:"id"`
-	WorkspaceID        string `db:"workspace_id" json:"workspace_id"`
-	Name               string `db:"name" json:"name"`
-	CronExpr           string `db:"cron_expr" json:"cron_expr"`
-	IssueTitleTemplate string `db:"issue_title_template" json:"issue_title_template"`
-	IssueBodyTemplate  string `db:"issue_body_template" json:"issue_body_template"`
-	AssigneeAgentID    string `db:"assignee_agent_id" json:"assignee_agent_id,omitempty"`
-	AssigneeAgentName  string `db:"assignee_agent_name" json:"assignee_agent_name,omitempty"`
-	Enabled            bool   `db:"enabled" json:"enabled"`
-	LastRunAt          string `db:"last_run_at" json:"last_run_at,omitempty"`
-	NextRunAt          string `db:"next_run_at" json:"next_run_at,omitempty"`
-	CreatedAt          string `db:"created_at" json:"created_at"`
-	UpdatedAt          string `db:"updated_at" json:"updated_at"`
+	ID                   string `db:"id" json:"id"`
+	WorkspaceID          string `db:"workspace_id" json:"workspace_id"`
+	Name                 string `db:"name" json:"name"`
+	CronExpr             string `db:"cron_expr" json:"cron_expr"`
+	IssueTitleTemplate   string `db:"issue_title_template" json:"issue_title_template"`
+	IssueBodyTemplate    string `db:"issue_body_template" json:"issue_body_template"`
+	AssigneeAgentID      string `db:"assignee_agent_id" json:"assignee_agent_id,omitempty"`
+	AssigneeAgentName    string `db:"assignee_agent_name" json:"assignee_agent_name,omitempty"`
+	Enabled              bool   `db:"enabled" json:"enabled"`
+	LastRunAt            string `db:"last_run_at" json:"last_run_at,omitempty"`
+	NextRunAt            string `db:"next_run_at" json:"next_run_at,omitempty"`
+	LastError            string `db:"last_error" json:"last_error,omitempty"`
+	ConsecutiveFailures  int    `db:"consecutive_failures" json:"consecutive_failures"`
+	LastTriggeredIssueID string `db:"last_triggered_issue_id" json:"last_triggered_issue_id,omitempty"`
+	CreatedAt            string `db:"created_at" json:"created_at"`
+	UpdatedAt            string `db:"updated_at" json:"updated_at"`
 }
 
 type CreateWorkspaceInput struct {

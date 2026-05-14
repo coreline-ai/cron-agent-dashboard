@@ -37,14 +37,15 @@ type CommentSnippet struct {
 
 // RunContext contains only the data needed to build an external CLI command.
 type RunContext struct {
-	RunID               string
-	WorkspaceWorkingDir string
-	AgentRuntime        string
-	AgentInstructions   string
-	AgentModel          string
-	IssueTitle          string
-	IssueBody           string
-	RecentComments      []CommentSnippet
+	RunID                  string
+	WorkspaceWorkingDir    string
+	AgentRuntime           string
+	AgentInstructions      string
+	AgentModel             string
+	IssueTitle             string
+	IssueBody              string
+	TriggerContentSnapshot string
+	RecentComments         []CommentSnippet
 
 	// Prompt is optional. If supplied, adapters can pass it directly to the CLI.
 	// Worker prompt rendering owns truncation policy; this field keeps the

@@ -65,8 +65,10 @@ type ExecutionResult struct {
 	StderrTail      string
 	StartedAt       time.Time
 	FinishedAt      time.Time
+	ProcessStarted  bool
 	TimedOut        bool
 	Cancelled       bool
+	CancelReason    string
 	Error           error
 }
 
@@ -81,10 +83,11 @@ func (e *Executor) Execute(ctx context.Context, run ExecutionContext) ExecutionR
 	prompt := run.Prompt
 	if prompt == "" {
 		prompt = RenderPrompt(PromptInput{
-			Instructions:   run.AgentInstructions,
-			IssueTitle:     run.IssueTitle,
-			IssueBody:      run.IssueBody,
-			RecentComments: run.RecentComments,
+			Instructions:           run.AgentInstructions,
+			IssueTitle:             run.IssueTitle,
+			IssueBody:              run.IssueBody,
+			TriggerContentSnapshot: run.TriggerContentSnapshot,
+			RecentComments:         run.RecentComments,
 		})
 		run.Prompt = prompt
 	}
@@ -145,6 +148,7 @@ func (e *Executor) Execute(ctx context.Context, run ExecutionContext) ExecutionR
 		result.Error = err
 		return result
 	}
+	result.ProcessStarted = true
 
 	stderrRing := NewRingBuffer(e.stderrRingCap())
 	var wg sync.WaitGroup

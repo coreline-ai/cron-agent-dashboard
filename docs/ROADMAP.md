@@ -40,8 +40,8 @@
 
 ### 의사결정 (Phase 1 시작 전 필수)
 - [x] **Frontend 스택 = Vite + React Router SPA (확정)**
-  - 근거: SSR/RSC 미사용, static export 동적 라우트 우회 비용 없음, Multica 컴포넌트는 client-only로 추출
-  - Phase 0 액션: Multica 프론트에서 재사용할 컴포넌트들의 RSC/`'use server'` 사용 여부 스캔 → client 변형 추출 계획 수립
+  - 근거: SSR/RSC 미사용, static export 동적 라우트 우회 비용 없음, Corn Design Reference 컴포넌트는 client-only로 추출
+  - Phase 0 액션: Corn Design Reference 프론트에서 재사용할 컴포넌트들의 RSC/`'use server'` 사용 여부 스캔 → client 변형 추출 계획 수립
 - [x] **시스템 timezone 정책**: 환경변수 `CORN_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
 - [x] **꺼져 있는 동안의 cron**: 누락된 시각은 실행 안 함 (robfig 기본 동작)
 - [x] **stdout cap**: 단일 run 최대 10MB (초과 시 truncation + 경고)
@@ -204,12 +204,12 @@ cron 기반 자동 이슈 생성.
 ## Phase 4 — Frontend (5~7일)
 
 ### 목표
-7개 페이지 구현. Multica의 스타일 토큰/컴포넌트 추출.
+7개 페이지 구현. Corn Design Reference의 스타일 토큰/컴포넌트 추출.
 
 ### Sub-phases
 
 #### P4.0 셋업 (0.5일)
-- [ ] Tailwind config (Multica에서 복사)
+- [ ] Tailwind config (Corn Design Reference에서 복사)
 - [ ] shadcn 컴포넌트 초기 셋업 (button/dialog/input/textarea/select/badge)
 - [ ] 다크모드 (class 기반 토글, next-themes 미사용)
 - [x] API client (`web/src/api/client.ts`) — fetch wrapper + 에러 처리
@@ -374,7 +374,7 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P5 ─▶ P6 ─▶ P7
 | 진행 중 프로세스가 부팅 후 살아있음 | 좀비 프로세스 | 부팅 시 PID 파일 또는 process group 검증 (Phase 6) |
 | CLI 미설치 환경 | UI에서 실행 불가 | 부팅 시 PATH 스캔 + 설정 페이지 안내 |
 | 단일 사용자 가정 깨짐 (외부 노출) | 보안 사고 | --bind 0.0.0.0 + 토큰 필수 강제 |
-| Multica 컴포넌트 RSC 의존 발견 | Phase 4 작업 폭증 | Phase 0에서 사전 스캔 후 결정 |
+| Corn Design Reference 컴포넌트 RSC 의존 발견 | Phase 4 작업 폭증 | Phase 0에서 사전 스캔 후 결정 |
 
 ---
 

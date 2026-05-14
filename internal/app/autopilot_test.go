@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,10 +50,14 @@ func TestAutopilotRunnerRendersTemplateAndCreatesRun(t *testing.T) {
 		t.Fatalf("next_run_at should be synced after reload: %#v", reloaded)
 	}
 
-	issue, run, err := runner.TriggerRuleResult(ctx, rule.ID)
+	result, err := runner.TriggerRuleResult(ctx, rule.ID)
 	if err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
+	if !result.OK || result.Issue == nil || result.Run == nil {
+		t.Fatalf("bad trigger result: %#v", result)
+	}
+	issue, run := *result.Issue, *result.Run
 	if issue.Title != "2026-05-12 뉴스" || issue.Body != "2026-05-12 09:30 기준" {
 		t.Fatalf("unexpected rendered issue: %#v", issue)
 	}
@@ -63,8 +68,52 @@ func TestAutopilotRunnerRendersTemplateAndCreatesRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if triggered.LastRunAt == "" || triggered.NextRunAt == "" {
+	if triggered.LastRunAt == "" || triggered.NextRunAt == "" || triggered.LastTriggeredIssueID != issue.ID || triggered.ConsecutiveFailures != 0 || triggered.LastError != "" {
 		t.Fatalf("last/next run should be updated after trigger: %#v", triggered)
+	}
+}
+
+func TestAutopilotRunnerRecordsTemplateRenderFailure(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "AI News",
+		Slug:             "ai-news",
+		IdentifierPrefix: "NEWS",
+		MainAgent:        store.CreateAgentInput{Name: "NewsLead", Runtime: "fake", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	rule, err := st.CreateAutopilotRule(ctx, ws.ID, store.UpsertAutopilotInput{
+		Name:               "daily",
+		CronExpr:           "0 9 * * *",
+		IssueTitleTemplate: "{{date}} 뉴스",
+		AssigneeAgentID:    main.ID,
+		Enabled:            true,
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE autopilot_rule SET issue_title_template='{{workspace}} 뉴스' WHERE id=?`, rule.ID); err != nil {
+		t.Fatalf("corrupt template: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("Asia/Seoul")
+	runner := NewAutopilotRunner(st, loc)
+	result, err := runner.TriggerRuleResult(ctx, rule.ID)
+	if err == nil {
+		t.Fatal("trigger should fail")
+	}
+	if result.OK || result.Rule.ConsecutiveFailures != 1 || !strings.Contains(result.Rule.LastError, "unknown template variable") {
+		t.Fatalf("failure should be recorded in result: %#v err=%v", result, err)
+	}
+	reloaded, err := st.GetAutopilotRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.ConsecutiveFailures != 1 || reloaded.LastError == "" || reloaded.NextRunAt == "" {
+		t.Fatalf("failure state not persisted: %#v", reloaded)
 	}
 }
 

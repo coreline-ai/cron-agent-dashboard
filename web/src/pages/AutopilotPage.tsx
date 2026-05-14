@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
-import { apiClient } from '../api/client';
+import { Link, useParams } from 'react-router-dom';
+import { ApiError, apiClient } from '../api/client';
 import { AutopilotDialog, type AutopilotTemplate } from '../components/AutopilotDialog';
 import { PageHeader } from '../components/PageHeader';
-import type { AutopilotRule } from '../api/queries';
+import type { AutopilotRule, AutopilotTriggerResponse } from '../api/queries';
 import { useAutopilotRulesQuery } from '../api/queries';
 
 type RuleFilter = 'all' | 'enabled' | 'paused';
+type TriggerNotice = {
+  tone: 'success' | 'error';
+  message: string;
+  issueHref?: string;
+};
 
 const filters: Array<{ value: RuleFilter; label: string }> = [
   { value: 'all', label: '전체' },
@@ -45,10 +50,29 @@ export function AutopilotPage() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<RuleFilter>('all');
   const [query, setQuery] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<AutopilotTemplate | null>(null);
+  const [editingRule, setEditingRule] = useState<AutopilotRule | null>(null);
+  const [triggerNotice, setTriggerNotice] = useState<TriggerNotice | null>(null);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['autopilot', slug] });
-  const triggerRule = useMutation({ mutationFn: (id: string) => apiClient.post(`/autopilot/${id}/trigger`), onSuccess: invalidate });
+  const triggerRule = useMutation({
+    mutationFn: (rule: AutopilotRule) => apiClient.post<AutopilotTriggerResponse>(`/autopilot/${rule.id}/trigger`),
+    onSuccess: (data, rule) => {
+      const issue = data.issue ?? data.trigger_result.issue;
+      setTriggerNotice({
+        tone: 'success',
+        message: `${data.rule.name || rule.name} 실행 이슈를 생성했습니다.`,
+        issueHref: issue ? `/w/${slug}/issues/${issue.identifier || issue.id}` : undefined
+      });
+    },
+    onError: (error, rule) => {
+      setTriggerNotice({
+        tone: 'error',
+        message: `${rule.name} 실행 실패: ${apiErrorMessage(error)}`
+      });
+    },
+    onSettled: invalidate
+  });
   const toggleRule = useMutation({
     mutationFn: (rule: AutopilotRule) =>
       apiClient.put(`/autopilot/${rule.id}`, {
@@ -75,23 +99,35 @@ export function AutopilotPage() {
       if (!q) {
         return true;
       }
-      return [rule.name, rule.cron_expr, rule.issue_title_template, rule.assignee_agent_name]
+      return [rule.name, rule.cron_expr, rule.issue_title_template, rule.assignee_agent_name, rule.last_error]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(q));
     });
   }, [filter, query, rules.data]);
   const counts = useMemo(() => {
     const xs = rules.data ?? [];
-    return { all: xs.length, enabled: xs.filter((rule) => rule.enabled).length, paused: xs.filter((rule) => !rule.enabled).length };
+    return {
+      all: xs.length,
+      enabled: xs.filter((rule) => rule.enabled).length,
+      paused: xs.filter((rule) => !rule.enabled).length,
+      failed: xs.filter((rule) => (rule.consecutive_failures ?? 0) > 0).length
+    };
   }, [rules.data]);
 
   const openCreate = (template?: AutopilotTemplate) => {
+    setEditingRule(null);
     setSelectedTemplate(template ?? null);
-    setCreateOpen(true);
+    setDialogOpen(true);
   };
-  const closeCreate = () => {
-    setCreateOpen(false);
+  const openEdit = (rule: AutopilotRule) => {
     setSelectedTemplate(null);
+    setEditingRule(rule);
+    setDialogOpen(true);
+  };
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setSelectedTemplate(null);
+    setEditingRule(null);
   };
 
   return (
@@ -107,7 +143,7 @@ export function AutopilotPage() {
           <div>
             <h2>자동화 규칙</h2>
             <p>
-              전체 {counts.all} · ON {counts.enabled} · OFF {counts.paused}
+              전체 {counts.all} · ON {counts.enabled} · OFF {counts.paused} · 실패 {counts.failed}
             </p>
           </div>
           <button className="button" type="button" onClick={() => openCreate()}>
@@ -125,6 +161,20 @@ export function AutopilotPage() {
           <input className="toolbar-search" placeholder="규칙 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
       </div>
+
+      {triggerNotice && (
+        <div className={`autopilot-notice ${triggerNotice.tone}`} role="status">
+          <span>{triggerNotice.message}</span>
+          {triggerNotice.issueHref && (
+            <Link className="button micro secondary" to={triggerNotice.issueHref}>
+              생성 이슈 보기
+            </Link>
+          )}
+          <button className="button micro secondary" type="button" onClick={() => setTriggerNotice(null)}>
+            닫기
+          </button>
+        </div>
+      )}
 
       {!rules.isLoading && !rules.data?.length && (
         <article className="panel template-panel">
@@ -157,35 +207,52 @@ export function AutopilotPage() {
             <span>Last</span>
             <span>Actions</span>
           </div>
-          {visibleRules.map((rule) => (
-            <div className="data-row" key={rule.id}>
-              <span>
-                <strong>{rule.name}</strong>
-                <small>{rule.issue_title_template}</small>
-              </span>
-              <span>{rule.cron_expr}</span>
-              <span>{rule.assignee_agent_name ? `@${rule.assignee_agent_name}` : '메인 에이전트'}</span>
-              <span>{formatDateTime(rule.next_run_at)}</span>
-              <span>{formatDateTime(rule.last_run_at)}</span>
-              <span className="row-actions">
-                <span className="badge">{rule.enabled ? 'ON' : 'OFF'}</span>
-                <button className="button micro secondary" type="button" onClick={() => toggleRule.mutate(rule)}>
-                  {rule.enabled ? '끄기' : '켜기'}
-                </button>
-                <button className="button micro secondary" type="button" onClick={() => triggerRule.mutate(rule.id)}>
-                  지금 실행
-                </button>
-                <button className="button micro danger" type="button" onClick={() => deleteRule.mutate(rule.id)}>
-                  삭제
-                </button>
-              </span>
-            </div>
-          ))}
+          {visibleRules.map((rule) => {
+            const triggerBusy = triggerRule.isPending && triggerRule.variables?.id === rule.id;
+            return (
+              <div className="data-row" key={rule.id}>
+                <span>
+                  <strong>{rule.name}</strong>
+                  <small>{rule.issue_title_template}</small>
+                  {rule.last_error && (
+                    <small className="autopilot-error" title={rule.last_error}>
+                      마지막 오류: {rule.last_error}
+                    </small>
+                  )}
+                </span>
+                <span>{rule.cron_expr}</span>
+                <span>{rule.assignee_agent_name ? `@${rule.assignee_agent_name}` : '메인 에이전트'}</span>
+                <span>{formatDateTime(rule.next_run_at)}</span>
+                <span>{formatDateTime(rule.last_run_at)}</span>
+                <span className="row-actions">
+                  <span className={rule.enabled ? 'badge' : 'badge muted'}>{rule.enabled ? 'ON' : 'OFF'}</span>
+                  {(rule.consecutive_failures ?? 0) > 0 && <span className="badge danger">실패 {rule.consecutive_failures}</span>}
+                  <button className="button micro secondary" type="button" onClick={() => openEdit(rule)}>
+                    편집
+                  </button>
+                  <button className="button micro secondary" type="button" onClick={() => toggleRule.mutate(rule)}>
+                    {rule.enabled ? '끄기' : '켜기'}
+                  </button>
+                  <button className="button micro secondary" type="button" onClick={() => triggerRule.mutate(rule)} disabled={triggerBusy}>
+                    {triggerBusy ? '실행 중' : '지금 실행'}
+                  </button>
+                  {rule.last_triggered_issue_id && (
+                    <Link className="button micro secondary" to={`/w/${slug}/issues/${rule.last_triggered_issue_id}`}>
+                      마지막 이슈
+                    </Link>
+                  )}
+                  <button className="button micro danger" type="button" onClick={() => deleteRule.mutate(rule.id)}>
+                    삭제
+                  </button>
+                </span>
+              </div>
+            );
+          })}
         </div>
         {!rules.isLoading && !visibleRules.length && Boolean(rules.data?.length) && <p>조건에 맞는 규칙이 없습니다.</p>}
       </article>
 
-      <AutopilotDialog open={createOpen} slug={slug} template={selectedTemplate} onClose={closeCreate} />
+      <AutopilotDialog open={dialogOpen} slug={slug} template={selectedTemplate} rule={editingRule} onClose={closeDialog} />
     </section>
   );
 }
@@ -202,4 +269,14 @@ function formatDateTime(value?: string) {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(date);
+}
+
+function apiErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.body?.error?.message ?? error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return '알 수 없는 오류';
 }

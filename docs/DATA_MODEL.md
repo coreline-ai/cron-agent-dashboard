@@ -221,6 +221,8 @@ CREATE INDEX idx_run_trigger_comment
 - `stdout_path`: 백엔드 내부 경로. **API 응답에는 노출하지 않음**. 대신 `GET /api/runs/:id/log` 다운로드 URL만 제공.
 - 단일 run 최대 10MB (executor가 cap). cap 도달 후에도 stdout pipe는 io.Discard로 계속 drain (child process pipe blocking 방지).
 - `trigger_type='mention'` 이면 `trigger_comment_id` 채움. 그 외는 NULL 허용.
+- 현재 체이닝 정책은 **explicit-only**다. `mention`은 사용자 댓글의 `@AgentName` 명시 멘션만 의미하며, agent 결과 댓글의 mention은 자동 dispatch하지 않는다.
+- 현재 `run` 테이블에는 `chain_id`, `parent_run_id`, `chain_depth` 컬럼이 없다. 이 컬럼들은 auto-chain opt-in 후보 schema이며 미구현이다.
 - `trigger_comment_id`가 `status IN ('queued','running')` run에 연결된 동안 해당 댓글 사용자 삭제 차단 (409).
 - **Worker claim 쿼리** (durable queue + 워크스페이스 직렬화):
   ```sql
@@ -408,11 +410,13 @@ COMMIT;
     WHERE issue_id=? AND status IN ('running','queued')
     ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, enqueued_at ASC
     LIMIT 1;
-2. running이면 worker에게 cancellation 신호 (in-memory map[run_id]context.CancelFunc로 process group SIGTERM)
-   - run claim 직후 cancel func 등록 전 race는 pending-cancel set으로 보존
-3. queued이면 DB에서 즉시 run.status='cancelled'로 전환해 worker claim 대상에서 제외
-4. worker의 종료 처리 또는 HTTP fallback이 run.status='cancelled', exit_code=-1, error_message='user cancelled'로 진행
-5. issue.status는 그대로 'open' 유지 (사용자가 이슈를 닫은 게 아니라 한 번의 실행만 취소함)
+2. 상태와 무관하게 먼저 worker pool에 cancellation intent를 기록한다.
+   - 이미 실행 중이면 in-memory map[run_id]context.CancelFunc로 process group SIGTERM
+   - 아직 cancel func가 없으면 pending-cancel set에 저장해 queued→running 경계 race를 보존
+3. HTTP fallback이 DB에서 run.status='cancelled', exit_code=-1, error_message='user cancelled'로 전환한다.
+4. fallback 결과 run이 아직 claimed/started 전이면 pending-cancel을 정리한다. claimed/started 흔적이 있으면 worker 등록 직후 적용되도록 pending을 유지한다.
+5. worker의 종료 처리도 동일한 terminal 상태를 확인하며 이미 cancelled면 덮어쓰지 않는다.
+6. issue.status는 그대로 'open' 유지 (사용자가 이슈를 닫은 게 아니라 한 번의 실행만 취소함)
 ```
 
 ### 4.5b 사용자가 이슈 자체를 취소 (보존하고 닫음)
@@ -603,3 +607,97 @@ cp ~/.corn-agent-dashboard/config.toml ~/backup/
 
 
 > 정책: `agent.model`은 사용자 선택값입니다. 빈 문자열은 runtime/CLI 기본 모델을 의미하며, 값이 있으면 해당 모델 ID를 adapter에 전달합니다.
+
+---
+
+## 7. 2026-05-14 운영 관측성 확장
+
+### 7.1 run lifecycle 필드
+
+`run` 테이블은 실행 복구와 UI 진단을 위해 아래 컬럼을 추가로 가진다.
+
+| 컬럼 | 타입 | 의미 |
+|---|---|---|
+| `heartbeat_at` | TEXT | worker가 주기적으로 갱신하는 alive timestamp |
+| `terminal_reason` | TEXT | 완료/실패/취소/복구의 구조화된 최종 원인 |
+| `failure_kind` | TEXT | 실패 run의 기술 분류 |
+| `cancel_reason` | TEXT | 취소 run의 원인 분류 |
+
+`status`는 여전히 `queued/running/done/failed/cancelled`만 표현하고, 위 reason 필드는 왜 terminal 상태가 되었는지 보조 설명한다.
+
+### 7.2 run_event
+
+`run_event`는 run별 기술 audit trail이다.
+
+```sql
+CREATE TABLE run_event (
+  id          TEXT PRIMARY KEY,
+  run_id      TEXT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+  issue_id    TEXT NOT NULL REFERENCES issue(id) ON DELETE CASCADE,
+  seq         INTEGER NOT NULL,
+  event_type  TEXT NOT NULL,
+  severity    TEXT NOT NULL DEFAULT 'info',
+  message     TEXT NOT NULL DEFAULT '',
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(run_id, seq)
+);
+```
+
+- `seq`는 run 내부 순번이다.
+- `detail_json`에는 token, env, stdout path, prompt 전문 등 민감 정보를 넣지 않는다.
+- 사용자에게 보여주는 comment와 분리한다. comment는 대화/결과, run_event는 실행 기술 로그다.
+
+### 7.3 autopilot_rule failure 필드
+
+`autopilot_rule`은 마지막 실패 및 마지막 생성 이슈 추적을 위해 `last_error`, `consecutive_failures`, `last_triggered_issue_id`를 가진다.
+
+---
+
+## 11. Auto-chain opt-in 후보 데이터 모델 (미구현)
+
+현재 제품은 **사용자 댓글의 명시 멘션만 dispatch**한다. agent 결과 댓글 안의 `@AgentName`은 자동 실행하지 않는다.
+
+Auto-chain을 Phase 2+에서 opt-in으로 구현하기로 결정할 경우의 후보 schema는 아래와 같다. 이 섹션은 설계 초안이며 현재 마이그레이션이 아니다.
+
+### 11.1 run lineage 후보
+
+```sql
+ALTER TABLE run ADD COLUMN chain_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE run ADD COLUMN parent_run_id TEXT REFERENCES run(id) ON DELETE SET NULL;
+ALTER TABLE run ADD COLUMN chain_depth INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX idx_run_chain ON run(chain_id, chain_depth, enqueued_at);
+CREATE INDEX idx_run_parent ON run(parent_run_id);
+```
+
+| 후보 컬럼 | 의미 |
+|---|---|
+| `chain_id` | 같은 자동 chain에 속한 run 묶음. root run id 또는 별도 UUID 후보 |
+| `parent_run_id` | agent 결과 comment를 만든 source run |
+| `chain_depth` | root explicit run은 0, auto-chain으로 만든 run은 parent + 1 |
+
+### 11.2 opt-in 설정 후보
+
+workspace 단위:
+
+```sql
+ALTER TABLE workspace ADD COLUMN auto_chain_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auto_chain_enabled IN (0,1));
+ALTER TABLE workspace ADD COLUMN auto_chain_max_depth INTEGER NOT NULL DEFAULT 5;
+```
+
+issue 단위:
+
+```sql
+ALTER TABLE issue ADD COLUMN auto_chain_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auto_chain_enabled IN (0,1));
+```
+
+둘 중 하나를 선택해야 하며, 기본값은 반드시 off다.
+
+### 11.3 후보 제약
+
+- max depth 기본값은 5를 권장한다.
+- 같은 `chain_id` 안에서 동일 agent 재호출은 차단하는 것을 권장한다.
+- source run이 `failed` 또는 `cancelled`이면 chain을 중단하는 것을 권장한다.
+- 후보 `trigger_type`은 `agent_mention` 또는 `auto_mention` 중 하나를 선택한다. 현재 enum에는 둘 다 없다.
+- agent 결과에 여러 mention이 있으면 첫 번째만 실행하거나 별도 설정을 둔다.

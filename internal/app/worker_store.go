@@ -72,19 +72,23 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 	}
 
 	return &worker.ClaimedRun{
-		RunID:               run.ID,
-		WorkspaceWorkingDir: workingDir,
-		AgentRuntime:        agent.Runtime,
-		AgentInstructions:   agent.Instructions,
-		AgentModel:          agent.Model,
-		IssueTitle:          issue.Title,
-		IssueBody:           issue.Body,
-		RecentComments:      recentCommentSnippets(comments, run.ID, 3),
+		RunID:                  run.ID,
+		WorkspaceWorkingDir:    workingDir,
+		AgentRuntime:           agent.Runtime,
+		AgentInstructions:      agent.Instructions,
+		AgentModel:             agent.Model,
+		IssueTitle:             issue.Title,
+		IssueBody:              issue.Body,
+		TriggerContentSnapshot: run.TriggerContentSnapshot,
+		RecentComments:         recentCommentSnippets(comments, run.ID, 3),
 	}, nil
 }
 
 func (ws *WorkerStore) cancelClaimed(ctx context.Context, runID string, cause error) (*worker.ClaimedRun, error) {
-	_, _ = ws.store.CancelRun(ctx, runID, "claim preparation failed: "+cause.Error())
+	_, failErr := ws.store.FailInfrastructureRun(ctx, runID, store.TerminalReasonClaimPreparationFailed, store.FailureKindClaimPreparationFailed, "claim preparation failed: "+cause.Error())
+	if failErr != nil {
+		return nil, errors.Join(cause, fmt.Errorf("record infrastructure run failure: %w", failErr))
+	}
 	return nil, cause
 }
 
@@ -93,7 +97,7 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 		return errors.New("worker store: store is nil")
 	}
 	if result.Cancelled {
-		_, err := ws.store.CancelRun(ctx, runID, "user cancelled")
+		_, err := ws.store.CancelRunWithReason(ctx, runID, cancelReasonInput(result.CancelReason))
 		return ignoreTerminalState(err)
 	}
 
@@ -104,7 +108,17 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 
 	content, truncated := readRunComment(result.StdoutPath, "/api/runs/"+runID+"/log")
 	errMsg := executionErrorMessage(result, exitCode)
-	_, err := ws.store.CompleteRun(ctx, runID, exitCode, result.StdoutPath, content, truncated, errMsg)
+	terminalReason, failureKind := classifyExecutionFailure(result, exitCode)
+	_, err := ws.store.CompleteRunWithReason(ctx, runID, store.FinishRunInput{
+		ExitCode:         exitCode,
+		StdoutPath:       result.StdoutPath,
+		Content:          content,
+		ContentTruncated: truncated,
+		StdoutTruncated:  result.StdoutTruncated,
+		ErrorMessage:     errMsg,
+		TerminalReason:   terminalReason,
+		FailureKind:      failureKind,
+	})
 	return ignoreTerminalState(err)
 }
 
@@ -112,7 +126,29 @@ func (ws *WorkerStore) CancelRun(ctx context.Context, runID, reason string) erro
 	if ws.store == nil {
 		return errors.New("worker store: store is nil")
 	}
-	_, err := ws.store.CancelRun(ctx, runID, reason)
+	_, err := ws.store.CancelRunWithReason(ctx, runID, cancelReasonInput(reason))
+	return ignoreTerminalState(err)
+}
+
+func (ws *WorkerStore) HeartbeatRun(ctx context.Context, runID string) error {
+	if ws.store == nil {
+		return errors.New("worker store: store is nil")
+	}
+	return ignoreTerminalState(ws.store.HeartbeatRun(ctx, runID))
+}
+
+func (ws *WorkerStore) RecoverStaleRuns(ctx context.Context, cutoff string, excludeRunIDs []string) (int64, error) {
+	if ws.store == nil {
+		return 0, errors.New("worker store: store is nil")
+	}
+	return ws.store.RecoverStaleRuns(ctx, cutoff, excludeRunIDs)
+}
+
+func (ws *WorkerStore) FailRun(ctx context.Context, runID, terminalReason, failureKind, errMsg string) error {
+	if ws.store == nil {
+		return errors.New("worker store: store is nil")
+	}
+	_, err := ws.store.FailInfrastructureRun(ctx, runID, terminalReason, failureKind, errMsg)
 	return ignoreTerminalState(err)
 }
 
@@ -177,6 +213,82 @@ func executionErrorMessage(result worker.ExecutionResult, exitCode int) string {
 		return msg[:max] + "\n...[truncated]"
 	}
 	return msg
+}
+
+func classifyExecutionFailure(result worker.ExecutionResult, exitCode int) (string, string) {
+	switch {
+	case result.TimedOut:
+		return store.TerminalReasonTimeout, store.FailureKindTimeout
+	case result.Error != nil && !result.ProcessStarted:
+		return store.TerminalReasonExecutorError, store.FailureKindExecutorError
+	case exitCode != 0:
+		return store.TerminalReasonExitNonzero, store.FailureKindExitNonzero
+	case result.Error != nil:
+		return store.TerminalReasonExecutorError, store.FailureKindExecutorError
+	default:
+		return store.TerminalReasonCompleted, ""
+	}
+}
+
+func defaultCancelMessage(reason string) string {
+	switch reason {
+	case store.CancelReasonShutdown:
+		return "shutdown"
+	case store.CancelReasonIssue:
+		return "issue cancelled"
+	case store.CancelReasonOrphan:
+		return "orphan recovered"
+	case store.CancelReasonStale:
+		return "stale recovered"
+	default:
+		return "user cancelled"
+	}
+}
+
+func cancelReasonInput(reason string) store.CancelReasonInput {
+	message := strings.TrimSpace(reason)
+	lower := strings.ToLower(message)
+	messageOrDefault := func(cancelReason string) string {
+		if message == "" || message == cancelReason {
+			return defaultCancelMessage(cancelReason)
+		}
+		return message
+	}
+	switch {
+	case message == store.CancelReasonShutdown || strings.Contains(lower, "shutdown"):
+		return store.CancelReasonInput{
+			Message:        messageOrDefault(store.CancelReasonShutdown),
+			TerminalReason: store.TerminalReasonShutdown,
+			CancelReason:   store.CancelReasonShutdown,
+		}
+	case message == store.CancelReasonIssue || strings.Contains(lower, "issue"):
+		return store.CancelReasonInput{
+			Message:        messageOrDefault(store.CancelReasonIssue),
+			TerminalReason: store.TerminalReasonIssueCancelled,
+			CancelReason:   store.CancelReasonIssue,
+		}
+	case message == store.CancelReasonOrphan || strings.Contains(lower, "orphan"):
+		return store.CancelReasonInput{
+			Message:        messageOrDefault(store.CancelReasonOrphan),
+			TerminalReason: store.TerminalReasonOrphanRecovered,
+			CancelReason:   store.CancelReasonOrphan,
+		}
+	case message == store.CancelReasonStale || strings.Contains(lower, "stale"):
+		return store.CancelReasonInput{
+			Message:        messageOrDefault(store.CancelReasonStale),
+			TerminalReason: store.TerminalReasonStaleRecovered,
+			CancelReason:   store.CancelReasonStale,
+		}
+	default:
+		if message == "" || message == store.CancelReasonUser {
+			message = defaultCancelMessage(store.CancelReasonUser)
+		}
+		return store.CancelReasonInput{
+			Message:        message,
+			TerminalReason: store.TerminalReasonUserCancelled,
+			CancelReason:   store.CancelReasonUser,
+		}
+	}
 }
 
 func ignoreTerminalState(err error) error {

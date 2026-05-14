@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { BrandMark } from '../components/BrandMark';
 import { CreateWorkspaceDialog } from '../components/CreateWorkspaceDialog';
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher';
 import { useWorkspacesQuery, type WorkspaceSummary } from '../api/queries';
@@ -113,7 +114,9 @@ export function DashboardLayout() {
     <div className="app-shell">
       <aside className="sidebar" aria-label="주요 메뉴">
         <div className="brand">
-          <span className="brand-mark">C</span>
+          <span className="brand-mark" aria-hidden="true">
+            <BrandMark />
+          </span>
           <div>
             <strong>Corn Agent</strong>
             <small>{currentWorkspace?.name ?? 'Local dashboard'}</small>

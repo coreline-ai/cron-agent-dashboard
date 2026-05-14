@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +25,8 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	cmd := "serve"
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] != "--help" && args[0] != "-h" && args[0][0] != '-' {

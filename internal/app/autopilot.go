@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
@@ -59,34 +60,48 @@ func (r *AutopilotRunner) Stop(ctx context.Context) error {
 }
 
 func (r *AutopilotRunner) TriggerRule(ctx context.Context, ruleID string) error {
-	_, _, err := r.TriggerRuleResult(ctx, ruleID)
+	_, err := r.TriggerRuleResult(ctx, ruleID)
 	return err
 }
 
-func (r *AutopilotRunner) TriggerRuleResult(ctx context.Context, ruleID string) (store.Issue, store.Run, error) {
+func (r *AutopilotRunner) TriggerRuleResult(ctx context.Context, ruleID string) (store.AutopilotTriggerResult, error) {
 	rule, err := r.store.GetAutopilotRule(ctx, ruleID)
 	if err != nil {
-		return store.Issue{}, store.Run{}, err
+		return store.AutopilotTriggerResult{}, err
+	}
+	if !rule.Enabled {
+		err := fmt.Errorf("%w: autopilot rule is disabled", store.ErrState)
+		return store.AutopilotTriggerResult{
+			Rule:  rule,
+			Error: store.AutopilotTriggerErrorMessage(err),
+		}, err
 	}
 	now := r.now().In(r.loc)
+	nextRunAt := ""
+	if next, ok := r.nextRunAt(rule.CronExpr); ok {
+		nextRunAt = next
+	}
 	title, err := scheduler.RenderTemplate(rule.IssueTitleTemplate, now)
 	if err != nil {
-		return store.Issue{}, store.Run{}, err
+		return r.recordTriggerFailure(ctx, rule, err, nextRunAt)
 	}
 	body, err := scheduler.RenderTemplate(rule.IssueBodyTemplate, now)
 	if err != nil {
-		return store.Issue{}, store.Run{}, err
+		return r.recordTriggerFailure(ctx, rule, err, nextRunAt)
 	}
-	issue, run, err := r.store.TriggerAutopilotRuleWithContent(ctx, ruleID, title, body)
-	if err != nil {
-		return store.Issue{}, store.Run{}, err
+	return r.store.TriggerAutopilotRuleWithContentResult(ctx, ruleID, title, body, nextRunAt)
+}
+
+func (r *AutopilotRunner) recordTriggerFailure(ctx context.Context, rule store.AutopilotRule, triggerErr error, nextRunAt string) (store.AutopilotTriggerResult, error) {
+	result := store.AutopilotTriggerResult{
+		Rule:  rule,
+		Error: store.AutopilotTriggerErrorMessage(triggerErr),
 	}
-	if next, ok := r.nextRunAt(rule.CronExpr); ok {
-		if err := r.store.SetAutopilotNextRun(ctx, ruleID, next); err != nil {
-			return store.Issue{}, store.Run{}, err
-		}
+	updated, err := r.store.RecordAutopilotTriggerFailure(ctx, rule.ID, triggerErr, nextRunAt)
+	if err == nil {
+		result.Rule = updated
 	}
-	return issue, run, nil
+	return result, triggerErr
 }
 
 func (r *AutopilotRunner) syncNextRunAt(ctx context.Context, rules []store.AutopilotRule) error {

@@ -19,6 +19,7 @@ import (
 	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
 )
 
 var Version = "0.1.0"
@@ -35,9 +36,13 @@ type RunCanceller interface {
 	CancelRun(runID string) bool
 }
 
+type PendingRunCancelCleaner interface {
+	ForgetPendingCancel(runID string) bool
+}
+
 type AutopilotManager interface {
 	Reload(ctx context.Context) error
-	TriggerRuleResult(ctx context.Context, ruleID string) (store.Issue, store.Run, error)
+	TriggerRuleResult(ctx context.Context, ruleID string) (store.AutopilotTriggerResult, error)
 }
 
 type Option func(*Server)
@@ -97,6 +102,7 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 		api.Get("/api/issues/{id}/runs", s.listRuns)
 
 		api.Delete("/api/comments/{id}", s.deleteComment)
+		api.Get("/api/runs/{id}/events", s.listRunEvents)
 		api.Get("/api/runs/{id}/log", s.runLog)
 		api.Put("/api/autopilot/{id}", s.updateAutopilot)
 		api.Delete("/api/autopilot/{id}", s.deleteAutopilot)
@@ -162,7 +168,19 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"version": Version, "data_dir": s.cfg.DataDir, "available_runtimes": availableRuntimes(), "worker_pool_size": s.cfg.Workers, "auth_mode": s.cfg.AuthMode(), "timezone": s.cfg.Timezone})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":            Version,
+		"data_dir":           s.cfg.DataDir,
+		"available_runtimes": availableRuntimes(),
+		"worker_pool_size":   s.cfg.Workers,
+		"auth_mode":          s.cfg.AuthMode(),
+		"timezone":           s.cfg.Timezone,
+		"run_lifecycle": map[string]any{
+			"heartbeat_interval_seconds":  int(worker.DefaultHeartbeatInterval / time.Second),
+			"stale_after_seconds":         int(worker.DefaultStaleAfter / time.Second),
+			"stale_scan_interval_seconds": int(worker.DefaultStaleScanInterval / time.Second),
+		},
+	})
 }
 
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -319,13 +337,58 @@ func (s *Server) cancelIssueRun(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
-	if run.Status == "running" && s.runCanceller != nil && s.runCanceller.CancelRun(run.ID) {
+	if _, err := s.store.AppendRunEvent(r.Context(), store.RunEventInput{
+		RunID:     run.ID,
+		IssueID:   run.IssueID,
+		EventType: store.RunEventCancelRequest,
+		Message:   "Cancel requested",
+		Details: map[string]any{
+			"cancel_reason": store.CancelReasonUser,
+		},
+	}); err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	processCancelRequested := false
+	if s.runCanceller != nil {
+		processCancelRequested = s.runCanceller.CancelRun(run.ID)
+	}
+	if processCancelRequested {
 		respond(w, map[string]any{"run": run, "cancel_requested": true}, nil, http.StatusOK)
 		return
 	}
-	cancelled, err := s.store.CancelRun(r.Context(), run.ID, "user cancelled")
+	cancelled, err := s.store.CancelRunWithReason(r.Context(), run.ID, store.CancelReasonInput{
+		Message:        "user cancelled",
+		TerminalReason: store.TerminalReasonUserCancelled,
+		CancelReason:   store.CancelReasonUser,
+	})
+	if err == nil {
+		s.forgetPendingRunCancelIfUnclaimed(cancelled)
+	} else {
+		s.forgetPendingRunCancelIfCurrentRunUnclaimed(r.Context(), run.ID)
+	}
 	respond(w, map[string]any{"run": cancelled, "cancel_requested": false}, err, http.StatusOK)
 }
+
+func (s *Server) forgetPendingRunCancelIfCurrentRunUnclaimed(ctx context.Context, runID string) {
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return
+	}
+	s.forgetPendingRunCancelIfUnclaimed(run)
+}
+
+func (s *Server) forgetPendingRunCancelIfUnclaimed(run store.Run) {
+	if s.runCanceller == nil || run.ClaimedAt != "" || run.StartedAt != "" {
+		return
+	}
+	cleaner, ok := s.runCanceller.(PendingRunCancelCleaner)
+	if !ok {
+		return
+	}
+	cleaner.ForgetPendingCancel(run.ID)
+}
+
 func (s *Server) deleteIssue(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	err := s.store.DeleteIssue(r.Context(), id)
@@ -354,6 +417,10 @@ func (s *Server) deleteComment(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 	xs, err := s.store.ListRuns(r.Context(), chi.URLParam(r, "id"))
 	respond(w, map[string]any{"runs": xs}, err, http.StatusOK)
+}
+func (s *Server) listRunEvents(w http.ResponseWriter, r *http.Request) {
+	xs, err := s.store.ListRunEvents(r.Context(), chi.URLParam(r, "id"))
+	respond(w, map[string]any{"events": xs}, err, http.StatusOK)
 }
 func (s *Server) runLog(w http.ResponseWriter, r *http.Request) {
 	p, err := s.store.GetRunLogPath(r.Context(), chi.URLParam(r, "id"))
@@ -411,15 +478,28 @@ func (s *Server) deleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]any{"deleted": true, "id": id}, err, http.StatusOK)
 }
 func (s *Server) triggerAutopilot(w http.ResponseWriter, r *http.Request) {
-	var issue store.Issue
-	var run store.Run
+	var result store.AutopilotTriggerResult
 	var err error
 	if s.autopilotManager != nil {
-		issue, run, err = s.autopilotManager.TriggerRuleResult(r.Context(), chi.URLParam(r, "id"))
+		result, err = s.autopilotManager.TriggerRuleResult(r.Context(), chi.URLParam(r, "id"))
 	} else {
-		issue, run, err = s.store.TriggerAutopilotRule(r.Context(), chi.URLParam(r, "id"))
+		result, err = s.store.TriggerAutopilotRuleResult(r.Context(), chi.URLParam(r, "id"))
 	}
-	respond(w, map[string]any{"issue": issue, "run": run}, err, http.StatusCreated)
+	if err != nil {
+		if result.Rule.ID != "" && !errors.Is(err, store.ErrNotFound) {
+			status := http.StatusInternalServerError
+			if errors.Is(err, store.ErrValidation) {
+				status = http.StatusBadRequest
+			} else if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrState) {
+				status = http.StatusConflict
+			}
+			writeError(w, status, "AUTOPILOT_TRIGGER_FAILED", store.AutopilotTriggerErrorMessage(err), map[string]any{"trigger_result": result})
+			return
+		}
+		respond(w, nil, err, 0)
+		return
+	}
+	respond(w, map[string]any{"trigger_result": result, "rule": result.Rule, "issue": result.Issue, "run": result.Run}, nil, http.StatusCreated)
 }
 
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {

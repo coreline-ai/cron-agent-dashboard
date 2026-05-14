@@ -82,6 +82,39 @@ func TestWorkerPoolCompletesClaimedRunThroughStore(t *testing.T) {
 	}
 }
 
+func TestWorkerStoreClaimedRunPreservesTriggerContentSnapshot(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Delegation",
+		Slug:             "delegation",
+		IdentifierPrefix: "DLG",
+		MainAgent:        store.CreateAgentInput{Name: "Writer", Runtime: "fake", Instructions: "write"},
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	body := "@Writer 이 댓글을 기사 초안으로 바꿔줘"
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "snapshot task", Body: body})
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	claimed, err := NewWorkerStore(st).ClaimNextRun(ctx, "worker-snapshot")
+	if err != nil {
+		t.Fatalf("claim next run: %v", err)
+	}
+	if claimed == nil {
+		t.Fatal("expected claimed run")
+	}
+	if claimed.TriggerContentSnapshot != run.TriggerContentSnapshot {
+		t.Fatalf("snapshot mismatch: claimed=%q run=%q", claimed.TriggerContentSnapshot, run.TriggerContentSnapshot)
+	}
+	if claimed.TriggerContentSnapshot != body {
+		t.Fatalf("snapshot not preserved: %q", claimed.TriggerContentSnapshot)
+	}
+}
+
 func TestWorkerStoreMissingRuntimeFailsRun(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
@@ -123,12 +156,47 @@ func TestWorkerStoreMissingRuntimeFailsRun(t *testing.T) {
 	if !strings.Contains(got.ErrorMessage, `runtime "missing" is not configured`) {
 		t.Fatalf("unexpected error message: %q", got.ErrorMessage)
 	}
+	if got.TerminalReason != store.TerminalReasonExecutorError || got.FailureKind != store.FailureKindExecutorError {
+		t.Fatalf("missing runtime should be executor_error, got %#v", got)
+	}
 	gotIssue, err := st.GetIssue(ctx, issue.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotIssue.Status != "open" {
 		t.Fatalf("failed run should keep issue open, got %s", gotIssue.Status)
+	}
+}
+
+func TestWorkerStoreClassifiesTimeout(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Timeout",
+		Slug:             "timeout",
+		IdentifierPrefix: "TMO",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "fake", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "timeout task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	workerStore := NewWorkerStore(st)
+	if err := workerStore.FinishRun(ctx, run.ID, worker.ExecutionResult{RunID: run.ID, ExitCode: -1, TimedOut: true, ProcessStarted: true, Error: context.DeadlineExceeded}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "failed" || got.TerminalReason != store.TerminalReasonTimeout || got.FailureKind != store.FailureKindTimeout {
+		t.Fatalf("timeout classification failed: %#v", got)
 	}
 }
 

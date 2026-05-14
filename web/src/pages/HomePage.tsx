@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPanel';
 import { PageHeader } from '../components/PageHeader';
@@ -11,7 +12,9 @@ export function HomePage() {
   const totalOpenIssues = workspaces.reduce((sum, workspace) => sum + (workspace.open_issue_count ?? 0), 0);
   const activeIssueCount =
     currentWorkspaceIssues.data?.filter((issue) => issue.execution_status === 'queued' || issue.execution_status === 'running').length ?? 0;
-  const recentIssues = currentWorkspaceIssues.data?.slice(0, 5) ?? [];
+  const allIssues = currentWorkspaceIssues.data ?? [];
+  const [expanded, setExpanded] = useState(false);
+  const recentIssues = expanded ? allIssues : allIssues.slice(0, 5);
   const runtimeCount = health.data?.available_runtimes?.length ?? 0;
 
   return (
@@ -99,6 +102,11 @@ export function HomePage() {
                   <span>{issue.status} · {issue.execution_status} · @{issue.last_run_agent_name || issue.assignee_agent_name || '-'}</span>
                 </Link>
               ))}
+              {allIssues.length > 5 && (
+                <button className="inline-link" type="button" onClick={() => setExpanded((v) => !v)}>
+                  {expanded ? '접기' : `더 보기 (+${allIssues.length - 5})`}
+                </button>
+              )}
             </div>
           ) : (
             <div className="empty-state">

@@ -1,11 +1,32 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { useCommentsQuery, useRunEventsQuery, useRunsQuery, useWorkspaceIssueQuery } from '../api/queries';
+import type { Comment, IssueStatus, Run, RunEvent } from '../api/queries';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { DateTimeText } from '../components/DateTimeText';
+import { IssueSummaryRail } from '../components/IssueSummaryRail';
 import { MarkdownText } from '../components/MarkdownText';
+import { MutationErrorAlert } from '../components/MutationErrorAlert';
 import { PageHeader } from '../components/PageHeader';
-import { useCommentsQuery, useRunsQuery, useWorkspaceIssueQuery } from '../api/queries';
-import type { Run } from '../api/queries';
+import { StatusPill } from '../components/StatusPill';
+import { useToast } from '../components/ToastProvider';
+import {
+  getCancelReasonLabel,
+  getFailureKindLabel,
+  getRunEventLabel,
+  getTerminalReasonLabel,
+  getTriggerLabel
+} from '../lib/runLabels';
+
+type ConfirmAction = 'rerun' | 'cancelRun' | 'markDone' | 'cancelIssue' | 'reopen';
+
+type CommentResponse = {
+  comment: Comment;
+  mention_warnings?: string[];
+  dispatched_run?: Run;
+};
 
 export function IssueDetailPage() {
   const { identifier, slug } = useParams();
@@ -13,35 +34,99 @@ export function IssueDetailPage() {
   const comments = useCommentsQuery(issue.data?.id, issue.data?.execution_status);
   const runs = useRunsQuery(issue.data?.id, issue.data?.execution_status);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [content, setContent] = useState('');
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const runList = useMemo(() => runs.data ?? [], [runs.data]);
+  const busy = issue.data?.execution_status === 'queued' || issue.data?.execution_status === 'running';
+
   const invalidateIssue = () => {
     queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
     queryClient.invalidateQueries({ queryKey: ['comments', issue.data?.id] });
     queryClient.invalidateQueries({ queryKey: ['runs', issue.data?.id] });
     queryClient.invalidateQueries({ queryKey: ['issues', slug] });
+    for (const run of runList) {
+      queryClient.invalidateQueries({ queryKey: ['run-events', run.id] });
+    }
   };
+
   const addComment = useMutation({
-    mutationFn: () => apiClient.post(`/issues/${issue.data?.id}/comments`, { content }),
-    onSuccess: () => {
+    mutationFn: () => apiClient.post<CommentResponse>(`/issues/${issue.data?.id}/comments`, { content }),
+    onSuccess: (data) => {
       setContent('');
       invalidateIssue();
-    }
+      if (data.dispatched_run) {
+        toast.success('멘션 실행을 큐에 등록했습니다.', { description: `run ${data.dispatched_run.id.slice(0, 8)}` });
+      } else {
+        toast.success('댓글을 등록했습니다.');
+      }
+      for (const warning of data.mention_warnings ?? []) {
+        toast.warning('멘션 경고', { description: warning });
+      }
+    },
+    onError: (error) => toast.error('댓글 등록 실패', { description: errorMessage(error) })
   });
-  const rerun = useMutation({ mutationFn: () => apiClient.post(`/issues/${issue.data?.id}/rerun`), onSuccess: invalidateIssue });
-  const cancelRun = useMutation({ mutationFn: () => apiClient.post(`/issues/${issue.data?.id}/cancel`), onSuccess: invalidateIssue });
-  const markDone = useMutation({
-    mutationFn: () => apiClient.put(`/issues/${issue.data?.id}`, { status: 'done' }),
-    onSuccess: invalidateIssue
+
+  const rerun = useMutation({
+    mutationFn: () => apiClient.post(`/issues/${issue.data?.id}/rerun`),
+    onSuccess: () => {
+      invalidateIssue();
+      toast.success('재실행을 큐에 등록했습니다.');
+    },
+    onError: (error) => toast.error('재실행 실패', { description: errorMessage(error) }),
+    onSettled: () => setConfirmAction(null)
   });
-  const cancelIssue = useMutation({
-    mutationFn: () => apiClient.put(`/issues/${issue.data?.id}`, { status: 'cancelled' }),
-    onSuccess: invalidateIssue
+  const cancelRun = useMutation({
+    mutationFn: () => apiClient.post(`/issues/${issue.data?.id}/cancel`),
+    onSuccess: () => {
+      invalidateIssue();
+      toast.success('실행 취소를 요청했습니다.');
+    },
+    onError: (error) => toast.error('실행 취소 실패', { description: errorMessage(error) }),
+    onSettled: () => setConfirmAction(null)
   });
+  const updateStatus = useMutation({
+    mutationFn: (status: IssueStatus) => apiClient.put(`/issues/${issue.data?.id}`, { status }),
+    onSuccess: (_, status) => {
+      invalidateIssue();
+      toast.success(statusToast(status));
+    },
+    onError: (error) => toast.error('상태 변경 실패', { description: errorMessage(error) }),
+    onSettled: () => setConfirmAction(null)
+  });
+
+  const actionPending = rerun.isPending || cancelRun.isPending || updateStatus.isPending;
+
   const onCommentSubmit = (event: FormEvent) => {
     event.preventDefault();
+    if (!issue.data || !content.trim()) {
+      return;
+    }
     addComment.mutate();
   };
-  const busy = issue.data?.execution_status === 'queued' || issue.data?.execution_status === 'running';
+
+  const runConfirmedAction = () => {
+    if (!issue.data || !confirmAction) {
+      return;
+    }
+    if (confirmAction === 'rerun') {
+      rerun.mutate();
+      return;
+    }
+    if (confirmAction === 'cancelRun') {
+      cancelRun.mutate();
+      return;
+    }
+    if (confirmAction === 'markDone') {
+      updateStatus.mutate('done');
+      return;
+    }
+    if (confirmAction === 'cancelIssue') {
+      updateStatus.mutate('cancelled');
+      return;
+    }
+    updateStatus.mutate('open');
+  };
 
   return (
     <section className="page-stack">
@@ -54,55 +139,86 @@ export function IssueDetailPage() {
             : '실행 로그, 댓글, 멘션 위임 흐름을 안전한 텍스트 렌더링으로 표시합니다.'
         }
       />
-      <article className="panel">
-        <h2>본문</h2>
-        <MarkdownText value={issue.data?.body || '(본문 없음)'} />
-        <div className="button-row">
-          <button className="button secondary" type="button" onClick={() => rerun.mutate()} disabled={!issue.data || busy || rerun.isPending}>
-            재실행
-          </button>
-          <button className="button secondary" type="button" onClick={() => cancelRun.mutate()} disabled={!issue.data || !busy || cancelRun.isPending}>
-            {issue.data?.execution_status === 'queued' ? '대기 취소' : '실행 취소'}
-          </button>
-          <button className="button secondary" type="button" onClick={() => markDone.mutate()} disabled={!issue.data || busy}>
-            완료 처리
-          </button>
-          <button className="button danger" type="button" onClick={() => cancelIssue.mutate()} disabled={!issue.data || busy}>
-            이슈 취소
-          </button>
+
+      {issue.isError ? <MutationErrorAlert error={issue.error} title="이슈 로드 실패" /> : null}
+
+      <div className="issue-detail-layout">
+        <div className="issue-detail-main">
+          <article className="panel">
+            <div className="section-heading compact">
+              <h2>본문</h2>
+              {issue.data ? <StatusPill kind="issue" status={issue.data.status} /> : null}
+            </div>
+            <MarkdownText value={issue.data?.body || '(본문 없음)'} />
+          </article>
+
+          <article className="panel">
+            <div className="section-heading compact">
+              <h2>댓글 스레드</h2>
+              <span className="badge">{comments.data?.length ?? 0}</span>
+            </div>
+            {comments.data?.map((comment) => (
+              <div className="comment-block" key={comment.id}>
+                <div className="comment-meta-row">
+                  <strong>{comment.author_agent_name || comment.author_type}</strong>
+                  <DateTimeText value={comment.created_at} mode="both" />
+                  {comment.truncated ? <span className="badge warning">truncated</span> : null}
+                </div>
+                <MarkdownText value={comment.content} />
+                {comment.log_url && (
+                  <a className="inline-link" href={comment.log_url}>
+                    로그 보기
+                  </a>
+                )}
+              </div>
+            ))}
+            {!comments.isLoading && !comments.data?.length && <p>아직 댓글이 없습니다.</p>}
+            <form className="form-grid comment-form" onSubmit={onCommentSubmit}>
+              <textarea placeholder="@AgentName 멘션으로 위임할 수 있습니다." value={content} onChange={(e) => setContent(e.target.value)} required />
+              <button className="button" type="submit" disabled={!issue.data || addComment.isPending || !content.trim()}>
+                {addComment.isPending ? '등록 중' : '댓글 등록'}
+              </button>
+              {addComment.isError ? <MutationErrorAlert error={addComment.error} title="댓글 등록 실패" /> : null}
+            </form>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading compact">
+              <h2>Run 이력</h2>
+              <span className="badge">{runList.length}</span>
+            </div>
+            <div className="run-history-list">
+              {runList.map((run) => (
+                <RunHistoryCard key={run.id} run={run} />
+              ))}
+            </div>
+            {!runs.isLoading && !runList.length && <p>아직 실행 이력이 없습니다.</p>}
+          </article>
         </div>
-      </article>
-      <article className="panel">
-        <h2>댓글 스레드</h2>
-        {comments.data?.map((comment) => (
-          <div className="comment-block" key={comment.id}>
-            <strong>{comment.author_agent_name || comment.author_type}</strong>
-            <MarkdownText value={comment.content} />
-            {comment.log_url && (
-              <a className="inline-link" href={comment.log_url}>
-                로그 보기
-              </a>
-            )}
-          </div>
-        ))}
-        {!comments.isLoading && !comments.data?.length && <p>아직 댓글이 없습니다.</p>}
-        <form className="form-grid" onSubmit={onCommentSubmit}>
-          <textarea placeholder="@AgentName 멘션으로 위임할 수 있습니다." value={content} onChange={(e) => setContent(e.target.value)} required />
-          <button className="button" type="submit" disabled={!issue.data || addComment.isPending}>
-            {addComment.isPending ? '등록 중' : '댓글 등록'}
-          </button>
-          {addComment.isError && <p className="error-text">댓글 등록에 실패했습니다.</p>}
-        </form>
-      </article>
-      <article className="panel">
-        <h2>Run 이력</h2>
-        <div className="run-history-list">
-          {runs.data?.map((run) => (
-            <RunHistoryCard key={run.id} run={run} />
-          ))}
-        </div>
-        {!runs.isLoading && !runs.data?.length && <p>아직 실행 이력이 없습니다.</p>}
-      </article>
+
+        <IssueSummaryRail
+          issue={issue.data}
+          runs={runList}
+          busy={Boolean(busy)}
+          actionPending={actionPending}
+          onRerun={() => setConfirmAction('rerun')}
+          onCancelRun={() => setConfirmAction('cancelRun')}
+          onMarkDone={() => setConfirmAction('markDone')}
+          onCancelIssue={() => setConfirmAction('cancelIssue')}
+          onReopen={() => setConfirmAction('reopen')}
+        />
+      </div>
+
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        title={confirmTitle(confirmAction)}
+        description={confirmDescription(confirmAction, issue.data?.title)}
+        confirmLabel={confirmLabel(confirmAction)}
+        tone={confirmAction === 'cancelIssue' || confirmAction === 'cancelRun' ? 'danger' : 'default'}
+        pending={actionPending}
+        onConfirm={runConfirmedAction}
+        onClose={() => setConfirmAction(null)}
+      />
     </section>
   );
 }
@@ -114,13 +230,23 @@ function RunHistoryCard({ run }: { run: Run }) {
   return (
     <section className={`run-history-card run-status-${run.status}`}>
       <header className="run-history-header">
-        <span className={`status-pill status-${run.status}`}>{runStatusLabel(run.status)}</span>
+        <StatusPill kind="run" status={run.status} pulse={run.status === 'running'} />
         <strong>@{run.agent_name || '-'}</strong>
-        <span>{triggerLabel(run.trigger_type)}</span>
+        <span>{getTriggerLabel(run.trigger_type)}</span>
       </header>
       <div className="run-history-meta">
-        <span>실행 시각: {formatDateTime(run.finished_at || run.started_at || run.enqueued_at)}</span>
+        <span>
+          실행 시각: <DateTimeText value={run.finished_at || run.started_at || run.enqueued_at} mode="both" />
+        </span>
+        {run.heartbeat_at && run.status === 'running' ? (
+          <span>
+            heartbeat <DateTimeText value={run.heartbeat_at} mode="relative" />
+          </span>
+        ) : null}
         {typeof run.exit_code === 'number' && <span>exit {run.exit_code}</span>}
+        {run.terminal_reason ? <span>{getTerminalReasonLabel(run.terminal_reason)}</span> : null}
+        {run.failure_kind ? <span>{getFailureKindLabel(run.failure_kind)}</span> : null}
+        {run.cancel_reason ? <span>{getCancelReasonLabel(run.cancel_reason)}</span> : null}
         {typeof run.stdout_size_bytes === 'number' && run.stdout_size_bytes > 0 && <span>로그 {formatBytes(run.stdout_size_bytes)}</span>}
         {run.log_url && (
           <a className="inline-link" href={run.log_url}>
@@ -134,7 +260,41 @@ function RunHistoryCard({ run }: { run: Run }) {
           <pre>{message}</pre>
         </details>
       )}
+      <RunEventTimeline run={run} />
     </section>
+  );
+}
+
+function RunEventTimeline({ run }: { run: Run }) {
+  const events = useRunEventsQuery(run.id, run.status);
+
+  return (
+    <details className="run-event-details" open={run.status === 'running' || run.status === 'failed'}>
+      <summary>이벤트 타임라인 {events.data?.length ? `(${events.data.length})` : ''}</summary>
+      {events.isError ? <MutationErrorAlert error={events.error} title="이벤트 로드 실패" /> : null}
+      <ol className="run-event-timeline">
+        {events.data?.map((event) => (
+          <RunEventItem key={event.id} event={event} />
+        ))}
+      </ol>
+      {!events.isLoading && !events.data?.length ? <p className="muted-copy">기록된 이벤트가 없습니다.</p> : null}
+    </details>
+  );
+}
+
+function RunEventItem({ event }: { event: RunEvent }) {
+  return (
+    <li className={`run-event-item run-event-${event.severity}`}>
+      <span className="run-event-dot" aria-hidden="true" />
+      <div>
+        <div className="run-event-header">
+          <strong>{getRunEventLabel(event.event_type)}</strong>
+          <DateTimeText value={event.created_at} mode="both" />
+        </div>
+        {event.message ? <p>{event.message}</p> : null}
+        {event.details && Object.keys(event.details).length > 0 ? <code>{formatDetails(event.details)}</code> : null}
+      </div>
+    </li>
   );
 }
 
@@ -154,39 +314,10 @@ function normalizeRunMessage(value?: string) {
     .trim();
 }
 
-function runStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    queued: '대기',
-    running: '실행 중',
-    done: '완료',
-    failed: '실패',
-    cancelled: '취소'
-  };
-  return labels[status] ?? status;
-}
-
-function triggerLabel(trigger: string) {
-  const labels: Record<string, string> = {
-    issue_created: '이슈 생성',
-    rerun: '재실행',
-    mention: '멘션',
-    autopilot: '오토파일럿'
-  };
-  return labels[trigger] ?? trigger;
-}
-
-function formatDateTime(value?: string) {
-  if (!value) {
-    return '-';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat('ko-KR', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(date);
+function formatDetails(details: Record<string, unknown>) {
+  return Object.entries(details)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(' · ');
 }
 
 function formatBytes(value: number) {
@@ -197,4 +328,54 @@ function formatBytes(value: number) {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function confirmTitle(action: ConfirmAction | null) {
+  const labels: Record<ConfirmAction, string> = {
+    rerun: '이슈를 재실행할까요?',
+    cancelRun: '현재 실행을 취소할까요?',
+    markDone: '이슈를 완료 처리할까요?',
+    cancelIssue: '이슈를 취소할까요?',
+    reopen: '이슈를 다시 열까요?'
+  };
+  return action ? labels[action] : '작업 확인';
+}
+
+function confirmDescription(action: ConfirmAction | null, title?: string) {
+  const target = title ? `“${title}”` : '선택한 이슈';
+  const descriptions: Record<ConfirmAction, string> = {
+    rerun: `${target}의 새 run을 큐에 등록합니다.`,
+    cancelRun: `${target}의 queued/running run에 취소 신호를 보냅니다.`,
+    markDone: `${target}을 완료 상태로 전환합니다. active run이 있으면 서버가 차단합니다.`,
+    cancelIssue: `${target}을 취소 상태로 닫습니다. queued run은 함께 취소됩니다.`,
+    reopen: `${target}을 open 상태로 되돌립니다.`
+  };
+  return action ? descriptions[action] : undefined;
+}
+
+function confirmLabel(action: ConfirmAction | null) {
+  const labels: Record<ConfirmAction, string> = {
+    rerun: '재실행',
+    cancelRun: '실행 취소',
+    markDone: '완료 처리',
+    cancelIssue: '이슈 취소',
+    reopen: '다시 열기'
+  };
+  return action ? labels[action] : '확인';
+}
+
+function statusToast(status: IssueStatus) {
+  const labels: Record<IssueStatus, string> = {
+    open: '이슈를 다시 열었습니다.',
+    done: '이슈를 완료 처리했습니다.',
+    cancelled: '이슈를 취소했습니다.'
+  };
+  return labels[status];
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return '요청 처리 중 오류가 발생했습니다.';
 }

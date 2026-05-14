@@ -246,6 +246,7 @@
     - "재시작 중 진행 작업이 취소되었습니다" (orphan 정리)
 - 하단 댓글 입력 폼 (markdown, `@AgentName` 자동완성)
   - **힌트 텍스트**: "@에이전트 멘션은 같은 이슈에 새 실행을 추가합니다 (담당자는 바뀌지 않음)"
+  - **체이닝 정책 안내**: "현재는 사용자 댓글의 명시 멘션만 실행됩니다. agent 결과 댓글의 @멘션은 자동 실행되지 않습니다."
 
 **우측 사이드바 (요약)**:
 - 이슈 상태 / 실행 상태 / 담당 / 최근 실행 / 만든이 / 생성 시각
@@ -459,6 +460,15 @@
 - `g b` → 보드
 - `g a` → 에이전트
 - `g p` → autopilot
+
+### 4.4 체이닝 정책 표시
+
+현재 UX는 **explicit-only**를 전제로 한다.
+
+- 댓글 입력에서 사용자가 직접 작성한 `@AgentName` 명시 멘션만 새 run을 만든다.
+- agent 결과 댓글 안의 `@AgentName`은 markdown 텍스트로만 표시되고 자동 dispatch하지 않는다.
+- 이유: 무한 루프, 비용 폭주, hallucinated mention 실행 방지.
+- Auto-chain은 Phase 2+ opt-in 후보이며 현재 화면 기능이 아니다. 구현 시 기본값은 off, 최대 depth 5, 같은 chain 내 동일 agent 재호출 차단, failed/cancelled 후 chain 중단을 UI copy와 설정에 반영해야 한다.
 
 ---
 

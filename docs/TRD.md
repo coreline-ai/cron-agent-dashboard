@@ -11,7 +11,7 @@
 
 ### 1.1 Backend
 - **언어**: Go 1.24+
-- **HTTP 라우터**: `chi/v5` (Multica와 동일, 검증됨)
+- **HTTP 라우터**: `chi/v5` (Corn Design Reference와 동일, 검증됨)
 - **DB 드라이버**: `modernc.org/sqlite` (pure Go, CGo 없음 → 크로스 컴파일 용이)
 - **SQL 빌더**: `sqlx` (가벼움, sqlc는 단일 프로젝트엔 과함)
 - **Cron**: `github.com/robfig/cron/v3`
@@ -25,7 +25,7 @@
     - Next의 SSR/RSC 기능 미사용 (단일 사용자, API 전부 client fetch)
     - `output: 'export'` + 동적 라우트 `[id]`는 `generateStaticParams` 필요 → 모든 issue id를 빌드 시 알 수 없으므로 우회 필요
     - SPA + Go fallback handler (모든 비-API 경로 → index.html)가 단순하고 안정적
-  - Multica 컴포넌트는 client-only로 추출 가능한 것만 가져온다 (RSC/`'use server'` 의존 컴포넌트는 client 변형 작성)
+  - Corn Design Reference 컴포넌트는 client-only로 추출 가능한 것만 가져온다 (RSC/`'use server'` 의존 컴포넌트는 client 변형 작성)
 - **라우팅**: `react-router-dom` v6+
 - **UI 라이브러리**: shadcn/ui (Base UI는 선택)
 - **스타일**: Tailwind CSS v4 (PostCSS plugin)
@@ -41,7 +41,7 @@
 - **설정**: `~/.corn-agent-dashboard/config.toml` (선택)
 
 ### 1.4 Agent Runtime
-- **방식**: `exec.Command` spawn (Multica와 동일)
+- **방식**: `exec.Command` spawn (Corn Design Reference와 동일)
 - **지원 CLI**: `codex`, `claude`, `gemini` (Phase 1)
 - **Runtime adapter 인터페이스** — CLI마다 인자/stdin 방식이 달라 추상화 필요
   ```go
@@ -316,11 +316,13 @@ corn-agent-dashboard/
 
 ### 8.1 Dispatch 트리거 (모두 = run row INSERT)
 1. 이슈 생성 시 → run INSERT (assignee 또는 메인 에이전트)
-2. 댓글에 `@AgentName` 멘션 → 같은 issue에 새 run INSERT (`issue.assignee_agent_id` 변경 없음, `run.agent_id`만 멘션된 에이전트)
+2. **사용자 댓글**에 `@AgentName` 명시 멘션 → 같은 issue에 새 run INSERT (`issue.assignee_agent_id` 변경 없음, `run.agent_id`만 멘션된 에이전트)
 3. Autopilot cron 시각 도래 → issue + run INSERT
 4. 수동 `/rerun` 호출 → 같은 issue에 새 run INSERT (동일 agent)
 
 **모든 dispatch는 channel send가 아니라 DB row INSERT.** Worker가 polling으로 claim.
+
+현재 체이닝 정책은 **explicit-only**다. agent 결과 댓글 안의 `@AgentName`은 자동 dispatch하지 않으며, 이는 무한 루프, 비용 폭주, hallucinated mention 실행을 방지하기 위한 MVP 안전 정책이다. Auto-chain은 Phase 2+ opt-in 후보이며 현재 기능이 아니다.
 
 ### 8.2 실행 흐름 (durable)
 ```
@@ -373,11 +375,12 @@ corn-agent-dashboard/
 ### 8.5 취소
 - `POST /api/issues/:id/cancel` 핸들러:
   1. active run 조회 (`status IN ('running','queued')`, running 우선)
-  2. running이면 in-memory `map[run_id]context.CancelFunc` 로 워커에게 신호
-     - worker claim 직후 cancel func 등록 전 race는 pending-cancel set으로 보존
-  3. queued이면 DB에서 즉시 `run.status='cancelled'`로 전환해 claim 대상에서 제외
-  4. 워커는 ctx.Done() 받으면 `syscall.Kill(-pgid, SIGTERM)` → 30초 후 SIGKILL
-  5. 종료/HTTP fallback 트랜잭션에서 `run.status='cancelled', exit_code=-1, error_message='user cancelled'`
+  2. 상태와 무관하게 worker pool에 cancellation intent를 먼저 기록
+     - 이미 실행 중이면 in-memory `map[run_id]context.CancelFunc` 로 워커에게 신호
+     - 아직 cancel func가 없으면 pending-cancel set으로 queued→running 경계 race 보존
+  3. HTTP fallback 트랜잭션에서 `run.status='cancelled', exit_code=-1, error_message='user cancelled'`
+  4. fallback 결과 run이 claimed/started 전이면 pending-cancel 정리, claimed/started 흔적이 있으면 pending 유지
+  5. 워커는 ctx.Done() 받으면 `syscall.Kill(-pgid, SIGTERM)` → 30초 후 SIGKILL
   6. **issue.status는 그대로 'open' 유지** (이슈는 살아있음)
   7. system 댓글 "사용자가 실행을 취소했습니다" INSERT
 
@@ -396,11 +399,30 @@ corn-agent-dashboard/
   - `mention`: 댓글 content의 앞 4KB
   - `autopilot`: 룰 이름 + cron 표현식
   - `rerun`: `[rerun of run <id>]`
+- `agent_mention` 또는 `auto_mention`은 auto-chain opt-in 구현 시 검토할 후보 enum이며 현재 schema/API에는 없다.
 
 ### 8.8 Run is stateless
 - run 테이블에 `session_id`, `work_dir` 컬럼 없음 (의도적)
 - 모든 run은 매번 `workspace.working_dir`을 cwd로 사용
 - 에이전트 간 working_dir 격리는 Phase 2 후보 (per-run worktree)
+
+### 8.9 Auto-chain opt-in 후보 (미구현)
+
+Auto-chain은 agent 결과 댓글의 mention을 자동으로 다음 run으로 dispatch하는 후보 기능이다. 현재는 구현하지 않는다.
+
+권장 설계:
+- 기본값 off.
+- lineage 후보 필드: `run.chain_id`, `run.parent_run_id`, `run.chain_depth`.
+- 최대 depth 기본값 5.
+- 같은 `chain_id` 안에서 동일 agent 재호출 차단.
+- source run이 `failed` 또는 `cancelled`이면 chain 중단.
+- 후보 `trigger_type`: `agent_mention` 또는 `auto_mention` 중 하나를 별도 migration/API 변경에서 선택.
+
+후보 store 흐름:
+1. agent 결과 comment 저장 후 opt-in 상태 확인.
+2. off이면 mention parser를 실행하지 않고 종료.
+3. on이면 agent comment의 첫 mention만 후보로 삼고 depth/중복/상태 guard를 통과할 때만 새 run INSERT.
+4. dispatch 결과는 run_event 또는 system comment로 남긴다.
 
 ---
 
@@ -453,8 +475,8 @@ corn-agent-dashboard/
   - 그 외 모든 경로 → `index.html` (SPA fallback, React Router가 client routing)
 - 데이터는 클라이언트에서 `/api/*` 호출
 
-### 10.2 Multica에서 재사용할 컴포넌트
-- 사전 작업 (Phase 0): Multica `web/`에서 RSC/`'use server'` 사용 여부 스캔
+### 10.2 Corn Design Reference에서 재사용할 컴포넌트
+- 사전 작업 (Phase 0): Corn Design Reference `web/`에서 RSC/`'use server'` 사용 여부 스캔
 - 재사용 후보: `IssueBoard`, `IssueDetail`, `CommentThread`, `AgentEditor`의 client-only 추출
 - 테마/스타일 토큰 그대로 (Tailwind config 복사)
 - 한국어 namespace에서 필요한 string만 inline화 (i18next 의존 제거)
@@ -527,6 +549,21 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 | Timezone | **시스템 전역 `CORN_AGENT_DASHBOARD_TIMEZONE`** (기본 `Asia/Seoul`) | Phase 0 |
 | Stdout cap | **단일 run 10MB** (확정) | Phase 0 |
 | Prompt 컨텍스트 | **truncation 4000자, 요약 없음** | Phase 0 |
+| 체이닝 정책 | **explicit-only**. 사용자 댓글의 명시 멘션만 dispatch, agent 결과 멘션 auto-chain은 Phase 2+ opt-in 후보(기본 off) | Phase 0 |
 | stdout 스트리밍 단위 | 종료 후 1번 (확정 MVP) — 라인 단위는 Phase 2 후보 | Phase 0 |
 | run log 압축 | gzip vs raw — Phase 2에서 디스크 사용량 보고 후 결정 | Phase 2 |
 | 워크스페이스 import/export | Phase 2 | Phase 2 |
+
+---
+
+## 9. 2026-05-14 구현 업데이트
+
+이번 구현으로 개인용 AI agent 운영 콘솔에 필요한 5개 기반 기능이 추가되었다.
+
+1. **Run Lifecycle Hardening**: heartbeat, structured terminal reason, stale/orphan/panic/shutdown recovery.
+2. **Run Event / Audit Trail**: `run_event` 테이블과 `GET /api/runs/:id/events`.
+3. **Autopilot Failure Visibility**: `last_error`, `consecutive_failures`, `last_triggered_issue_id`, trigger 결과 응답.
+4. **Frontend Feedback Foundation**: `StatusPill`, `ConfirmDialog`, `ToastProvider`, `MutationErrorAlert`, `DateTimeText`.
+5. **Issue Operations Console + Board Filters**: Board URL 기반 status/execution/agent/search 필터, Issue Detail 우측 운영 레일, run event timeline.
+
+검증 기준은 `go test ./...`, `go vet ./...`, `pnpm --filter web build`, `make check` 통과다.

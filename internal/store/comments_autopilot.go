@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	appscheduler "github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
 	"github.com/robfig/cron/v3"
@@ -85,6 +87,18 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','mention',?,?,?)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t); err != nil {
 					return AddCommentResult{}, normalizeErr(err)
 				}
+				if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+					RunID:     runID,
+					IssueID:   issueID,
+					EventType: RunEventQueued,
+					Message:   "Run queued by mention",
+					Details: map[string]any{
+						"trigger_type":       "mention",
+						"trigger_comment_id": commentID,
+					},
+				}); err != nil {
+					return AddCommentResult{}, err
+				}
 				if _, err := tx.ExecContext(ctx, `UPDATE issue SET status='open', updated_at=? WHERE id=?`, t, issueID); err != nil {
 					return AddCommentResult{}, normalizeErr(err)
 				}
@@ -148,9 +162,14 @@ SELECT ar.id, ar.workspace_id, ar.name, ar.cron_expr, ar.issue_title_template, a
        ar.enabled,
        COALESCE(ar.last_run_at,'') AS last_run_at,
        COALESCE(ar.next_run_at,'') AS next_run_at,
+       COALESCE(ar.last_error,'') AS last_error,
+       ar.consecutive_failures,
+       COALESCE(ar.last_triggered_issue_id,'') AS last_triggered_issue_id,
        ar.created_at, ar.updated_at
 FROM autopilot_rule ar
 LEFT JOIN agent a ON a.id = ar.assignee_agent_id`
+
+const autopilotFailureDisableThreshold = 5
 
 type UpsertAutopilotInput struct {
 	Name               string `json:"name"`
@@ -160,6 +179,14 @@ type UpsertAutopilotInput struct {
 	AssigneeAgentID    string `json:"assignee_agent_id"`
 	Enabled            bool   `json:"enabled"`
 	NextRunAt          string `json:"next_run_at"`
+}
+
+type AutopilotTriggerResult struct {
+	OK    bool          `json:"ok"`
+	Rule  AutopilotRule `json:"rule"`
+	Issue *Issue        `json:"issue,omitempty"`
+	Run   *Run          `json:"run,omitempty"`
+	Error string        `json:"error,omitempty"`
 }
 
 func validateAutopilot(in UpsertAutopilotInput) error {
@@ -202,6 +229,41 @@ func (s *Store) SetAutopilotNextRun(ctx context.Context, id, nextRunAt string) e
 func (s *Store) ClearDisabledAutopilotNextRuns(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule SET next_run_at=NULL, updated_at=? WHERE enabled=0 AND next_run_at IS NOT NULL`, now())
 	return normalizeErr(err)
+}
+
+func (s *Store) RecordAutopilotTriggerSuccess(ctx context.Context, ruleID, issueID, nextRunAt string) (AutopilotRule, error) {
+	t := now()
+	res, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule
+SET last_run_at=?, last_triggered_issue_id=?, consecutive_failures=0, last_error='', next_run_at=?, updated_at=?
+WHERE id=?`, t, nullIfEmpty(issueID), nullIfEmpty(nextRunAt), t, ruleID)
+	if err != nil {
+		return AutopilotRule{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return AutopilotRule{}, ErrNotFound
+	}
+	return s.GetAutopilotRule(ctx, ruleID)
+}
+
+func (s *Store) RecordAutopilotTriggerFailure(ctx context.Context, ruleID string, triggerErr error, nextRunAt string) (AutopilotRule, error) {
+	msg := AutopilotTriggerErrorMessage(triggerErr)
+	t := now()
+	res, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule
+SET last_error=?,
+    consecutive_failures=consecutive_failures+1,
+    enabled=CASE WHEN consecutive_failures+1 >= ? THEN 0 ELSE enabled END,
+    next_run_at=CASE WHEN enabled=0 OR consecutive_failures+1 >= ? THEN NULL ELSE ? END,
+    updated_at=?
+WHERE id=?`, msg, autopilotFailureDisableThreshold, autopilotFailureDisableThreshold, nullIfEmpty(nextRunAt), t, ruleID)
+	if err != nil {
+		return AutopilotRule{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return AutopilotRule{}, ErrNotFound
+	}
+	return s.GetAutopilotRule(ctx, ruleID)
 }
 
 func (s *Store) CreateAutopilotRule(ctx context.Context, workspaceID string, in UpsertAutopilotInput) (AutopilotRule, error) {
@@ -282,11 +344,23 @@ func (s *Store) DeleteAutopilotRule(ctx context.Context, id string) error {
 }
 
 func (s *Store) TriggerAutopilotRule(ctx context.Context, id string) (Issue, Run, error) {
-	rule, err := s.GetAutopilotRule(ctx, id)
+	result, err := s.TriggerAutopilotRuleResult(ctx, id)
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	return s.TriggerAutopilotRuleWithContent(ctx, id, rule.IssueTitleTemplate, rule.IssueBodyTemplate)
+	if result.Issue == nil || result.Run == nil {
+		return Issue{}, Run{}, ErrState
+	}
+	return *result.Issue, *result.Run, nil
+}
+
+func (s *Store) TriggerAutopilotRuleResult(ctx context.Context, id string) (AutopilotTriggerResult, error) {
+	rule, err := s.GetAutopilotRule(ctx, id)
+	if err != nil {
+		return AutopilotTriggerResult{}, err
+	}
+	nextRunAt := nextAutopilotRunAt(rule.CronExpr)
+	return s.triggerAutopilotRuleWithContentResult(ctx, rule, rule.IssueTitleTemplate, rule.IssueBodyTemplate, nextRunAt)
 }
 
 func (s *Store) TriggerAutopilotRuleWithContent(ctx context.Context, id, title, body string) (Issue, Run, error) {
@@ -294,14 +368,135 @@ func (s *Store) TriggerAutopilotRuleWithContent(ctx context.Context, id, title, 
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	issue, run, err := s.CreateIssueWithInitialRun(ctx, rule.WorkspaceID, CreateIssueInput{Title: title, Body: body, AssigneeAgentID: rule.AssigneeAgentID, CreatedBy: "autopilot", AutopilotRuleID: rule.ID, TriggerType: "autopilot"})
+	result, err := s.triggerAutopilotRuleWithContentResult(ctx, rule, title, body, nextAutopilotRunAt(rule.CronExpr))
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE autopilot_rule SET last_run_at=?, updated_at=? WHERE id=?`, now(), now(), id); err != nil {
-		return Issue{}, Run{}, normalizeErr(err)
+	if result.Issue == nil || result.Run == nil {
+		return Issue{}, Run{}, ErrState
 	}
-	return issue, run, nil
+	return *result.Issue, *result.Run, nil
+}
+
+func (s *Store) TriggerAutopilotRuleWithContentResult(ctx context.Context, id, title, body, nextRunAt string) (AutopilotTriggerResult, error) {
+	rule, err := s.GetAutopilotRule(ctx, id)
+	if err != nil {
+		return AutopilotTriggerResult{}, err
+	}
+	return s.triggerAutopilotRuleWithContentResult(ctx, rule, title, body, nextRunAt)
+}
+
+func (s *Store) triggerAutopilotRuleWithContentResult(ctx context.Context, rule AutopilotRule, title, body, nextRunAt string) (AutopilotTriggerResult, error) {
+	result := AutopilotTriggerResult{Rule: rule}
+	if !rule.Enabled {
+		err := fmt.Errorf("%w: autopilot rule is disabled", ErrState)
+		result.Error = AutopilotTriggerErrorMessage(err)
+		return result, err
+	}
+	issue, run, updatedRule, err := s.createAutopilotIssueRunAndRecordSuccess(ctx, rule, title, body, nextRunAt)
+	if err != nil {
+		result.Error = AutopilotTriggerErrorMessage(err)
+		if recorded, recordErr := s.RecordAutopilotTriggerFailure(ctx, rule.ID, err, nextRunAt); recordErr == nil {
+			result.Rule = recorded
+		}
+		return result, err
+	}
+	result.OK = true
+	result.Rule = updatedRule
+	result.Issue = &issue
+	result.Run = &run
+	return result, nil
+}
+
+func (s *Store) createAutopilotIssueRunAndRecordSuccess(ctx context.Context, rule AutopilotRule, title, body, nextRunAt string) (Issue, Run, AutopilotRule, error) {
+	if strings.TrimSpace(title) == "" {
+		return Issue{}, Run{}, AutopilotRule{}, ErrValidation
+	}
+	w, _, err := s.GetWorkspace(ctx, rule.WorkspaceID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	agentID := rule.AssigneeAgentID
+	if agentID == "" {
+		main, err := s.GetMainAgent(ctx, w.ID)
+		if err != nil {
+			return Issue{}, Run{}, AutopilotRule{}, err
+		}
+		agentID = main.ID
+	} else {
+		a, err := s.GetAgent(ctx, agentID)
+		if err != nil {
+			return Issue{}, Run{}, AutopilotRule{}, err
+		}
+		if a.WorkspaceID != w.ID {
+			return Issue{}, Run{}, AutopilotRule{}, ErrNotFound
+		}
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	defer tx.Rollback()
+	var nextSeq int64
+	if err := tx.GetContext(ctx, &nextSeq, `UPDATE workspace SET next_issue_seq=next_issue_seq+1, updated_at=? WHERE id=? RETURNING next_issue_seq`, now(), w.ID); err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
+	}
+	seq := nextSeq - 1
+	t := now()
+	issueID := newID()
+	runID := newID()
+	identifier := fmt.Sprintf("%s-%d", w.IdentifierPrefix, seq)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO issue(id,workspace_id,identifier,title,body,status,assignee_agent_id,created_by,autopilot_rule_id,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?,?,?,?)`, issueID, w.ID, identifier, title, body, nullIfEmpty(agentID), "autopilot", rule.ID, t, t); err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','autopilot',?,?)`, runID, issueID, agentID, capSnapshot(body), t); err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE autopilot_rule
+SET last_run_at=?, last_triggered_issue_id=?, consecutive_failures=0, last_error='', next_run_at=?, updated_at=?
+WHERE id=?`, t, issueID, nullIfEmpty(nextRunAt), t, rule.ID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return Issue{}, Run{}, AutopilotRule{}, ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	issue, err := s.GetIssue(ctx, issueID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	run, err := s.GetRun(ctx, runID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	updatedRule, err := s.GetAutopilotRule(ctx, rule.ID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	return issue, run, updatedRule, nil
+}
+
+func AutopilotTriggerErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		msg = "unknown autopilot trigger failure"
+	}
+	return capSnapshot(msg)
+}
+
+func nextAutopilotRunAt(cronExpr string) string {
+	schedule, err := cron.ParseStandard(cronExpr)
+	if err != nil {
+		return ""
+	}
+	return schedule.Next(time.Now()).UTC().Format(time.RFC3339Nano)
 }
 
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
