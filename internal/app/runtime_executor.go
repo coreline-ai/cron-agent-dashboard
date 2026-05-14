@@ -11,16 +11,20 @@ import (
 	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
 )
 
+const defaultProcessMarkerAttemptTimeout = 2 * time.Second
+
 type RunProcessMarker interface {
 	MarkRunProcess(ctx context.Context, runID string, pid, pgid int) error
 }
 
 type RuntimeExecutor struct {
-	adapters      map[string]worker.CommandBuilder
-	LogDir        string
-	Timeout       time.Duration
-	ProcessMarker RunProcessMarker
-	Log           *slog.Logger
+	adapters                map[string]worker.CommandBuilder
+	LogDir                  string
+	Timeout                 time.Duration
+	ProcessMarker           RunProcessMarker
+	ProcessMarkerAttempts   int
+	ProcessMarkerRetryDelay time.Duration
+	Log                     *slog.Logger
 }
 
 type RuntimeExecutorOption func(*RuntimeExecutor)
@@ -39,12 +43,25 @@ func WithRuntimeExecutorLogger(log *slog.Logger) RuntimeExecutorOption {
 	}
 }
 
+func WithRunProcessMarkerRetry(attempts int, delay time.Duration) RuntimeExecutorOption {
+	return func(e *RuntimeExecutor) {
+		if attempts > 0 {
+			e.ProcessMarkerAttempts = attempts
+		}
+		if delay >= 0 {
+			e.ProcessMarkerRetryDelay = delay
+		}
+	}
+}
+
 func NewRuntimeExecutor(adapters []workerruntime.RuntimeAdapter, logDir string, opts ...RuntimeExecutorOption) *RuntimeExecutor {
 	out := &RuntimeExecutor{
-		adapters: make(map[string]worker.CommandBuilder),
-		LogDir:   logDir,
-		Timeout:  10 * time.Minute,
-		Log:      slog.Default(),
+		adapters:                make(map[string]worker.CommandBuilder),
+		LogDir:                  logDir,
+		Timeout:                 10 * time.Minute,
+		ProcessMarkerAttempts:   3,
+		ProcessMarkerRetryDelay: 100 * time.Millisecond,
+		Log:                     slog.Default(),
 	}
 	for _, adapter := range adapters {
 		if adapter == nil {
@@ -85,12 +102,34 @@ func (e *RuntimeExecutor) recordProcessStart(ctx context.Context, run worker.Exe
 	if e == nil || e.ProcessMarker == nil {
 		return nil
 	}
-	if err := e.ProcessMarker.MarkRunProcess(ctx, run.RunID, info.PID, info.PGID); err != nil {
-		log := e.Log
-		if log == nil {
-			log = slog.Default()
-		}
-		log.Warn("record run process metadata failed", "run_id", run.RunID, "pid", info.PID, "pgid", info.PGID, "error", err)
+	attempts := e.ProcessMarkerAttempts
+	if attempts <= 0 {
+		attempts = 1
 	}
+	delay := e.ProcessMarkerRetryDelay
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		markCtx, cancel := context.WithTimeout(context.Background(), defaultProcessMarkerAttemptTimeout)
+		err := e.ProcessMarker.MarkRunProcess(markCtx, run.RunID, info.PID, info.PGID)
+		cancel()
+		if err != nil {
+			lastErr = err
+		} else {
+			return nil
+		}
+		if attempt < attempts && delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+			case <-timer.C:
+			}
+		}
+	}
+	log := e.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	log.Warn("record run process metadata failed", "run_id", run.RunID, "pid", info.PID, "pgid", info.PGID, "attempts", attempts, "error", lastErr)
 	return nil
 }

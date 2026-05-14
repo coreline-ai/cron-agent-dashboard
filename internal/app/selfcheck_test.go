@@ -103,3 +103,49 @@ func TestRunStartupSelfCheckTerminatesTrackedProcessGroupsBeforeRecovery(t *test
 		t.Fatalf("run should be orphan-recovered after cleanup: %#v", recovered)
 	}
 }
+
+func TestRunStartupSelfCheckSkipsStaleProcessMetadata(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Stale Process Metadata",
+		Slug:             "stale-process-metadata",
+		IdentifierPrefix: "PROC",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "fake", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "cleanup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	if err := st.MarkRunProcess(ctx, run.ID, 7777, 7777); err != nil {
+		t.Fatalf("mark process: %v", err)
+	}
+	oldRecordedAt := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := st.DB().ExecContext(ctx, `UPDATE run SET process_recorded_at=? WHERE id=?`, oldRecordedAt, run.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var killed []int
+	report, err := RunStartupSelfCheckWithOptions(ctx, st, StartupSelfCheckOptions{
+		ProcessGroupMaxAge: time.Hour,
+		TerminateProcessGroup: func(pgid int, grace time.Duration) error {
+			killed = append(killed, pgid)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(killed) != 0 {
+		t.Fatalf("stale process metadata should not be killed, got %#v", killed)
+	}
+	if report.OrphanProcessGroupsTerminated != 0 || report.OrphanProcessGroupsSkipped != 1 || report.OrphanRunsRecovered != 1 {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+}

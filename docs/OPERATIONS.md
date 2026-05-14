@@ -27,6 +27,8 @@ Daily checks after startup:
 - Open `http://127.0.0.1:8080` and confirm the Settings page shows `연결됨`.
 - Confirm at least one runtime (`codex`, `claude`, or `gemini`) is available on `PATH`.
 - Check the server log for `startup self-check ok`.
+- If the log shows `orphan_process_groups_terminated > 0`, the previous server process likely exited before child agent processes were fully cleaned up.
+- If the log shows `orphan_process_groups_skipped > 0`, the DB had stale or missing process metadata, so the server avoided killing a potentially reused OS process group and only performed DB orphan recovery.
 - If binding outside localhost, start with `--token` and store the same token in Settings → API token.
 
 ## Daily stop

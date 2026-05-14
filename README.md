@@ -159,9 +159,9 @@ shadcn/ui · Tailwind v4 · 다크모드.
 - [x] ⏰ Autopilot (robfig/cron, 시스템 timezone `Asia/Seoul` 기본)
 - [x] 🔁 [재실행] — 마지막 run의 agent로 자동 dispatch
 - [x] 🛑 [취소] — process group SIGTERM → 30초 후 SIGKILL
-- [ ] 💾 Durable queue (`run.status='queued'` row 기반 DB claim)
-- [ ] 🔐 옵션 토큰 인증 (`CORN_AGENT_DASHBOARD_TOKEN`)
-- [ ] 📦 단일 바이너리 (Go embed.FS로 Vite SPA 포함)
+- [x] 💾 Durable queue (`run.status='queued'` row 기반 DB claim)
+- [x] 🔐 옵션 토큰 인증 (`CORN_AGENT_DASHBOARD_TOKEN`)
+- [x] 📦 단일 바이너리 (Go embed.FS로 Vite SPA 포함)
 
 ### Phase 2+
 
@@ -339,7 +339,7 @@ make build
 ./corn-agent-dashboard serve
 
 # → http://127.0.0.1:8080 접속
-# 부팅 시 DB pragma / foreign key / main agent invariant / orphan run recovery self-check가 실행됩니다.
+# 부팅 시 DB pragma / foreign key / main agent invariant / orphan process cleanup / orphan run recovery self-check가 실행됩니다.
 ```
 
 

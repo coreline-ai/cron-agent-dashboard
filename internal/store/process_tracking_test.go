@@ -44,14 +44,14 @@ func TestRunProcessTrackingRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ProcessPID != 4321 || got.ProcessPGID != 4321 {
+	if got.ProcessPID != 4321 || got.ProcessPGID != 4321 || got.ProcessRecordedAt == "" {
 		t.Fatalf("process metadata not persisted: %#v", got)
 	}
 	groups, err = st.ListRunningProcessGroups(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 1 || groups[0] != 4321 {
+	if len(groups) != 1 || groups[0].PGID != 4321 || groups[0].RecordedAt == "" || groups[0].RunCount != 1 {
 		t.Fatalf("running groups=%#v, want [4321]", groups)
 	}
 	events, err := st.ListRunEvents(ctx, run.ID)

@@ -91,7 +91,7 @@ func serve(cfg config.Config, st *store.Store) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_process_groups_terminated=%d orphan_runs_recovered=%d",
+	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_process_groups_terminated=%d orphan_process_groups_skipped=%d orphan_runs_recovered=%d",
 		report.IntegrityCheck,
 		report.JournalMode,
 		report.ForeignKeysEnabled,
@@ -99,6 +99,7 @@ func serve(cfg config.Config, st *store.Store) error {
 		report.WorkspaceCount,
 		report.ForeignKeyViolationCount,
 		report.OrphanProcessGroupsTerminated,
+		report.OrphanProcessGroupsSkipped,
 		report.OrphanRunsRecovered,
 	)
 

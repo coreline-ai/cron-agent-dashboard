@@ -181,9 +181,14 @@ corn-agent-dashboard/
 
 **부팅**:
 1. SQLite 연결 + 마이그레이션 적용 (idempotent)
-2. Worker pool 시작 (N goroutine)
-3. Cron scheduler 시작 (DB에서 활성 룰 로드)
-4. HTTP 서버 시작
+2. Startup self-check 실행
+   - SQLite `integrity_check`, WAL, foreign key, busy timeout 검증
+   - DB상 `running`이며 최근 `process_recorded_at`이 있는 process group을 best-effort SIGTERM/SIGKILL 정리
+   - 오래되었거나 누락된 process metadata는 kill하지 않고 skip
+   - 남은 `running` run은 orphan recovery로 `cancelled` 처리
+3. Worker pool 시작 (N goroutine)
+4. Cron scheduler 시작 (DB에서 활성 룰 로드)
+5. HTTP 서버 시작
 
 **Graceful shutdown** (SIGINT/SIGTERM):
 1. HTTP 서버 멈춤 (새 요청 거부)
@@ -193,7 +198,7 @@ corn-agent-dashboard/
 5. 시스템 댓글 "재시작 중 진행 작업이 취소되었습니다" INSERT
 6. Cron 정지
 7. DB close
-8. **다음 부팅 시 추가 정리는 없음** — 종료 트랜잭션이 이미 완료됨. 단, 만약 강제 kill(-9)로 종료되어 트랜잭션이 누락된 경우 부팅 시 orphan recovery가 처리.
+8. 정상 shutdown이면 다음 부팅 시 추가 정리는 보통 없음. 단, 프로세스가 `kill -9` 등으로 강제 종료되어 트랜잭션이나 child process cleanup이 누락된 경우, 다음 부팅 self-check가 최근 `process_pgid`를 best-effort 종료한 뒤 orphan recovery를 수행한다.
 
 ---
 
@@ -213,7 +218,7 @@ corn-agent-dashboard/
 - worker가 panic해도 pool 자체는 살아남기 (recover)
 - exec timeout 시 process group kill + run.status='failed', error_message='timeout'
 - 사용자 cancel 시 run.status='cancelled', exit_code=-1, error_message='user cancelled'
-- 부팅 시 `running` 상태로 박힌 run을 `cancelled`로 정리 (orphan recovery, error_message='orphan recovered')
+- 부팅 시 최근 process metadata가 남은 `running` run의 process group을 best-effort 종료하고, `running` 상태로 박힌 run을 `cancelled`로 정리 (orphan recovery, error_message='orphan recovered')
 - **Durable queue**: 큐는 `run.status='queued'` row로 표현. HTTP 핸들러는 enqueue 대신 row INSERT만 함. 프로세스 재시작 시 작업 손실 0.
 
 ### 3.3 보안

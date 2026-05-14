@@ -187,6 +187,10 @@ CREATE TABLE run (
   claimed_at     TEXT,                             -- worker claim 시각 (status='running' 진입)
   claimed_by     TEXT NOT NULL DEFAULT '',         -- worker id (hostname+pid+goroutine#, 디버그용)
   started_at     TEXT,                             -- 실제 exec 시작 (claimed_at과 거의 동일)
+  heartbeat_at   TEXT,                             -- worker alive timestamp
+  process_pid    INTEGER,                          -- executor child process pid (내부 관측용)
+  process_pgid   INTEGER,                          -- executor process group id (startup cleanup용)
+  process_recorded_at TEXT,                        -- pid/pgid 기록 시각. 오래된 값은 startup kill skip
   finished_at    TEXT,                             -- NULL = 미종료
   exit_code      INTEGER,                          -- NULL = 미종료, -1 = user cancel, -2 = orphan
   stdout_path    TEXT,                             -- runs/<run-id>.log (백엔드 내부용, API 응답에 노출 X)
@@ -255,6 +259,8 @@ CREATE INDEX idx_run_trigger_comment
   COMMIT;
   ```
 - **부팅 시 orphan 정리**:
+  - 먼저 `process_pgid > 1`이고 `process_recorded_at`이 최근인 running run의 process group을 best-effort SIGTERM/SIGKILL한다.
+  - `process_recorded_at`이 없거나 너무 오래된 값이면 OS PGID 재사용 가능성을 피하기 위해 kill하지 않고 skip한다.
   ```sql
   WITH orphan AS (
     UPDATE run SET status='cancelled', exit_code=-2, finished_at=?,
@@ -619,6 +625,9 @@ cp ~/.corn-agent-dashboard/config.toml ~/backup/
 | 컬럼 | 타입 | 의미 |
 |---|---|---|
 | `heartbeat_at` | TEXT | worker가 주기적으로 갱신하는 alive timestamp |
+| `process_pid` | INTEGER | executor child process pid. API에는 노출하지 않음 |
+| `process_pgid` | INTEGER | executor process group id. startup orphan process cleanup에 사용 |
+| `process_recorded_at` | TEXT | pid/pgid 기록 시각. 오래된 metadata는 process kill skip |
 | `terminal_reason` | TEXT | 완료/실패/취소/복구의 구조화된 최종 원인 |
 | `failure_kind` | TEXT | 실패 run의 기술 분류 |
 | `cancel_reason` | TEXT | 취소 run의 원인 분류 |

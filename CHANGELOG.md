@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style sections and uses semantic versioning for release tags.
 
+## [Unreleased]
+
+### Changed
+
+- Startup orphan process cleanup now uses `process_recorded_at` freshness checks before sending signals, reducing OS process group reuse risk.
+- Executor process metadata recording now retries short transient failures before falling back to best-effort logging.
+- README, architecture, TRD, data model, roadmap, and operations docs now describe the shipped startup cleanup and release state more accurately.
+
 ## [0.1.0] - 2026-05-14
 
 ### Added

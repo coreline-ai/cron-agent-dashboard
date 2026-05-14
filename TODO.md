@@ -38,7 +38,7 @@ Corn Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 
 - [x] README quick start를 실제 동작 기준으로 업데이트
 - [x] ROADMAP checkbox와 구현 상태 동기화
 - [x] API.md endpoint 수와 구현 route 수 동기화
-- [ ] TRD/ARCHITECTURE skeleton 표현 정리
+- [x] TRD/ARCHITECTURE skeleton 표현 정리
 - [x] final local smoke 결과 기록
 
 ## Completed
@@ -56,3 +56,4 @@ Corn Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 
 - [x] `make check` verification baseline established
 - [x] Startup self-check, clean clone verification script, Playwright browser smoke, token 401 UX, GitHub Release upload workflow added
 - [x] Expert review gap closure: explicit `comment.truncated`, Autopilot `next_run_at` sync, safe markdown renderer, real `VACUUM`, pointer-based issue update, CLI-specific runtime adapter arguments
+- [x] Startup orphan process cleanup safety guard: `process_recorded_at` freshness check + process metadata retry

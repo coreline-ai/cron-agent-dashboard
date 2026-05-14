@@ -20,6 +20,7 @@ type StartupCheckReport struct {
 	ForeignKeyViolationCount      int      `json:"foreign_key_violation_count"`
 	MainAgentIssues               []string `json:"main_agent_issues"`
 	OrphanProcessGroupsTerminated int      `json:"orphan_process_groups_terminated"`
+	OrphanProcessGroupsSkipped    int      `json:"orphan_process_groups_skipped"`
 	OrphanRunsRecovered           int64    `json:"orphan_runs_recovered"`
 }
 
@@ -32,12 +33,14 @@ func (r StartupCheckReport) LogFields() []any {
 		"workspaces", r.WorkspaceCount,
 		"foreign_key_violations", r.ForeignKeyViolationCount,
 		"orphan_process_groups_terminated", r.OrphanProcessGroupsTerminated,
+		"orphan_process_groups_skipped", r.OrphanProcessGroupsSkipped,
 		"orphan_runs_recovered", r.OrphanRunsRecovered,
 	}
 }
 
 type StartupSelfCheckOptions struct {
 	ProcessGroupKillGrace time.Duration
+	ProcessGroupMaxAge    time.Duration
 	TerminateProcessGroup func(pgid int, grace time.Duration) error
 	Log                   *slog.Logger
 }
@@ -51,11 +54,12 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 		return StartupCheckReport{}, fmt.Errorf("startup self-check: store is nil")
 	}
 	var report StartupCheckReport
-	terminated, err := terminateTrackedProcessGroups(ctx, st, opts)
+	terminated, skipped, err := terminateTrackedProcessGroups(ctx, st, opts)
 	if err != nil {
 		return report, err
 	}
 	report.OrphanProcessGroupsTerminated = terminated
+	report.OrphanProcessGroupsSkipped = skipped
 
 	recovered, err := st.RecoverOrphanRuns(ctx)
 	if err != nil {
@@ -110,13 +114,13 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 	return report, nil
 }
 
-func terminateTrackedProcessGroups(ctx context.Context, st *store.Store, opts StartupSelfCheckOptions) (int, error) {
-	pgids, err := st.ListRunningProcessGroups(ctx)
+func terminateTrackedProcessGroups(ctx context.Context, st *store.Store, opts StartupSelfCheckOptions) (int, int, error) {
+	groups, err := st.ListRunningProcessGroups(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list running process groups: %w", err)
+		return 0, 0, fmt.Errorf("list running process groups: %w", err)
 	}
-	if len(pgids) == 0 {
-		return 0, nil
+	if len(groups) == 0 {
+		return 0, 0, nil
 	}
 	terminate := opts.TerminateProcessGroup
 	if terminate == nil {
@@ -126,19 +130,44 @@ func terminateTrackedProcessGroups(ctx context.Context, st *store.Store, opts St
 	if grace <= 0 {
 		grace = 2 * time.Second
 	}
+	maxAge := opts.ProcessGroupMaxAge
+	if maxAge <= 0 {
+		maxAge = 24 * time.Hour
+	}
 	log := opts.Log
 	if log == nil {
 		log = slog.Default()
 	}
 	var count int
-	for _, pgid := range pgids {
-		if err := terminate(pgid, grace); err != nil {
-			log.Warn("terminate tracked process group failed", "pgid", pgid, "error", err)
+	var skipped int
+	now := time.Now().UTC()
+	for _, group := range groups {
+		if !shouldTerminateTrackedProcessGroup(group.RecordedAt, now, maxAge) {
+			skipped++
+			log.Warn("skip tracked process group termination due to stale or invalid process metadata", "pgid", group.PGID, "recorded_at", group.RecordedAt, "max_age", maxAge.String())
+			continue
+		}
+		if err := terminate(group.PGID, grace); err != nil {
+			log.Warn("terminate tracked process group failed", "pgid", group.PGID, "recorded_at", group.RecordedAt, "error", err)
 			continue
 		}
 		count++
 	}
-	return count, nil
+	return count, skipped, nil
+}
+
+func shouldTerminateTrackedProcessGroup(recordedAt string, now time.Time, maxAge time.Duration) bool {
+	if strings.TrimSpace(recordedAt) == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339Nano, recordedAt)
+	if err != nil {
+		return false
+	}
+	if t.After(now.Add(5 * time.Minute)) {
+		return false
+	}
+	return now.Sub(t) <= maxAge
 }
 
 func countRows(ctx context.Context, st *store.Store, query string) (int, error) {

@@ -44,6 +44,9 @@ func TerminateProcessGroupID(pgid int, grace time.Duration) error {
 		return nil
 	}
 	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
 		return err
 	}
 	if grace <= 0 {

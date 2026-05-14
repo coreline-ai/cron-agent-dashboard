@@ -359,6 +359,7 @@ SELECT r.id, r.issue_id, r.agent_id, COALESCE(a.name,'') AS agent_name, r.status
        COALESCE(r.started_at,'') AS started_at, COALESCE(r.heartbeat_at,'') AS heartbeat_at,
        COALESCE(r.finished_at,'') AS finished_at,
        COALESCE(r.process_pid, 0) AS process_pid, COALESCE(r.process_pgid, 0) AS process_pgid,
+       COALESCE(r.process_recorded_at, '') AS process_recorded_at,
        r.exit_code, r.stdout_path, r.error_message,
        r.terminal_reason, r.failure_kind, r.cancel_reason
 FROM run r
@@ -677,7 +678,8 @@ func (s *Store) MarkRunProcess(ctx context.Context, runID string, pid, pgid int)
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE run SET process_pid=?, process_pgid=? WHERE id=? AND status='running'`, pid, pgid, runID)
+	t := now()
+	res, err := tx.ExecContext(ctx, `UPDATE run SET process_pid=?, process_pgid=?, process_recorded_at=? WHERE id=? AND status='running'`, pid, pgid, t, runID)
 	if err != nil {
 		return normalizeErr(err)
 	}
@@ -699,17 +701,19 @@ func (s *Store) MarkRunProcess(ctx context.Context, runID string, pid, pgid int)
 	return tx.Commit()
 }
 
-func (s *Store) ListRunningProcessGroups(ctx context.Context) ([]int, error) {
-	var pgids []int
-	if err := s.db.SelectContext(ctx, &pgids, `
-SELECT process_pgid
+func (s *Store) ListRunningProcessGroups(ctx context.Context) ([]RunningProcessGroup, error) {
+	var groups []RunningProcessGroup
+	if err := s.db.SelectContext(ctx, &groups, `
+SELECT process_pgid,
+       COALESCE(MAX(process_recorded_at), '') AS process_recorded_at,
+       COUNT(*) AS run_count
 FROM run
 WHERE status='running' AND process_pgid > 1
 GROUP BY process_pgid
 ORDER BY process_pgid`); err != nil {
 		return nil, normalizeErr(err)
 	}
-	return pgids, nil
+	return groups, nil
 }
 
 func (s *Store) CancelRun(ctx context.Context, runID, reason string) (Run, error) {

@@ -92,6 +92,7 @@ type Run struct {
 	FinishedAt             string         `db:"finished_at" json:"finished_at,omitempty"`
 	ProcessPID             int            `db:"process_pid" json:"-"`
 	ProcessPGID            int            `db:"process_pgid" json:"-"`
+	ProcessRecordedAt      string         `db:"process_recorded_at" json:"-"`
 	ExitCode               NullInt64      `db:"exit_code" json:"exit_code"`
 	StdoutPath             sql.NullString `db:"stdout_path" json:"-"`
 	StdoutSizeBytes        int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
@@ -100,6 +101,12 @@ type Run struct {
 	TerminalReason         string         `db:"terminal_reason" json:"terminal_reason"`
 	FailureKind            string         `db:"failure_kind" json:"failure_kind"`
 	CancelReason           string         `db:"cancel_reason" json:"cancel_reason"`
+}
+
+type RunningProcessGroup struct {
+	PGID       int    `db:"process_pgid"`
+	RecordedAt string `db:"process_recorded_at"`
+	RunCount   int    `db:"run_count"`
 }
 
 const (
