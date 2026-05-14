@@ -194,6 +194,8 @@ func (e *Executor) Execute(ctx context.Context, run ExecutionContext) ExecutionR
 	result.FinishedAt = e.now()
 	result.StderrTail = stderrRing.String()
 
+	stdoutErr = ignoreClosedPipeReadError(stdoutErr)
+	stderrErr = ignoreClosedPipeReadError(stderrErr)
 	if waitErr != nil {
 		result.Error = waitErr
 	}
@@ -218,6 +220,16 @@ func (e *Executor) Execute(ctx context.Context, run ExecutionContext) ExecutionR
 		}
 	}
 	return result
+}
+
+func ignoreClosedPipeReadError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, os.ErrClosed) {
+		return nil
+	}
+	return err
 }
 
 func (e *Executor) createLogFile(runID string) (string, *os.File, error) {
