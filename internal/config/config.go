@@ -11,25 +11,27 @@ import (
 )
 
 const (
-	DefaultBind     = "127.0.0.1:8080"
-	DefaultTimezone = "Asia/Seoul"
-	DefaultWorkers  = 3
+	DefaultBind                             = "127.0.0.1:8080"
+	DefaultTimezone                         = "Asia/Seoul"
+	DefaultWorkers                          = 3
+	DefaultAutopilotFailureDisableThreshold = 5
 )
 
 type Config struct {
-	DataDir             string        `json:"data_dir"`
-	DBPath              string        `json:"db_path"`
-	Bind                string        `json:"bind"`
-	Token               string        `json:"-"`
-	CORS                []string      `json:"cors"`
-	Workers             int           `json:"workers"`
-	Timezone            string        `json:"timezone"`
-	BackupTo            string        `json:"-"`
-	RestoreFrom         string        `json:"-"`
-	AutoBackup          bool          `json:"auto_backup"`
-	AutoBackupKeep      int           `json:"auto_backup_keep"`
-	AutoCleanupLogDays  int           `json:"auto_cleanup_log_days"`
-	MaintenanceInterval time.Duration `json:"-"`
+	DataDir                          string        `json:"data_dir"`
+	DBPath                           string        `json:"db_path"`
+	Bind                             string        `json:"bind"`
+	Token                            string        `json:"-"`
+	CORS                             []string      `json:"cors"`
+	Workers                          int           `json:"workers"`
+	Timezone                         string        `json:"timezone"`
+	BackupTo                         string        `json:"-"`
+	RestoreFrom                      string        `json:"-"`
+	AutoBackup                       bool          `json:"auto_backup"`
+	AutoBackupKeep                   int           `json:"auto_backup_keep"`
+	AutoCleanupLogDays               int           `json:"auto_cleanup_log_days"`
+	MaintenanceInterval              time.Duration `json:"-"`
+	AutopilotFailureDisableThreshold int           `json:"autopilot_failure_disable_threshold"`
 }
 
 func Default() (Config, error) {
@@ -39,16 +41,17 @@ func Default() (Config, error) {
 	}
 	dataDir := filepath.Join(home, ".corn-agent-dashboard")
 	return Config{
-		DataDir:             dataDir,
-		DBPath:              filepath.Join(dataDir, "data.db"),
-		Bind:                DefaultBind,
-		CORS:                []string{"http://127.0.0.1:5173", "http://localhost:5173"},
-		Workers:             DefaultWorkers,
-		Timezone:            DefaultTimezone,
-		AutoBackup:          true,
-		AutoBackupKeep:      7,
-		AutoCleanupLogDays:  90,
-		MaintenanceInterval: 24 * time.Hour,
+		DataDir:                          dataDir,
+		DBPath:                           filepath.Join(dataDir, "data.db"),
+		Bind:                             DefaultBind,
+		CORS:                             []string{"http://127.0.0.1:5173", "http://localhost:5173"},
+		Workers:                          DefaultWorkers,
+		Timezone:                         DefaultTimezone,
+		AutoBackup:                       true,
+		AutoBackupKeep:                   7,
+		AutoCleanupLogDays:               90,
+		MaintenanceInterval:              24 * time.Hour,
+		AutopilotFailureDisableThreshold: DefaultAutopilotFailureDisableThreshold,
 	}, nil
 }
 
@@ -74,6 +77,7 @@ func Load(args []string) (Config, []string, error) {
 	fs.IntVar(&cfg.AutoBackupKeep, "auto-backup-keep", cfg.AutoBackupKeep, "number of automatic backups to keep")
 	fs.IntVar(&cfg.AutoCleanupLogDays, "auto-cleanup-log-days", cfg.AutoCleanupLogDays, "delete run logs older than this many days; 0 disables")
 	fs.DurationVar(&cfg.MaintenanceInterval, "maintenance-interval", cfg.MaintenanceInterval, "automatic maintenance interval")
+	fs.IntVar(&cfg.AutopilotFailureDisableThreshold, "autopilot-failure-disable-threshold", cfg.AutopilotFailureDisableThreshold, "consecutive autopilot trigger failures before auto-disable; values <=0 reset to default")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, nil, err
 	}
@@ -100,6 +104,9 @@ func Load(args []string) (Config, []string, error) {
 	}
 	if cfg.MaintenanceInterval <= 0 {
 		cfg.MaintenanceInterval = 24 * time.Hour
+	}
+	if cfg.AutopilotFailureDisableThreshold <= 0 {
+		cfg.AutopilotFailureDisableThreshold = DefaultAutopilotFailureDisableThreshold
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, nil, err
@@ -175,6 +182,11 @@ func applyEnv(c *Config) {
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			c.MaintenanceInterval = d
+		}
+	}
+	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.AutopilotFailureDisableThreshold = n
 		}
 	}
 }

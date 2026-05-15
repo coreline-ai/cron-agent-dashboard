@@ -3,11 +3,19 @@ package backup
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
+)
+
+var (
+	ErrBackupSourceRequired      = errors.New("backup source path is required")
+	ErrRestoreSourceRequired     = errors.New("restore source path is required")
+	ErrRestoreDestinationMissing = errors.New("restore destination path is required")
+	ErrCopyPathRequired          = errors.New("copy source and destination are required")
 )
 
 type Checkpointer interface {
@@ -21,7 +29,7 @@ type Result struct {
 
 func Database(ctx context.Context, db Checkpointer, sourcePath, destPath string, at time.Time) (Result, error) {
 	if sourcePath == "" {
-		return Result{}, fmt.Errorf("backup source path is required")
+		return Result{}, fmt.Errorf("%w", ErrBackupSourceRequired)
 	}
 	if destPath == "" {
 		if at.IsZero() {
@@ -43,10 +51,10 @@ func Database(ctx context.Context, db Checkpointer, sourcePath, destPath string,
 
 func Restore(sourcePath, destPath string, at time.Time) (string, error) {
 	if sourcePath == "" {
-		return "", fmt.Errorf("restore requires --from")
+		return "", fmt.Errorf("%w: --from", ErrRestoreSourceRequired)
 	}
 	if destPath == "" {
-		return "", fmt.Errorf("restore destination path is required")
+		return "", fmt.Errorf("%w", ErrRestoreDestinationMissing)
 	}
 	if _, err := os.Stat(sourcePath); err != nil {
 		return "", err
@@ -67,7 +75,7 @@ func Restore(sourcePath, destPath string, at time.Time) (string, error) {
 
 func CopyFile(from, to string) (int64, error) {
 	if from == "" || to == "" {
-		return 0, fmt.Errorf("copy source and destination are required")
+		return 0, fmt.Errorf("%w", ErrCopyPathRequired)
 	}
 	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 		return 0, err

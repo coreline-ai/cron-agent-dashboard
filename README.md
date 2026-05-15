@@ -468,6 +468,7 @@ NewsLead 결과 아래 댓글:
 | `--auto-backup-keep` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP` | `7` | 자동 백업 보존 개수 |
 | `--auto-cleanup-log-days` | `CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS` | `90` | 지정 일수 초과 run 로그 자동 삭제 (`0`이면 비활성) |
 | `--maintenance-interval` | `CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL` | `24h` | 자동 백업/log cleanup 실행 주기 |
+| `--autopilot-failure-disable-threshold` | `CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD` | `5` | Autopilot trigger 연속 실패 후 자동 비활성화 기준 |
 | `--to` | — | 자동 `.bak` 경로 | `backup` 명령의 백업 파일 경로 |
 | `--from` | — | (필수) | `restore` 명령의 복구 원본 DB 경로 |
 

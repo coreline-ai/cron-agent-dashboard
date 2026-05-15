@@ -54,3 +54,32 @@ func TestLoadRejectsExternalBindWithoutToken(t *testing.T) {
 		t.Fatalf("AuthMode=%q, want token", cfg.AuthMode())
 	}
 }
+
+func TestLoadAutopilotFailureThresholdFromFlagAndEnv(t *testing.T) {
+	t.Setenv("CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD", "2")
+	cfg, _, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load env: %v", err)
+	}
+	if got, want := cfg.AutopilotFailureDisableThreshold, 2; got != want {
+		t.Fatalf("AutopilotFailureDisableThreshold=%d, want %d", got, want)
+	}
+
+	cfg, _, err = Load([]string{"--autopilot-failure-disable-threshold", "4"})
+	if err != nil {
+		t.Fatalf("Load flag: %v", err)
+	}
+	if got, want := cfg.AutopilotFailureDisableThreshold, 4; got != want {
+		t.Fatalf("AutopilotFailureDisableThreshold=%d, want %d", got, want)
+	}
+}
+
+func TestLoadAutopilotFailureThresholdFallsBackToDefault(t *testing.T) {
+	cfg, _, err := Load([]string{"--autopilot-failure-disable-threshold", "0"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := cfg.AutopilotFailureDisableThreshold, DefaultAutopilotFailureDisableThreshold; got != want {
+		t.Fatalf("AutopilotFailureDisableThreshold=%d, want %d", got, want)
+	}
+}

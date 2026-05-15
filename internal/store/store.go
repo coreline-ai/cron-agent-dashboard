@@ -21,12 +21,39 @@ var (
 	ErrValidation = errors.New("validation error")
 )
 
+const defaultAutopilotFailureDisableThreshold = 5
+
+type Option func(*Store)
+
 type Store struct {
-	db *sqlx.DB
+	db                               *sqlx.DB
+	autopilotFailureDisableThreshold int
 }
 
-func New(db *sqlx.DB) *Store  { return &Store{db: db} }
+func WithAutopilotFailureDisableThreshold(threshold int) Option {
+	return func(s *Store) {
+		if threshold > 0 {
+			s.autopilotFailureDisableThreshold = threshold
+		}
+	}
+}
+
+func New(db *sqlx.DB, opts ...Option) *Store {
+	s := &Store{db: db, autopilotFailureDisableThreshold: defaultAutopilotFailureDisableThreshold}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
 func (s *Store) DB() *sqlx.DB { return s.db }
+
+func (s *Store) autopilotFailureThreshold() int {
+	if s != nil && s.autopilotFailureDisableThreshold > 0 {
+		return s.autopilotFailureDisableThreshold
+	}
+	return defaultAutopilotFailureDisableThreshold
+}
 
 func newID() string { return uuid.NewString() }
 func now() string   { return db.Now() }

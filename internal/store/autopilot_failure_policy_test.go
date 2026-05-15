@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
 )
 
 func TestAutopilotFailurePolicyDisablesAfterFiveFailures(t *testing.T) {
@@ -35,6 +38,33 @@ func TestAutopilotFailurePolicyDisablesAfterFiveFailures(t *testing.T) {
 	}
 	if disabled.ConsecutiveFailures != 5 || disabled.LastError != "boom" || disabled.NextRunAt != "" {
 		t.Fatalf("bad disabled failure state: %#v", disabled)
+	}
+}
+
+func TestAutopilotFailurePolicyThresholdCanBeConfigured(t *testing.T) {
+	ctx := context.Background()
+	database, err := db.OpenAndMigrate(filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	st := New(database, WithAutopilotFailureDisableThreshold(2))
+	_, rule := createAutopilotFailurePolicyFixture(t, ctx, st)
+	nextRunAt := "2026-05-15T00:00:00Z"
+
+	first, err := st.RecordAutopilotTriggerFailure(ctx, rule.ID, errors.New("boom"), nextRunAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Enabled {
+		t.Fatalf("rule disabled after first failure, want enabled: %#v", first)
+	}
+	second, err := st.RecordAutopilotTriggerFailure(ctx, rule.ID, errors.New("boom"), nextRunAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Enabled || second.ConsecutiveFailures != 2 || second.NextRunAt != "" {
+		t.Fatalf("custom threshold should disable on second failure: %#v", second)
 	}
 }
 

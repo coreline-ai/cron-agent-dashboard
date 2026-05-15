@@ -87,7 +87,8 @@ curl -fsS http://127.0.0.1:8080/api/workspaces/<workspace-slug>/autopilot \
 
 Notes:
 
-- A rule auto-disables after five consecutive trigger failures.
+- A rule auto-disables after five consecutive trigger failures by default.
+- 운영 환경별로 `--autopilot-failure-disable-threshold` 또는 `CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD`로 기준을 조정할 수 있다.
 - `snooze_until`이 미래면 scheduled/manual trigger 모두 no-op이며 failure count를 증가시키지 않는다.
 - Manual `지금 실행` uses the same trigger path, so a failure there should be treated like a scheduled failure unless the rule is snoozed.
 - In token mode, add `-H "Authorization: Bearer $CORN_AGENT_DASHBOARD_TOKEN"` to curl requests.

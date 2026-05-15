@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -60,6 +61,8 @@ func applyPragmas(db *sqlx.DB) error {
 	}
 	return nil
 }
+
+var ErrInvalidMigrationName = errors.New("invalid migration name")
 
 type migration struct {
 	Version int
@@ -177,7 +180,7 @@ func listMigrations() ([]migration, error) {
 		}
 		parts := strings.SplitN(e.Name(), "_", 2)
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid migration name %q", e.Name())
+			return nil, fmt.Errorf("%w: %q", ErrInvalidMigrationName, e.Name())
 		}
 		version, err := strconv.Atoi(parts[0])
 		if err != nil {

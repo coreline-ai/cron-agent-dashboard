@@ -1,11 +1,14 @@
 package scheduler
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
+
+var ErrUnknownTemplateVariable = errors.New("unknown template variable")
 
 var templateVarRE = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}`)
 
@@ -21,7 +24,7 @@ func ValidateTemplate(tmpl string) error {
 			continue
 		}
 		if _, ok := allowedTemplateVars[match[1]]; !ok {
-			return fmt.Errorf("unknown template variable %q", match[1])
+			return fmt.Errorf("%w: %q", ErrUnknownTemplateVariable, match[1])
 		}
 	}
 	return nil

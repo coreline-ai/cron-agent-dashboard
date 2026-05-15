@@ -54,7 +54,7 @@ func RunStartupSelfCheck(ctx context.Context, st *store.Store) (StartupCheckRepo
 
 func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts StartupSelfCheckOptions) (StartupCheckReport, error) {
 	if st == nil {
-		return StartupCheckReport{}, fmt.Errorf("startup self-check: store is nil")
+		return StartupCheckReport{}, fmt.Errorf("%w: store is nil", ErrStartupSelfCheckFailed)
 	}
 	var report StartupCheckReport
 	terminated, skipped, err := terminateTrackedProcessGroups(ctx, st, opts)
@@ -74,7 +74,7 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 		return report, fmt.Errorf("pragma integrity_check: %w", err)
 	}
 	if strings.ToLower(strings.TrimSpace(report.IntegrityCheck)) != "ok" {
-		return report, fmt.Errorf("pragma integrity_check failed: %s", report.IntegrityCheck)
+		return report, fmt.Errorf("%w: pragma integrity_check failed: %s", ErrStartupSelfCheckFailed, report.IntegrityCheck)
 	}
 
 	if err := st.DB().GetContext(ctx, &report.JournalMode, `PRAGMA journal_mode`); err != nil {
@@ -86,13 +86,13 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 	}
 	report.ForeignKeysEnabled = foreignKeys == 1
 	if !report.ForeignKeysEnabled {
-		return report, fmt.Errorf("pragma foreign_keys is disabled")
+		return report, fmt.Errorf("%w: pragma foreign_keys is disabled", ErrStartupSelfCheckFailed)
 	}
 	if err := st.DB().GetContext(ctx, &report.BusyTimeoutMS, `PRAGMA busy_timeout`); err != nil {
 		return report, fmt.Errorf("pragma busy_timeout: %w", err)
 	}
 	if report.BusyTimeoutMS <= 0 {
-		return report, fmt.Errorf("pragma busy_timeout is disabled")
+		return report, fmt.Errorf("%w: pragma busy_timeout is disabled", ErrStartupSelfCheckFailed)
 	}
 
 	violations, err := countRows(ctx, st, `PRAGMA foreign_key_check`)
@@ -101,7 +101,7 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 	}
 	report.ForeignKeyViolationCount = violations
 	if violations > 0 {
-		return report, fmt.Errorf("foreign_key_check reported %d violation(s)", violations)
+		return report, fmt.Errorf("%w: foreign_key_check reported %d violation(s)", ErrStartupSelfCheckFailed, violations)
 	}
 
 	if err := st.DB().GetContext(ctx, &report.WorkspaceCount, `SELECT COUNT(*) FROM workspace`); err != nil {
@@ -115,7 +115,7 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 		return report, err
 	}
 	if len(report.MainAgentIssues) > 0 {
-		return report, fmt.Errorf("workspace main agent invariant failed: %s", strings.Join(report.MainAgentIssues, "; "))
+		return report, fmt.Errorf("%w: workspace main agent invariant failed: %s", ErrStartupSelfCheckFailed, strings.Join(report.MainAgentIssues, "; "))
 	}
 	return report, nil
 }

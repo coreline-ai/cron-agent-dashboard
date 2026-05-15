@@ -377,6 +377,7 @@ corn-agent-dashboard/
 - 같은 이슈에 동시 running run 불가 → claim 쿼리 `NOT EXISTS (SELECT 1 FROM run WHERE issue_id=r.issue_id AND status='running')`로 보장
 - 다른 workspace는 병렬 가능, 같은 workspace는 직렬
 - claim 충돌 (두 worker가 같은 row UPDATE 시도): SQLite `BEGIN IMMEDIATE`로 직렬화, `WHERE id=? AND status='queued'` 가드로 affected_rows=1 확인
+- SQLite connection policy: `db.SetMaxOpenConns(1)`로 DB I/O를 보수적으로 직렬화한다. WAL의 multi-reader 이점보다 단일 사용자 로컬 도구의 상태 일관성과 migration/transaction 단순성을 우선한다. 처리량 한계가 관찰되기 전까지 connection pool 확장은 하지 않는다.
 
 ### 8.5 취소
 - `POST /api/issues/:id/cancel` 핸들러:
@@ -511,6 +512,13 @@ store 흐름:
 - 프론트는 `Intl.DateTimeFormat('ko-KR', { timeZone })`로 로컬 표시
 - timeZone은 `/api/settings`에서 받은 `timezone` 값 사용 (기본 `Asia/Seoul`)
 
+### 10.4 테스트 정책
+
+- Store/API 테스트는 mock DB가 아니라 temporary SQLite 파일에 migration을 적용한 integration test를 기본으로 한다.
+- 이유: CHECK/FK/partial index, WAL/PRAGMA, migration idempotency, SQLite transaction semantics가 제품 안정성의 핵심이기 때문이다.
+- 단위 seam은 worker/runtime/http handler fake로 유지하되, DB 레이어는 실제 SQLite로 검증한다.
+- 현재 목표는 빠른 순수 unit test보다 schema ↔ store ↔ API 정합성 회귀를 조기에 잡는 것이다.
+
 ---
 
 ## 11. Deployment (배포)
@@ -574,7 +582,7 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 
 1. **Run Lifecycle Hardening**: heartbeat, structured terminal reason, stale/orphan/panic/shutdown recovery.
 2. **Run Event / Audit Trail**: `run_event` 테이블과 `GET /api/runs/:id/events`.
-3. **Autopilot Failure Visibility**: `last_error`, `consecutive_failures`, `last_triggered_issue_id`, trigger 결과 응답.
+3. **Autopilot Failure Visibility**: `last_error`, `consecutive_failures`, `last_triggered_issue_id`, trigger 결과 응답. 기본 5회 연속 실패 시 자동 disable 하며 `--autopilot-failure-disable-threshold` / `CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD`와 store option으로 threshold 조정 가능.
 4. **Frontend Feedback Foundation**: `StatusPill`, `ConfirmDialog`, `ToastProvider`, `MutationErrorAlert`, `DateTimeText`.
 5. **Issue Operations Console + Board Filters**: Board URL 기반 status/execution/agent/search 필터, Issue Detail 우측 운영 레일, run event timeline.
 
@@ -585,5 +593,5 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 
 - Timeout resolve 순서: issue override → agent override → workspace default → executor default(600s).
 - 자동 retry는 `failure_kind IN ('timeout','executor_error')`에만 적용한다. `exit_nonzero`와 `worker_panic`은 deterministic failure로 보고 자동 재시도하지 않는다.
-- retry backoff: 10초 → 60초 → 5분. `agent.retry_policy_json.max_attempts`는 1~5 범위로 clamp한다.
+- retry backoff: 기본 10초 → 60초 → 5분. `agent.retry_policy_json.backoff_seconds`가 있으면 각 값(1~3600초)을 사용하고, 배열보다 attempt가 많으면 마지막 값을 재사용한다. `max_attempts`는 1~5 범위만 허용한다.
 - CLI metrics parser는 best-effort이며 agent stdout은 신뢰하지 않는다. stderr/structured metrics stream에서 미검출 시 0으로 저장한다.

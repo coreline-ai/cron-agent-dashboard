@@ -58,7 +58,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer database.Close()
-	st := store.New(database)
+	st := store.New(database, store.WithAutopilotFailureDisableThreshold(cfg.AutopilotFailureDisableThreshold))
 	switch cmd {
 	case "init":
 		fmt.Printf("initialized %s\n", cfg.DBPath)

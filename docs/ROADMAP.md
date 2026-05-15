@@ -84,8 +84,11 @@ DB 마이그레이션 + 6 테이블 store + 30 REST 엔드포인트 (worker 없�
 
 #### P1.2 Store Layer (2일)
 - [x] `internal/store/store.go` — Workspace / Agent CRUD + Promote
-- [x] `internal/store/issues.go` — Issue / Run CRUD + identifier 발급 + durable queue claim
-- [x] `internal/store/comments_autopilot.go` — Comment / mention dispatch / Autopilot CRUD
+- [x] `internal/store/issues.go` — Issue CRUD + identifier 발급
+- [x] `internal/store/runs.go` / `cancellation.go` / `reasons.go` — durable queue claim, run lifecycle, cancel/recovery reason helpers
+- [x] `internal/store/comments.go` — Comment / mention dispatch
+- [x] `internal/store/autopilot.go` — Autopilot CRUD / trigger visibility
+- [x] `internal/store/auto_chain.go` — workspace opt-in auto-chain guard
 - [x] Store 통합 테스트 (temporary SQLite)
 
 #### P1.3 HTTP Layer (1.5일)

@@ -88,7 +88,7 @@ func (e *RuntimeExecutor) Execute(ctx context.Context, run worker.ExecutionConte
 			RunID:    run.RunID,
 			Runtime:  runtimeName,
 			ExitCode: 127,
-			Error:    fmt.Errorf("runtime %q is not configured", runtimeName),
+			Error:    fmt.Errorf("runtime %q is not configured: %w", runtimeName, ErrRuntimeNotConfigured),
 		}
 	}
 	timeout := e.Timeout
