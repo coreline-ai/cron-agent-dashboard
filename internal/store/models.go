@@ -17,20 +17,24 @@ func (n NullInt64) MarshalJSON() ([]byte, error) {
 }
 
 type Workspace struct {
-	ID                    string `db:"id" json:"id"`
-	Name                  string `db:"name" json:"name"`
-	Slug                  string `db:"slug" json:"slug"`
-	Description           string `db:"description" json:"description"`
-	OutputDir             string `db:"output_dir" json:"output_dir"`
-	WorkingDir            string `db:"working_dir" json:"working_dir"`
-	IdentifierPrefix      string `db:"identifier_prefix" json:"identifier_prefix"`
-	NextIssueSeq          int64  `db:"next_issue_seq" json:"-"`
-	DefaultTimeoutSeconds int    `db:"default_timeout_seconds" json:"default_timeout_seconds"`
-	AutoChainEnabled      bool   `db:"auto_chain_enabled" json:"auto_chain_enabled"`
-	CreatedAt             string `db:"created_at" json:"created_at"`
-	UpdatedAt             string `db:"updated_at" json:"updated_at"`
-	AgentCount            int64  `db:"agent_count" json:"agent_count,omitempty"`
-	OpenIssueCount        int64  `db:"open_issue_count" json:"open_issue_count,omitempty"`
+	ID                       string `db:"id" json:"id"`
+	Name                     string `db:"name" json:"name"`
+	Slug                     string `db:"slug" json:"slug"`
+	Description              string `db:"description" json:"description"`
+	OutputDir                string `db:"output_dir" json:"output_dir"`
+	WorkingDir               string `db:"working_dir" json:"working_dir"`
+	IdentifierPrefix         string `db:"identifier_prefix" json:"identifier_prefix"`
+	NextIssueSeq             int64  `db:"next_issue_seq" json:"-"`
+	DefaultTimeoutSeconds    int    `db:"default_timeout_seconds" json:"default_timeout_seconds"`
+	AutoChainEnabled         bool   `db:"auto_chain_enabled" json:"auto_chain_enabled"`
+	AutoChainMaxDepth        int    `db:"auto_chain_max_depth" json:"auto_chain_max_depth"`
+	AutoChainDailyRunLimit   int    `db:"auto_chain_daily_run_limit" json:"auto_chain_daily_run_limit"`
+	AutoChainDailyCostMicros int64  `db:"auto_chain_daily_cost_micros" json:"auto_chain_daily_cost_micros"`
+	AutoChainDryRun          bool   `db:"auto_chain_dry_run" json:"auto_chain_dry_run"`
+	CreatedAt                string `db:"created_at" json:"created_at"`
+	UpdatedAt                string `db:"updated_at" json:"updated_at"`
+	AgentCount               int64  `db:"agent_count" json:"agent_count,omitempty"`
+	OpenIssueCount           int64  `db:"open_issue_count" json:"open_issue_count,omitempty"`
 }
 
 type Agent struct {
@@ -40,6 +44,7 @@ type Agent struct {
 	Runtime                string    `db:"runtime" json:"runtime"`
 	Model                  string    `db:"model" json:"model"`
 	Instructions           string    `db:"instructions" json:"instructions"`
+	InstructionsVersion    int       `db:"instructions_version" json:"instructions_version"`
 	Summary                string    `db:"summary" json:"summary"`
 	Tags                   string    `db:"tags" json:"tags"`
 	IsMain                 bool      `db:"is_main" json:"is_main"`
@@ -47,6 +52,14 @@ type Agent struct {
 	RetryPolicyJSON        string    `db:"retry_policy_json" json:"retry_policy_json"`
 	CreatedAt              string    `db:"created_at" json:"created_at"`
 	UpdatedAt              string    `db:"updated_at" json:"updated_at"`
+}
+
+type AgentInstructionVersion struct {
+	ID           string `db:"id" json:"id"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	Version      int    `db:"version" json:"version"`
+	Instructions string `db:"instructions" json:"instructions"`
+	CreatedAt    string `db:"created_at" json:"created_at"`
 }
 
 type Issue struct {
@@ -84,41 +97,42 @@ type Comment struct {
 }
 
 type Run struct {
-	ID                     string         `db:"id" json:"id"`
-	IssueID                string         `db:"issue_id" json:"issue_id"`
-	AgentID                string         `db:"agent_id" json:"agent_id"`
-	AgentName              string         `db:"agent_name" json:"agent_name,omitempty"`
-	Status                 string         `db:"status" json:"status"`
-	TriggerType            string         `db:"trigger_type" json:"trigger_type"`
-	TriggerCommentID       string         `db:"trigger_comment_id" json:"trigger_comment_id,omitempty"`
-	TriggerContentSnapshot string         `db:"trigger_content_snapshot" json:"trigger_content_snapshot,omitempty"`
-	ParentRunID            string         `db:"parent_run_id" json:"parent_run_id,omitempty"`
-	ChainID                string         `db:"chain_id" json:"chain_id,omitempty"`
-	ChainDepth             int            `db:"chain_depth" json:"chain_depth"`
-	EnqueuedAt             string         `db:"enqueued_at" json:"enqueued_at"`
-	ClaimedAt              string         `db:"claimed_at" json:"claimed_at,omitempty"`
-	ClaimedBy              string         `db:"claimed_by" json:"claimed_by,omitempty"`
-	StartedAt              string         `db:"started_at" json:"started_at,omitempty"`
-	HeartbeatAt            string         `db:"heartbeat_at" json:"heartbeat_at,omitempty"`
-	FinishedAt             string         `db:"finished_at" json:"finished_at,omitempty"`
-	ProcessPID             int            `db:"process_pid" json:"-"`
-	ProcessPGID            int            `db:"process_pgid" json:"-"`
-	ProcessRecordedAt      string         `db:"process_recorded_at" json:"-"`
-	InputTokens            int64          `db:"input_tokens" json:"input_tokens"`
-	OutputTokens           int64          `db:"output_tokens" json:"output_tokens"`
-	TotalCostMicros        int64          `db:"total_cost_micros" json:"total_cost_micros"`
-	ModelResolved          string         `db:"model_resolved" json:"model_resolved,omitempty"`
-	Attempt                int            `db:"attempt" json:"attempt"`
-	MaxAttempts            int            `db:"max_attempts" json:"max_attempts"`
-	NextRetryAt            string         `db:"next_retry_at" json:"next_retry_at,omitempty"`
-	ExitCode               NullInt64      `db:"exit_code" json:"exit_code"`
-	StdoutPath             sql.NullString `db:"stdout_path" json:"-"`
-	StdoutSizeBytes        int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
-	LogURL                 string         `db:"log_url" json:"log_url,omitempty"`
-	ErrorMessage           string         `db:"error_message" json:"error_message"`
-	TerminalReason         string         `db:"terminal_reason" json:"terminal_reason"`
-	FailureKind            string         `db:"failure_kind" json:"failure_kind"`
-	CancelReason           string         `db:"cancel_reason" json:"cancel_reason"`
+	ID                       string         `db:"id" json:"id"`
+	IssueID                  string         `db:"issue_id" json:"issue_id"`
+	AgentID                  string         `db:"agent_id" json:"agent_id"`
+	AgentName                string         `db:"agent_name" json:"agent_name,omitempty"`
+	Status                   string         `db:"status" json:"status"`
+	TriggerType              string         `db:"trigger_type" json:"trigger_type"`
+	TriggerCommentID         string         `db:"trigger_comment_id" json:"trigger_comment_id,omitempty"`
+	TriggerContentSnapshot   string         `db:"trigger_content_snapshot" json:"trigger_content_snapshot,omitempty"`
+	ParentRunID              string         `db:"parent_run_id" json:"parent_run_id,omitempty"`
+	ChainID                  string         `db:"chain_id" json:"chain_id,omitempty"`
+	ChainDepth               int            `db:"chain_depth" json:"chain_depth"`
+	AgentInstructionsVersion int            `db:"agent_instructions_version" json:"agent_instructions_version"`
+	EnqueuedAt               string         `db:"enqueued_at" json:"enqueued_at"`
+	ClaimedAt                string         `db:"claimed_at" json:"claimed_at,omitempty"`
+	ClaimedBy                string         `db:"claimed_by" json:"claimed_by,omitempty"`
+	StartedAt                string         `db:"started_at" json:"started_at,omitempty"`
+	HeartbeatAt              string         `db:"heartbeat_at" json:"heartbeat_at,omitempty"`
+	FinishedAt               string         `db:"finished_at" json:"finished_at,omitempty"`
+	ProcessPID               int            `db:"process_pid" json:"-"`
+	ProcessPGID              int            `db:"process_pgid" json:"-"`
+	ProcessRecordedAt        string         `db:"process_recorded_at" json:"-"`
+	InputTokens              int64          `db:"input_tokens" json:"input_tokens"`
+	OutputTokens             int64          `db:"output_tokens" json:"output_tokens"`
+	TotalCostMicros          int64          `db:"total_cost_micros" json:"total_cost_micros"`
+	ModelResolved            string         `db:"model_resolved" json:"model_resolved,omitempty"`
+	Attempt                  int            `db:"attempt" json:"attempt"`
+	MaxAttempts              int            `db:"max_attempts" json:"max_attempts"`
+	NextRetryAt              string         `db:"next_retry_at" json:"next_retry_at,omitempty"`
+	ExitCode                 NullInt64      `db:"exit_code" json:"exit_code"`
+	StdoutPath               sql.NullString `db:"stdout_path" json:"-"`
+	StdoutSizeBytes          int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
+	LogURL                   string         `db:"log_url" json:"log_url,omitempty"`
+	ErrorMessage             string         `db:"error_message" json:"error_message"`
+	TerminalReason           string         `db:"terminal_reason" json:"terminal_reason"`
+	FailureKind              string         `db:"failure_kind" json:"failure_kind"`
+	CancelReason             string         `db:"cancel_reason" json:"cancel_reason"`
 }
 
 type RunUsageSummary struct {
@@ -132,6 +146,7 @@ type RunUsageSummary struct {
 }
 
 type RunningProcessGroup struct {
+	PID        int    `db:"process_pid"`
 	PGID       int    `db:"process_pgid"`
 	RecordedAt string `db:"process_recorded_at"`
 	RunCount   int    `db:"run_count"`
@@ -246,15 +261,19 @@ type AutopilotRule struct {
 }
 
 type CreateWorkspaceInput struct {
-	Name                  string           `json:"name"`
-	Slug                  string           `json:"slug"`
-	Description           string           `json:"description"`
-	IdentifierPrefix      string           `json:"identifier_prefix"`
-	WorkingDir            string           `json:"working_dir"`
-	OutputDir             string           `json:"output_dir"`
-	DefaultTimeoutSeconds int              `json:"default_timeout_seconds"`
-	AutoChainEnabled      bool             `json:"auto_chain_enabled"`
-	MainAgent             CreateAgentInput `json:"main_agent"`
+	Name                     string           `json:"name"`
+	Slug                     string           `json:"slug"`
+	Description              string           `json:"description"`
+	IdentifierPrefix         string           `json:"identifier_prefix"`
+	WorkingDir               string           `json:"working_dir"`
+	OutputDir                string           `json:"output_dir"`
+	DefaultTimeoutSeconds    int              `json:"default_timeout_seconds"`
+	AutoChainEnabled         bool             `json:"auto_chain_enabled"`
+	AutoChainMaxDepth        int              `json:"auto_chain_max_depth"`
+	AutoChainDailyRunLimit   *int             `json:"auto_chain_daily_run_limit"`
+	AutoChainDailyCostMicros int64            `json:"auto_chain_daily_cost_micros"`
+	AutoChainDryRun          bool             `json:"auto_chain_dry_run"`
+	MainAgent                CreateAgentInput `json:"main_agent"`
 }
 
 type CreateAgentInput struct {
@@ -269,12 +288,16 @@ type CreateAgentInput struct {
 }
 
 type UpdateWorkspaceInput struct {
-	Name                  string `json:"name"`
-	Description           string `json:"description"`
-	WorkingDir            string `json:"working_dir"`
-	OutputDir             string `json:"output_dir"`
-	DefaultTimeoutSeconds *int   `json:"default_timeout_seconds"`
-	AutoChainEnabled      *bool  `json:"auto_chain_enabled"`
+	Name                     string `json:"name"`
+	Description              string `json:"description"`
+	WorkingDir               string `json:"working_dir"`
+	OutputDir                string `json:"output_dir"`
+	DefaultTimeoutSeconds    *int   `json:"default_timeout_seconds"`
+	AutoChainEnabled         *bool  `json:"auto_chain_enabled"`
+	AutoChainMaxDepth        *int   `json:"auto_chain_max_depth"`
+	AutoChainDailyRunLimit   *int   `json:"auto_chain_daily_run_limit"`
+	AutoChainDailyCostMicros *int64 `json:"auto_chain_daily_cost_micros"`
+	AutoChainDryRun          *bool  `json:"auto_chain_dry_run"`
 }
 
 type CreateIssueInput struct {

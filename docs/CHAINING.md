@@ -31,7 +31,7 @@
 - workspace `auto_chain_enabled=false`면 agent 결과 mention은 텍스트로만 저장한다.
 - source run이 `done`일 때만 체이닝한다.
 - 한 agent 결과에 mention이 여러 개 있어도 첫 번째만 처리한다.
-- `chain_depth >= 5`면 추가 실행하지 않고 system comment를 남긴다.
+- `chain_depth >= auto_chain_max_depth`면 추가 실행하지 않고 system comment를 남긴다.
 - 같은 `chain_id` 안에서 동일 agent는 재호출하지 않는다.
 - dispatch 결과는 system comment와 run_event로 남긴다.
 
@@ -53,3 +53,14 @@ Root run은 `chain_id=<run_id>`, `chain_depth=0`이다. Auto-chain run은 `paren
 - 비용이 큰 workspace에서는 OFF 유지 권장.
 - NewsLead → Writer → Publisher처럼 명확한 pipeline이 있는 workspace에서만 ON 권장.
 - 예상치 못한 자동 체이닝이 발생하면 `/settings`에서 workspace toggle을 끄고 run event timeline에서 `auto_chain=true` 이벤트를 확인한다.
+
+## Workspace guard policy
+
+Auto-chain은 workspace별로 다음 guard를 가진다.
+
+- `auto_chain_max_depth`: 기본 5, 최대 20
+- `auto_chain_daily_run_limit`: 기본 20, `0`이면 run 수 제한 없음
+- `auto_chain_daily_cost_micros`: 기본 0, `0`이면 비용 제한 없음
+- `auto_chain_dry_run`: mention을 감지하고 system comment를 남기지만 run은 등록하지 않음
+
+제한에 걸리면 새 run을 만들지 않고 system comment로 이유를 기록한다. 이 정책은 hallucinated mention, recursive chain, 예기치 못한 비용 증가를 막기 위한 workspace-local safety guard다.

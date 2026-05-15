@@ -11,6 +11,10 @@ export type WorkspaceSummary = {
   output_dir?: string;
   default_timeout_seconds?: number;
   auto_chain_enabled?: boolean;
+  auto_chain_max_depth?: number;
+  auto_chain_daily_run_limit?: number;
+  auto_chain_daily_cost_micros?: number;
+  auto_chain_dry_run?: boolean;
   agent_count?: number;
   open_issue_count?: number;
 };
@@ -26,11 +30,20 @@ export type Agent = {
   runtime: string;
   model?: string;
   instructions: string;
+  instructions_version?: number;
   summary?: string;
   tags?: string;
   is_main: boolean;
   timeout_seconds_override?: number | null;
   retry_policy_json?: string;
+};
+
+export type AgentInstructionVersion = {
+  id: string;
+  agent_id: string;
+  version: number;
+  instructions: string;
+  created_at: string;
 };
 
 export type Issue = {
@@ -76,6 +89,7 @@ export type Run = {
   parent_run_id?: string;
   chain_id?: string;
   chain_depth?: number;
+  agent_instructions_version?: number;
   log_url?: string;
   error_message?: string;
   exit_code?: number | null;
@@ -150,21 +164,23 @@ export type HealthResponse = {
   available_runtimes?: string[];
 };
 
+export type UsageSummary = {
+  since: string;
+  run_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  total_cost_micros: number;
+  measured_run_count: number;
+};
+
 export type SettingsResponse = {
   version: string;
   data_dir: string;
   worker_pool_size: number;
   auth_mode: string;
   timezone: string;
-  usage_7d?: {
-    since: string;
-    run_count: number;
-    input_tokens: number;
-    output_tokens: number;
-    total_tokens: number;
-    total_cost_micros: number;
-    measured_run_count: number;
-  };
+  usage_7d?: UsageSummary;
   migration_fail_count?: number;
   migration_failures?: Array<{
     id: number;
@@ -231,6 +247,13 @@ export function useSettingsQuery() {
   });
 }
 
+export function useUsageSummaryQuery(days: number) {
+  return useQuery({
+    queryKey: ['usage-summary', days],
+    queryFn: async () => (await apiClient.get<{ usage: UsageSummary; days: number }>(`/usage/summary?days=${days}`)).usage
+  });
+}
+
 export function useWorkspacesQuery() {
   return useQuery({
     queryKey: ['workspaces'],
@@ -251,6 +274,14 @@ export function useAgentQuery(id: string | undefined) {
     queryKey: ['agent', id],
     enabled: Boolean(id),
     queryFn: async () => (await apiClient.get<{ agent: Agent }>(`/agents/${id}`)).agent
+  });
+}
+
+export function useAgentInstructionVersionsQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['agent-instructions', id],
+    enabled: Boolean(id),
+    queryFn: async () => (await apiClient.get<{ versions: AgentInstructionVersion[] | null }>(`/agents/${id}/instructions`)).versions ?? []
   });
 }
 

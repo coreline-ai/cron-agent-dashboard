@@ -28,6 +28,7 @@ export function IssueSummaryRail({
   const latestRun = runs.length > 0 ? runs[runs.length - 1] : undefined;
   const latestProblemRun = [...runs].reverse().find((run) => run.status === 'failed' || run.status === 'cancelled');
   const canOperate = Boolean(issue) && !actionPending;
+  const usage = summarizeRunUsage(runs);
   const issueStatus = issue?.status ?? 'open';
   const executionStatus = issue?.execution_status ?? 'idle';
 
@@ -54,6 +55,14 @@ export function IssueSummaryRail({
         <div>
           <span>댓글</span>
           <strong>{issue?.comment_count ?? 0}개</strong>
+        </div>
+        <div>
+          <span>토큰</span>
+          <strong>{formatTokens(usage.totalTokens)}</strong>
+        </div>
+        <div>
+          <span>비용</span>
+          <strong>{formatCostMicros(usage.totalCostMicros)}</strong>
         </div>
       </div>
 
@@ -88,6 +97,9 @@ export function IssueSummaryRail({
             <small>
               <DateTimeText value={latestRun.finished_at || latestRun.started_at || latestRun.enqueued_at} mode="both" />
             </small>
+            {runHasUsage(latestRun) ? (
+              <small>{formatTokens((latestRun.input_tokens ?? 0) + (latestRun.output_tokens ?? 0))} · {formatCostMicros(latestRun.total_cost_micros)}</small>
+            ) : null}
           </div>
         ) : (
           <p className="muted-copy">아직 실행 이력이 없습니다.</p>
@@ -131,4 +143,42 @@ function normalizeRunMessage(value?: string) {
     .replace(/&amp;/gi, '&')
     .replace(/^stderr:\s*/i, 'stderr:\n')
     .trim();
+}
+
+
+export function summarizeRunUsage(runs: Run[]) {
+  return runs.reduce(
+    (acc, run) => {
+      const input = run.input_tokens ?? 0;
+      const output = run.output_tokens ?? 0;
+      acc.inputTokens += input;
+      acc.outputTokens += output;
+      acc.totalTokens += input + output;
+      acc.totalCostMicros += run.total_cost_micros ?? 0;
+      if (input > 0 || output > 0 || (run.total_cost_micros ?? 0) > 0) {
+        acc.measuredRuns += 1;
+      }
+      return acc;
+    },
+    { inputTokens: 0, outputTokens: 0, totalTokens: 0, totalCostMicros: 0, measuredRuns: 0 }
+  );
+}
+
+export function formatTokens(value?: number) {
+  const n = Math.max(0, value ?? 0);
+  if (n >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(2)}M`;
+  }
+  if (n >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}k`;
+  }
+  return String(n);
+}
+
+export function formatCostMicros(value?: number) {
+  return `$${((Math.max(0, value ?? 0)) / 1_000_000).toFixed(4)}`;
+}
+
+function runHasUsage(run: Run) {
+  return (run.input_tokens ?? 0) > 0 || (run.output_tokens ?? 0) > 0 || (run.total_cost_micros ?? 0) > 0;
 }

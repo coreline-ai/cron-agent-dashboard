@@ -45,6 +45,25 @@ func normalizeErr(err error) error {
 	return err
 }
 
+func insertAgentInstructionVersionTx(ctx context.Context, tx *sqlx.Tx, agentID string, version int, instructions, createdAt string) error {
+	if version <= 0 {
+		version = 1
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_instruction_version(id,agent_id,version,instructions,created_at) VALUES(?,?,?,?,?)`, newID(), agentID, version, instructions, createdAt)
+	return normalizeErr(err)
+}
+
+func agentInstructionsVersionForAgent(ctx context.Context, q sqlx.QueryerContext, agentID string) (int, error) {
+	var version int
+	if err := sqlx.GetContext(ctx, q, &version, `SELECT COALESCE(instructions_version,1) FROM agent WHERE id=?`, agentID); err != nil {
+		return 0, normalizeErr(err)
+	}
+	if version <= 0 {
+		version = 1
+	}
+	return version, nil
+}
+
 func nullIfEmpty(v string) any {
 	if v == "" {
 		return nil
@@ -65,6 +84,39 @@ var (
 	prefixRE = regexp.MustCompile(`^[A-Z]{2,10}$`)
 	uuidRE   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
+
+const agentSelectBase = `SELECT id,workspace_id,name,runtime,model,instructions,
+       COALESCE(instructions_version,1) AS instructions_version,
+       COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,
+       is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at
+FROM agent`
+
+func normalizeAutoChainMaxDepth(value int) int {
+	if value <= 0 {
+		return 5
+	}
+	if value > 20 {
+		return 20
+	}
+	return value
+}
+
+func normalizeAutoChainDailyRunLimit(value int) int {
+	if value <= 0 {
+		return 0
+	}
+	if value > 1000 {
+		return 1000
+	}
+	return value
+}
+
+func normalizeAutoChainDailyCostMicros(value int64) int64 {
+	if value <= 0 {
+		return 0
+	}
+	return value
+}
 
 func boolInt(v bool) int {
 	if v {
@@ -121,6 +173,10 @@ const workspaceSelect = `
 SELECT w.id, w.name, w.slug, w.description, w.output_dir, w.working_dir, w.identifier_prefix, w.next_issue_seq,
        COALESCE(w.default_timeout_seconds, 600) AS default_timeout_seconds,
        COALESCE(w.auto_chain_enabled, 0) AS auto_chain_enabled,
+       COALESCE(w.auto_chain_max_depth, 5) AS auto_chain_max_depth,
+       COALESCE(w.auto_chain_daily_run_limit, 20) AS auto_chain_daily_run_limit,
+       COALESCE(w.auto_chain_daily_cost_micros, 0) AS auto_chain_daily_cost_micros,
+       COALESCE(w.auto_chain_dry_run, 0) AS auto_chain_dry_run,
        w.created_at, w.updated_at,
        (SELECT COUNT(*) FROM agent a WHERE a.workspace_id = w.id) AS agent_count,
        (SELECT COUNT(*) FROM issue i WHERE i.workspace_id = w.id AND i.status = 'open') AS open_issue_count
@@ -140,8 +196,15 @@ func (s *Store) CreateWorkspaceWithMainAgent(ctx context.Context, in CreateWorks
 	if err != nil {
 		return Workspace{}, Agent{}, err
 	}
-	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: timeoutSeconds, AutoChainEnabled: in.AutoChainEnabled, CreatedAt: t, UpdatedAt: t}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,default_timeout_seconds,auto_chain_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, w.DefaultTimeoutSeconds, boolInt(w.AutoChainEnabled), t, t)
+	chainMaxDepth := normalizeAutoChainMaxDepth(in.AutoChainMaxDepth)
+	chainRunLimitInput := 20
+	if in.AutoChainDailyRunLimit != nil {
+		chainRunLimitInput = *in.AutoChainDailyRunLimit
+	}
+	chainRunLimit := normalizeAutoChainDailyRunLimit(chainRunLimitInput)
+	chainCostLimit := normalizeAutoChainDailyCostMicros(in.AutoChainDailyCostMicros)
+	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: timeoutSeconds, AutoChainEnabled: in.AutoChainEnabled, AutoChainMaxDepth: chainMaxDepth, AutoChainDailyRunLimit: chainRunLimit, AutoChainDailyCostMicros: chainCostLimit, AutoChainDryRun: in.AutoChainDryRun, CreatedAt: t, UpdatedAt: t}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,default_timeout_seconds,auto_chain_enabled,auto_chain_max_depth,auto_chain_daily_run_limit,auto_chain_daily_cost_micros,auto_chain_dry_run,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, w.DefaultTimeoutSeconds, boolInt(w.AutoChainEnabled), w.AutoChainMaxDepth, w.AutoChainDailyRunLimit, w.AutoChainDailyCostMicros, boolInt(w.AutoChainDryRun), t, t)
 	if err != nil {
 		return Workspace{}, Agent{}, normalizeErr(err)
 	}
@@ -149,10 +212,13 @@ func (s *Store) CreateWorkspaceWithMainAgent(ctx context.Context, in CreateWorks
 	if err != nil {
 		return Workspace{}, Agent{}, err
 	}
-	a := Agent{ID: newID(), WorkspaceID: w.ID, Name: in.MainAgent.Name, Runtime: in.MainAgent.Runtime, Model: in.MainAgent.Model, Instructions: in.MainAgent.Instructions, Summary: in.MainAgent.Summary, Tags: in.MainAgent.Tags, IsMain: true, RetryPolicyJSON: retryPolicy, CreatedAt: t, UpdatedAt: t}
-	_, err = tx.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,summary,tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, a.Summary, a.Tags, 1, agentTimeout, retryPolicy, t, t)
+	a := Agent{ID: newID(), WorkspaceID: w.ID, Name: in.MainAgent.Name, Runtime: in.MainAgent.Runtime, Model: in.MainAgent.Model, Instructions: in.MainAgent.Instructions, InstructionsVersion: 1, Summary: in.MainAgent.Summary, Tags: in.MainAgent.Tags, IsMain: true, RetryPolicyJSON: retryPolicy, CreatedAt: t, UpdatedAt: t}
+	_, err = tx.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,instructions_version,summary,tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, a.InstructionsVersion, a.Summary, a.Tags, 1, agentTimeout, retryPolicy, t, t)
 	if err != nil {
 		return Workspace{}, Agent{}, normalizeErr(err)
+	}
+	if err := insertAgentInstructionVersionTx(ctx, tx, a.ID, a.InstructionsVersion, a.Instructions, t); err != nil {
+		return Workspace{}, Agent{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Workspace{}, Agent{}, err
@@ -202,7 +268,23 @@ func (s *Store) UpdateWorkspace(ctx context.Context, idOrSlug string, in UpdateW
 	if in.AutoChainEnabled != nil {
 		autoChain = *in.AutoChainEnabled
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE workspace SET name=?, description=?, working_dir=?, output_dir=?, default_timeout_seconds=?, auto_chain_enabled=?, updated_at=? WHERE id=?`, in.Name, in.Description, in.WorkingDir, in.OutputDir, timeoutSeconds, boolInt(autoChain), now(), w.ID)
+	maxDepth := w.AutoChainMaxDepth
+	if in.AutoChainMaxDepth != nil {
+		maxDepth = normalizeAutoChainMaxDepth(*in.AutoChainMaxDepth)
+	}
+	dailyRunLimit := w.AutoChainDailyRunLimit
+	if in.AutoChainDailyRunLimit != nil {
+		dailyRunLimit = normalizeAutoChainDailyRunLimit(*in.AutoChainDailyRunLimit)
+	}
+	dailyCostLimit := w.AutoChainDailyCostMicros
+	if in.AutoChainDailyCostMicros != nil {
+		dailyCostLimit = normalizeAutoChainDailyCostMicros(*in.AutoChainDailyCostMicros)
+	}
+	dryRun := w.AutoChainDryRun
+	if in.AutoChainDryRun != nil {
+		dryRun = *in.AutoChainDryRun
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE workspace SET name=?, description=?, working_dir=?, output_dir=?, default_timeout_seconds=?, auto_chain_enabled=?, auto_chain_max_depth=?, auto_chain_daily_run_limit=?, auto_chain_daily_cost_micros=?, auto_chain_dry_run=?, updated_at=? WHERE id=?`, in.Name, in.Description, in.WorkingDir, in.OutputDir, timeoutSeconds, boolInt(autoChain), maxDepth, dailyRunLimit, dailyCostLimit, boolInt(dryRun), now(), w.ID)
 	if err != nil {
 		return Workspace{}, normalizeErr(err)
 	}
@@ -249,36 +331,47 @@ func (s *Store) CreateAgent(ctx context.Context, workspaceID string, in CreateAg
 	if err != nil {
 		return Agent{}, err
 	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Agent{}, err
+	}
+	defer tx.Rollback()
 	t := now()
-	a := Agent{ID: newID(), WorkspaceID: workspaceID, Name: in.Name, Runtime: in.Runtime, Model: in.Model, Instructions: in.Instructions, Summary: in.Summary, Tags: in.Tags, RetryPolicyJSON: retryPolicy, CreatedAt: t, UpdatedAt: t}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,summary,tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,0,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, a.Summary, a.Tags, timeout, retryPolicy, t, t)
+	a := Agent{ID: newID(), WorkspaceID: workspaceID, Name: in.Name, Runtime: in.Runtime, Model: in.Model, Instructions: in.Instructions, InstructionsVersion: 1, Summary: in.Summary, Tags: in.Tags, RetryPolicyJSON: retryPolicy, CreatedAt: t, UpdatedAt: t}
+	_, err = tx.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,instructions_version,summary,tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, a.InstructionsVersion, a.Summary, a.Tags, timeout, retryPolicy, t, t)
 	if err != nil {
 		return Agent{}, normalizeErr(err)
+	}
+	if err := insertAgentInstructionVersionTx(ctx, tx, a.ID, a.InstructionsVersion, a.Instructions, t); err != nil {
+		return Agent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Agent{}, err
 	}
 	return s.GetAgent(ctx, a.ID)
 }
 
 func (s *Store) ListAgents(ctx context.Context, workspaceID string) ([]Agent, error) {
 	var out []Agent
-	err := s.db.SelectContext(ctx, &out, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)
+	err := s.db.SelectContext(ctx, &out, agentSelectBase+` WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)
 	return out, normalizeErr(err)
 }
 
 func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE id=?`, id)
+	err := s.db.GetContext(ctx, &a, agentSelectBase+` WHERE id=?`, id)
 	return a, normalizeErr(err)
 }
 
 func (s *Store) GetMainAgent(ctx context.Context, workspaceID string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND is_main=1`, workspaceID)
+	err := s.db.GetContext(ctx, &a, agentSelectBase+` WHERE workspace_id=? AND is_main=1`, workspaceID)
 	return a, normalizeErr(err)
 }
 
 func (s *Store) FindAgentByName(ctx context.Context, workspaceID, name string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
+	err := s.db.GetContext(ctx, &a, agentSelectBase+` WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
 	return a, normalizeErr(err)
 }
 
@@ -290,11 +383,46 @@ func (s *Store) UpdateAgent(ctx context.Context, id string, in CreateAgentInput)
 	if err != nil {
 		return Agent{}, err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE agent SET name=?, runtime=?, model=?, instructions=?, summary=?, tags=?, timeout_seconds_override=?, retry_policy_json=?, updated_at=? WHERE id=?`, in.Name, in.Runtime, in.Model, in.Instructions, in.Summary, in.Tags, timeout, retryPolicy, now(), id)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Agent{}, err
+	}
+	defer tx.Rollback()
+	var current Agent
+	if err := tx.GetContext(ctx, &current, agentSelectBase+` WHERE id=?`, id); err != nil {
+		return Agent{}, normalizeErr(err)
+	}
+	version := current.InstructionsVersion
+	if version <= 0 {
+		version = 1
+	}
+	changedInstructions := current.Instructions != in.Instructions
+	if changedInstructions {
+		version++
+	}
+	t := now()
+	_, err = tx.ExecContext(ctx, `UPDATE agent SET name=?, runtime=?, model=?, instructions=?, instructions_version=?, summary=?, tags=?, timeout_seconds_override=?, retry_policy_json=?, updated_at=? WHERE id=?`, in.Name, in.Runtime, in.Model, in.Instructions, version, in.Summary, in.Tags, timeout, retryPolicy, t, id)
 	if err != nil {
 		return Agent{}, normalizeErr(err)
 	}
+	if changedInstructions {
+		if err := insertAgentInstructionVersionTx(ctx, tx, id, version, in.Instructions, t); err != nil {
+			return Agent{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Agent{}, err
+	}
 	return s.GetAgent(ctx, id)
+}
+
+func (s *Store) ListAgentInstructionVersions(ctx context.Context, agentID string) ([]AgentInstructionVersion, error) {
+	if _, err := s.GetAgent(ctx, agentID); err != nil {
+		return nil, err
+	}
+	var versions []AgentInstructionVersion
+	err := s.db.SelectContext(ctx, &versions, `SELECT id,agent_id,version,instructions,created_at FROM agent_instruction_version WHERE agent_id=? ORDER BY version DESC`, agentID)
+	return versions, normalizeErr(err)
 }
 
 func (s *Store) PromoteAgent(ctx context.Context, id string) (Agent, error) {

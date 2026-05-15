@@ -40,6 +40,12 @@ func main() {
 	if err := config.EnsureDirs(cfg); err != nil {
 		log.Fatal(err)
 	}
+	if cmd == "import" {
+		cmd = "restore"
+	}
+	if cmd == "export" {
+		cmd = "backup"
+	}
 	if cmd == "restore" {
 		if err := restoreDatabase(cfg); err != nil {
 			log.Fatal(err)
@@ -60,14 +66,14 @@ func main() {
 		if err := serve(cfg, st); err != nil {
 			log.Fatal(err)
 		}
-	case "backup":
+	case "backup", "export":
 		path, err := backupDatabase(cfg, database)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("backup written to %s\n", path)
 	default:
-		log.Fatalf("unknown command %q (expected serve, init, backup, or restore)", cmd)
+		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, or import)", cmd)
 	}
 }
 

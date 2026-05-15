@@ -324,10 +324,11 @@ corn-agent-dashboard/
 2. **사용자 댓글**에 `@AgentName` 명시 멘션 → 같은 issue에 새 run INSERT (`issue.assignee_agent_id` 변경 없음, `run.agent_id`만 멘션된 에이전트)
 3. Autopilot cron 시각 도래 → issue + run INSERT
 4. 수동 `/rerun` 호출 → 같은 issue에 새 run INSERT (동일 agent)
+5. workspace opt-in auto-chain → 완료된 agent 결과 댓글의 첫 `@AgentName`이 guard를 통과하면 같은 issue에 새 run INSERT
 
 **모든 dispatch는 channel send가 아니라 DB row INSERT.** Worker가 polling으로 claim.
 
-현재 체이닝 정책은 **explicit-only**다. agent 결과 댓글 안의 `@AgentName`은 자동 dispatch하지 않으며, 이는 무한 루프, 비용 폭주, hallucinated mention 실행을 방지하기 위한 MVP 안전 정책이다. Auto-chain은 Phase 2+ opt-in 후보이며 현재 기능이 아니다.
+현재 체이닝 정책은 **explicit-first + workspace opt-in auto-chain**이다. agent 결과 댓글 안의 `@AgentName`은 기본적으로 자동 dispatch하지 않으며, `auto_chain_enabled=true`와 depth/run/cost/dry-run guard를 통과한 경우에만 실행한다.
 
 ### 8.2 실행 흐름 (durable)
 ```
@@ -411,23 +412,28 @@ corn-agent-dashboard/
 - 모든 run은 매번 `workspace.working_dir`을 cwd로 사용
 - 에이전트 간 working_dir 격리는 Phase 2 후보 (per-run worktree)
 
-### 8.9 Auto-chain opt-in 후보 (미구현)
+### 8.9 Auto-chain opt-in (구현됨)
 
-Auto-chain은 agent 결과 댓글의 mention을 자동으로 다음 run으로 dispatch하는 후보 기능이다. 현재는 구현하지 않는다.
+Auto-chain은 agent 결과 댓글의 mention을 자동으로 다음 run으로 dispatch하는 workspace opt-in 기능이다. 기본값은 반드시 off다.
 
-권장 설계:
-- 기본값 off.
-- lineage 후보 필드: `run.chain_id`, `run.parent_run_id`, `run.chain_depth`.
-- 최대 depth 기본값 5.
-- 같은 `chain_id` 안에서 동일 agent 재호출 차단.
-- source run이 `failed` 또는 `cancelled`이면 chain 중단.
-- 후보 `trigger_type`: `agent_mention` 또는 `auto_mention` 중 하나를 별도 migration/API 변경에서 선택.
+정책:
+- 기본값 off. `/settings`에서 workspace별로 명시적으로 켠 경우에만 동작한다.
+- lineage 필드: `run.chain_id`, `run.parent_run_id`, `run.chain_depth`.
+- 최대 depth는 `workspace.auto_chain_max_depth`로 제한한다.
+- 하루 run 수는 `workspace.auto_chain_daily_run_limit`로 제한하며 `0`이면 제한 없음이다.
+- 하루 비용은 `workspace.auto_chain_daily_cost_micros`로 제한하며 `0`이면 제한 없음이다.
+- dry-run ON이면 mention 감지와 system comment만 남기고 run은 만들지 않는다.
+- 같은 `chain_id` 안에서 동일 agent 재호출은 차단한다.
+- source run이 `done`일 때만 chain을 만든다.
+- 기존 enum 호환을 위해 auto-chain run도 `trigger_type='mention'`을 사용하고 `parent_run_id`/`chain_id`/`chain_depth`와 `run_event.details.auto_chain=true`로 구분한다.
 
-후보 store 흐름:
-1. agent 결과 comment 저장 후 opt-in 상태 확인.
+store 흐름:
+1. agent 결과 comment 저장 후 workspace opt-in/guard 상태 확인.
 2. off이면 mention parser를 실행하지 않고 종료.
-3. on이면 agent comment의 첫 mention만 후보로 삼고 depth/중복/상태 guard를 통과할 때만 새 run INSERT.
-4. dispatch 결과는 run_event 또는 system comment로 남긴다.
+3. on이면 agent comment의 첫 mention만 후보로 삼는다.
+4. depth/중복/daily run/daily cost guard를 통과할 때만 새 run INSERT.
+5. dispatch/skip 결과는 system comment와 run_event로 남긴다.
+
 
 ---
 
@@ -555,7 +561,7 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 | Timezone | **시스템 전역 `CORN_AGENT_DASHBOARD_TIMEZONE`** (기본 `Asia/Seoul`) | Phase 0 |
 | Stdout cap | **단일 run 10MB** (확정) | Phase 0 |
 | Prompt 컨텍스트 | **truncation 4000자, 요약 없음** | Phase 0 |
-| 체이닝 정책 | **explicit-only**. 사용자 댓글의 명시 멘션만 dispatch, agent 결과 멘션 auto-chain은 Phase 2+ opt-in 후보(기본 off) | Phase 0 |
+| 체이닝 정책 | **explicit-first + workspace opt-in auto-chain**. 기본 off, workspace guard(depth/run/cost/dry-run) 통과 시 agent 결과 첫 멘션 dispatch | Phase 2 |
 | stdout 스트리밍 단위 | 종료 후 1번 (확정 MVP) — 라인 단위는 Phase 2 후보 | Phase 0 |
 | run log 압축 | gzip vs raw — Phase 2에서 디스크 사용량 보고 후 결정 | Phase 2 |
 | 워크스페이스 import/export | Phase 2 | Phase 2 |
@@ -580,4 +586,4 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 - Timeout resolve 순서: issue override → agent override → workspace default → executor default(600s).
 - 자동 retry는 `failure_kind IN ('timeout','executor_error')`에만 적용한다. `exit_nonzero`와 `worker_panic`은 deterministic failure로 보고 자동 재시도하지 않는다.
 - retry backoff: 10초 → 60초 → 5분. `agent.retry_policy_json.max_attempts`는 1~5 범위로 clamp한다.
-- CLI stdout/stderr metrics parser는 best-effort이며 metrics 미검출 시 0으로 저장한다.
+- CLI metrics parser는 best-effort이며 agent stdout은 신뢰하지 않는다. stderr/structured metrics stream에서 미검출 시 0으로 저장한다.

@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiAuth, apiClient } from '../api/client';
 import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPanel';
 import { PageHeader } from '../components/PageHeader';
-import { WorkspaceSummary, useSettingsQuery, useWorkspacesQuery } from '../api/queries';
+import { WorkspaceSummary, useSettingsQuery, useUsageSummaryQuery, useWorkspacesQuery } from '../api/queries';
 
 function formatTokens(value?: number) {
   const n = value ?? 0;
@@ -37,6 +37,10 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
   const queryClient = useQueryClient();
   const [timeoutSeconds, setTimeoutSeconds] = useState(String(workspace.default_timeout_seconds ?? 600));
   const [autoChainEnabled, setAutoChainEnabled] = useState(Boolean(workspace.auto_chain_enabled));
+  const [autoChainMaxDepth, setAutoChainMaxDepth] = useState(String(workspace.auto_chain_max_depth ?? 5));
+  const [autoChainDailyRunLimit, setAutoChainDailyRunLimit] = useState(String(workspace.auto_chain_daily_run_limit ?? 20));
+  const [autoChainDailyCostDollars, setAutoChainDailyCostDollars] = useState(String(((workspace.auto_chain_daily_cost_micros ?? 0) / 1_000_000).toFixed(4)));
+  const [autoChainDryRun, setAutoChainDryRun] = useState(Boolean(workspace.auto_chain_dry_run));
   const save = useMutation({
     mutationFn: () =>
       apiClient.put(`/workspaces/${workspace.slug}`, {
@@ -45,7 +49,11 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
         working_dir: workspace.working_dir ?? '',
         output_dir: workspace.output_dir ?? '',
         default_timeout_seconds: Number(timeoutSeconds) || 600,
-        auto_chain_enabled: autoChainEnabled
+        auto_chain_enabled: autoChainEnabled,
+        auto_chain_max_depth: Number(autoChainMaxDepth) || 5,
+        auto_chain_daily_run_limit: Number(autoChainDailyRunLimit) || 0,
+        auto_chain_daily_cost_micros: Math.max(0, Math.round((Number(autoChainDailyCostDollars) || 0) * 1_000_000)),
+        auto_chain_dry_run: autoChainDryRun
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -67,6 +75,24 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
         <input type="checkbox" checked={autoChainEnabled} onChange={(e) => setAutoChainEnabled(e.target.checked)} />
         agent 결과 @mention 자동 체이닝 허용
       </label>
+      <div className="settings-grid two">
+        <label className="field-label">
+          최대 chain depth
+          <input min="1" max="20" type="number" value={autoChainMaxDepth} onChange={(e) => setAutoChainMaxDepth(e.target.value)} />
+        </label>
+        <label className="field-label">
+          24시간 자동 chain run 제한
+          <input min="0" type="number" value={autoChainDailyRunLimit} onChange={(e) => setAutoChainDailyRunLimit(e.target.value)} />
+        </label>
+        <label className="field-label">
+          24시간 자동 chain 비용 제한($, 0=무제한)
+          <input min="0" step="0.0001" type="number" value={autoChainDailyCostDollars} onChange={(e) => setAutoChainDailyCostDollars(e.target.value)} />
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={autoChainDryRun} onChange={(e) => setAutoChainDryRun(e.target.checked)} />
+          dry-run: 감지하되 실행 등록 안 함
+        </label>
+      </div>
       <button className="button secondary" type="button" onClick={() => save.mutate()} disabled={save.isPending}>
         {save.isPending ? '저장 중' : '저장'}
       </button>
@@ -78,6 +104,7 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
 export function SettingsPage() {
   const settings = useSettingsQuery();
   const workspaces = useWorkspacesQuery();
+  const usage30d = useUsageSummaryQuery(30);
   const queryClient = useQueryClient();
   const data = settings.data;
   const [message, setMessage] = useState('');
@@ -147,6 +174,17 @@ export function SettingsPage() {
           <dt>마이그레이션 실패</dt>
           <dd>{data?.migration_fail_count ? `${data.migration_fail_count}건 이력 있음 · 로그/DB 확인 권장` : '없음'}</dd>
         </dl>
+      </article>
+
+      <article className="panel settings-card read-only-note">
+        <div>
+          <h2>사용량 대시보드</h2>
+          <p>런타임이 보고한 token/cost metric 기준입니다. 값이 0이면 CLI가 사용량을 출력하지 않았거나 아직 측정 run이 없는 상태입니다.</p>
+        </div>
+        <div className="settings-grid two">
+          <UsageCard title="최근 7일" usage={data?.usage_7d} />
+          <UsageCard title="최근 30일" usage={usage30d.data} loading={usage30d.isLoading} />
+        </div>
       </article>
 
       {Boolean(data?.migration_failures?.length) && (
@@ -277,6 +315,28 @@ export function SettingsPage() {
           </div>
         </article>
       )}
+    </section>
+  );
+}
+
+
+function UsageCard({ title, usage, loading = false }: { title: string; usage?: { run_count: number; measured_run_count: number; total_tokens: number; total_cost_micros: number; input_tokens: number; output_tokens: number }; loading?: boolean }) {
+  return (
+    <section className="setting-action">
+      <div className="setting-copy">
+        <strong>{title}</strong>
+        <p>{loading ? '집계 중' : `측정 run ${usage?.measured_run_count ?? 0}/${usage?.run_count ?? 0}`}</p>
+      </div>
+      <dl className="detail-list settings-detail-list">
+        <dt>Input</dt>
+        <dd>{formatTokens(usage?.input_tokens)}</dd>
+        <dt>Output</dt>
+        <dd>{formatTokens(usage?.output_tokens)}</dd>
+        <dt>Total</dt>
+        <dd>{formatTokens(usage?.total_tokens)}</dd>
+        <dt>Cost</dt>
+        <dd>{formatCostMicros(usage?.total_cost_micros)}</dd>
+      </dl>
     </section>
   );
 }

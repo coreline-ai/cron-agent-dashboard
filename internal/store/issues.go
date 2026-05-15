@@ -94,7 +94,11 @@ func (s *Store) CreateIssueWithInitialRun(ctx context.Context, workspaceID strin
 	if err != nil {
 		return Issue{}, Run{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,chain_id,chain_depth) VALUES(?,?,?,'queued',?,?,?,?,?,0)`, runID, issueID, agentID, trigger, capSnapshot(in.Body), t, maxAttempts, runID)
+	instructionsVersion, err := agentInstructionsVersionForAgent(ctx, tx, agentID)
+	if err != nil {
+		return Issue{}, Run{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,agent_instructions_version,chain_id,chain_depth) VALUES(?,?,?,'queued',?,?,?,?,?,?,0)`, runID, issueID, agentID, trigger, capSnapshot(in.Body), t, maxAttempts, instructionsVersion, runID)
 	if err != nil {
 		return Issue{}, Run{}, normalizeErr(err)
 	}
@@ -225,7 +229,7 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput)
 	}
 	if assigneeAgentID != "" {
 		var a Agent
-		err := tx.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE id=?`, assigneeAgentID)
+		err := tx.GetContext(ctx, &a, agentSelectBase+` WHERE id=?`, assigneeAgentID)
 		if err != nil {
 			return Issue{}, normalizeErr(err)
 		}
@@ -364,7 +368,11 @@ func (s *Store) RerunIssue(ctx context.Context, issueID, agentID string) (Run, e
 	if err != nil {
 		return Run{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,chain_id,chain_depth) VALUES(?,?,?,'queued','rerun',?,?,?,?,0)`, runID, issueID, agentID, snapshot, t, maxAttempts, runID)
+	instructionsVersion, err := agentInstructionsVersionForAgent(ctx, tx, agentID)
+	if err != nil {
+		return Run{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,agent_instructions_version,chain_id,chain_depth) VALUES(?,?,?,'queued','rerun',?,?,?,?,?,0)`, runID, issueID, agentID, snapshot, t, maxAttempts, instructionsVersion, runID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
@@ -397,6 +405,7 @@ SELECT r.id, r.issue_id, r.agent_id, COALESCE(a.name,'') AS agent_name, r.status
        COALESCE(r.parent_run_id, '') AS parent_run_id,
        COALESCE(r.chain_id, '') AS chain_id,
        COALESCE(r.chain_depth, 0) AS chain_depth,
+       COALESCE(r.agent_instructions_version, 1) AS agent_instructions_version,
        r.enqueued_at, COALESCE(r.claimed_at,'') AS claimed_at, r.claimed_by,
        COALESCE(r.started_at,'') AS started_at, COALESCE(r.heartbeat_at,'') AS heartbeat_at,
        COALESCE(r.finished_at,'') AS finished_at,
@@ -619,22 +628,38 @@ func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Ru
 		return false, nil
 	}
 	var workspace struct {
-		ID               string `db:"id"`
-		AutoChainEnabled bool   `db:"auto_chain_enabled"`
+		ID                       string `db:"id"`
+		AutoChainEnabled         bool   `db:"auto_chain_enabled"`
+		AutoChainMaxDepth        int    `db:"auto_chain_max_depth"`
+		AutoChainDailyRunLimit   int    `db:"auto_chain_daily_run_limit"`
+		AutoChainDailyCostMicros int64  `db:"auto_chain_daily_cost_micros"`
+		AutoChainDryRun          bool   `db:"auto_chain_dry_run"`
 	}
-	if err := tx.GetContext(ctx, &workspace, `SELECT w.id, COALESCE(w.auto_chain_enabled, 0) AS auto_chain_enabled FROM issue i JOIN workspace w ON w.id=i.workspace_id WHERE i.id=?`, run.IssueID); err != nil {
+	if err := tx.GetContext(ctx, &workspace, `SELECT w.id, COALESCE(w.auto_chain_enabled, 0) AS auto_chain_enabled, COALESCE(w.auto_chain_max_depth, 5) AS auto_chain_max_depth, COALESCE(w.auto_chain_daily_run_limit, 20) AS auto_chain_daily_run_limit, COALESCE(w.auto_chain_daily_cost_micros, 0) AS auto_chain_daily_cost_micros, COALESCE(w.auto_chain_dry_run, 0) AS auto_chain_dry_run FROM issue i JOIN workspace w ON w.id=i.workspace_id WHERE i.id=?`, run.IssueID); err != nil {
 		return false, normalizeErr(err)
 	}
 	if !workspace.AutoChainEnabled {
 		return false, nil
 	}
-	if run.ChainDepth >= 5 {
-		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝 깊이 제한(5)에 도달해 추가 실행을 등록하지 않았습니다.", at)
+	maxDepth := normalizeAutoChainMaxDepth(workspace.AutoChainMaxDepth)
+	if run.ChainDepth >= maxDepth {
+		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, fmt.Sprintf("자동 체이닝 깊이 제한(%d)에 도달해 추가 실행을 등록하지 않았습니다.", maxDepth), at)
+		return false, normalizeErr(err)
+	}
+	if workspace.AutoChainDryRun {
+		name := match[1]
+		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝 dry-run: @"+name+" 실행을 큐에 등록하지 않았습니다.", at)
+		return false, normalizeErr(err)
+	}
+	if ok, message, err := s.autoChainWithinDailyGuards(ctx, tx, workspace.ID, workspace.AutoChainDailyRunLimit, workspace.AutoChainDailyCostMicros); err != nil {
+		return false, err
+	} else if !ok {
+		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, message, at)
 		return false, normalizeErr(err)
 	}
 	name := match[1]
 	var agent Agent
-	if err := tx.GetContext(ctx, &agent, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, workspace.ID, name); err != nil {
+	if err := tx.GetContext(ctx, &agent, agentSelectBase+` WHERE workspace_id=? AND lower(name)=lower(?)`, workspace.ID, name); err != nil {
 		_, insertErr := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝 대상 @"+name+"을 찾을 수 없습니다.", at)
 		return false, normalizeErr(insertErr)
 	}
@@ -664,9 +689,13 @@ func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Ru
 	if err != nil {
 		return false, err
 	}
+	instructionsVersion := agent.InstructionsVersion
+	if instructionsVersion <= 0 {
+		instructionsVersion = 1
+	}
 	nextRunID := newID()
 	depth := run.ChainDepth + 1
-	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts,parent_run_id,chain_id,chain_depth) VALUES(?,?,?,'queued','mention',?,?,?,?,?,?,?)`, nextRunID, run.IssueID, agent.ID, commentID, capSnapshot(content), at, maxAttempts, run.ID, chainID, depth); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts,agent_instructions_version,parent_run_id,chain_id,chain_depth) VALUES(?,?,?,'queued','mention',?,?,?,?,?,?,?,?)`, nextRunID, run.IssueID, agent.ID, commentID, capSnapshot(content), at, maxAttempts, instructionsVersion, run.ID, chainID, depth); err != nil {
 		return false, normalizeErr(err)
 	}
 	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
@@ -687,6 +716,29 @@ func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Ru
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝으로 @"+agent.Name+" 실행을 큐에 등록했습니다.", at)
 	return err == nil, normalizeErr(err)
+}
+
+func (s *Store) autoChainWithinDailyGuards(ctx context.Context, tx *sqlx.Tx, workspaceID string, runLimit int, costLimitMicros int64) (bool, string, error) {
+	since := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339Nano)
+	if runLimit > 0 {
+		var count int
+		if err := tx.GetContext(ctx, &count, `SELECT COUNT(*) FROM run r JOIN issue i ON i.id=r.issue_id WHERE i.workspace_id=? AND r.chain_depth > 0 AND r.enqueued_at >= ?`, workspaceID, since); err != nil {
+			return false, "", normalizeErr(err)
+		}
+		if count >= runLimit {
+			return false, fmt.Sprintf("자동 체이닝 24시간 실행 제한(%d)에 도달해 추가 실행을 등록하지 않았습니다.", runLimit), nil
+		}
+	}
+	if costLimitMicros > 0 {
+		var cost int64
+		if err := tx.GetContext(ctx, &cost, `SELECT COALESCE(SUM(r.total_cost_micros),0) FROM run r JOIN issue i ON i.id=r.issue_id WHERE i.workspace_id=? AND COALESCE(r.finished_at, r.enqueued_at) >= ?`, workspaceID, since); err != nil {
+			return false, "", normalizeErr(err)
+		}
+		if cost >= costLimitMicros {
+			return false, fmt.Sprintf("자동 체이닝 24시간 비용 제한($%.4f)에 도달해 추가 실행을 등록하지 않았습니다.", float64(costLimitMicros)/1_000_000), nil
+		}
+	}
+	return true, "", nil
 }
 
 func (s *Store) recoverRunStdoutPath(ctx context.Context, runID, stdoutPath string) {
@@ -844,6 +896,7 @@ func (s *Store) ListRunningProcessGroups(ctx context.Context) ([]RunningProcessG
 	var groups []RunningProcessGroup
 	if err := s.db.SelectContext(ctx, &groups, `
 SELECT process_pgid,
+       COALESCE(MIN(NULLIF(process_pid, 0)), 0) AS process_pid,
        COALESCE(MAX(process_recorded_at), '') AS process_recorded_at,
        COUNT(*) AS run_count
 FROM run

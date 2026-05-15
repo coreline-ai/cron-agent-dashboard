@@ -188,6 +188,80 @@ func TestAgentModelIsUserSelectable(t *testing.T) {
 	}
 }
 
+func TestAgentInstructionVersionHistoryAndRunSnapshot(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "Instruction Audit",
+		Slug:             "instruction-audit",
+		IdentifierPrefix: "AUD",
+		MainAgent:        CreateAgentInput{Name: "Main", Runtime: "codex", Instructions: "lead v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if main.InstructionsVersion != 1 {
+		t.Fatalf("main instructions version=%d, want 1", main.InstructionsVersion)
+	}
+	mainVersions, err := st.ListAgentInstructionVersions(ctx, main.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mainVersions) != 1 || mainVersions[0].Version != 1 || mainVersions[0].Instructions != "lead v1" {
+		t.Fatalf("bad main history: %#v", mainVersions)
+	}
+
+	agent, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write v1", Summary: "writer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.InstructionsVersion != 1 {
+		t.Fatalf("agent version=%d, want 1", agent.InstructionsVersion)
+	}
+
+	sameInstructions, err := st.UpdateAgent(ctx, agent.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write v1", Summary: "writer updated"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameInstructions.InstructionsVersion != 1 {
+		t.Fatalf("version should not change when instructions are unchanged: %#v", sameInstructions)
+	}
+
+	updated, err := st.UpdateAgent(ctx, agent.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write v2", Summary: "writer updated"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.InstructionsVersion != 2 {
+		t.Fatalf("updated version=%d, want 2", updated.InstructionsVersion)
+	}
+	versions, err := st.ListAgentInstructionVersions(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 || versions[0].Version != 2 || versions[0].Instructions != "write v2" || versions[1].Version != 1 {
+		t.Fatalf("bad instruction history: %#v", versions)
+	}
+
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "audit", AssigneeAgentID: agent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.AgentInstructionsVersion != 2 {
+		t.Fatalf("run instruction snapshot=%d, want 2", run.AgentInstructionsVersion)
+	}
+
+	if _, err := st.UpdateAgent(ctx, agent.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write v3"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.AgentInstructionsVersion != 2 {
+		t.Fatalf("existing run snapshot changed to %d, want 2", snapshot.AgentInstructionsVersion)
+	}
+}
+
 func TestWorkspaceAndAgentResourceControlsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
@@ -798,5 +872,81 @@ func TestAutoChainDisabledByDefault(t *testing.T) {
 	}
 	if len(runs) != 1 {
 		t.Fatalf("auto-chain should be disabled by default, runs=%#v", runs)
+	}
+}
+
+func TestAutoChainGuardsDryRunAndDailyRunLimit(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:                   "Guarded Chain",
+		Slug:                   "guarded-chain",
+		IdentifierPrefix:       "GRD",
+		AutoChainEnabled:       true,
+		AutoChainDryRun:        true,
+		AutoChainDailyRunLimit: intPtr(1),
+		MainAgent:              CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write"}); err != nil {
+		t.Fatal(err)
+	}
+	issue, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "dry-run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRun(ctx, run.ID, 0, "", "@Writer draft", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := st.ListRuns(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("dry-run should not enqueue a chained run: %#v", runs)
+	}
+	comments, err := st.ListComments(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) == 0 || !strings.Contains(comments[len(comments)-1].Content, "dry-run") {
+		t.Fatalf("dry-run system comment missing: %#v", comments)
+	}
+
+	dryRunOff := false
+	if _, err := st.UpdateWorkspace(ctx, ws.ID, UpdateWorkspaceInput{Name: ws.Name, Description: ws.Description, WorkingDir: ws.WorkingDir, OutputDir: ws.OutputDir, AutoChainDryRun: &dryRunOff}); err != nil {
+		t.Fatal(err)
+	}
+	issue2, run2, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "limit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim issue2 ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRun(ctx, run2.ID, 0, "", "@Writer first", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if runs, err = st.ListRuns(ctx, issue2.ID); err != nil || len(runs) != 2 {
+		t.Fatalf("first chain should enqueue one run runs=%#v err=%v", runs, err)
+	}
+
+	issue3, run3, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "limit exceeded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim issue3 ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRun(ctx, run3.ID, 0, "", "@Writer second", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if runs, err = st.ListRuns(ctx, issue3.ID); err != nil || len(runs) != 1 {
+		t.Fatalf("daily limit should block second chained run runs=%#v err=%v", runs, err)
 	}
 }

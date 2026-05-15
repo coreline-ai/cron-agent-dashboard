@@ -324,6 +324,8 @@ v0.1 릴리스 시점(2026-05-14)에 10차 리뷰를 마쳤다. 리뷰 사이클
 
 ### 5.4 Agent instructions 버전 관리
 
+**상태**: 완료 (`0014_agent_instruction_history.sql`, `GET /api/agents/:id/instructions`, Agent Detail version history UI).
+
 **조건**: 사용자가 한 달 이상 동일 agent instructions 자주 수정 + *"왜 이 run이 이렇게 답했지"* 추적 요청 시.
 
 **범위**: `agent_instructions_history` 테이블 + run에 version snapshot

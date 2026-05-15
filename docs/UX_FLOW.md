@@ -467,12 +467,13 @@
 
 ### 4.4 체이닝 정책 표시
 
-현재 UX는 **explicit-only**를 전제로 한다.
+현재 UX는 **explicit-first + workspace opt-in auto-chain**을 전제로 한다.
 
-- 댓글 입력에서 사용자가 직접 작성한 `@AgentName` 명시 멘션만 새 run을 만든다.
-- agent 결과 댓글 안의 `@AgentName`은 markdown 텍스트로만 표시되고 자동 dispatch하지 않는다.
-- 이유: 무한 루프, 비용 폭주, hallucinated mention 실행 방지.
-- Auto-chain은 Phase 2+ opt-in 후보이며 현재 화면 기능이 아니다. 구현 시 기본값은 off, 최대 depth 5, 같은 chain 내 동일 agent 재호출 차단, failed/cancelled 후 chain 중단을 UI copy와 설정에 반영해야 한다.
+- 댓글 입력에서 사용자가 직접 작성한 `@AgentName` 명시 멘션은 새 run을 만든다.
+- agent 결과 댓글 안의 `@AgentName`은 기본적으로 텍스트로만 표시된다.
+- `/settings`에서 workspace `agent 결과 @mention 자동 체이닝 허용`을 켠 경우에만 depth/run/cost/dry-run guard를 통과해 자동 dispatch된다.
+- 이유: 무한 루프, 비용 폭주, hallucinated mention 실행을 기본 차단하고 필요한 workspace에서만 명시적으로 허용하기 위해서다.
+- 자동 dispatch/skip 결과는 system comment와 run event timeline에 남긴다.
 
 ---
 

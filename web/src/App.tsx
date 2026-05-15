@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { ToastProvider } from './components/ToastProvider';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { AgentDetailPage } from './pages/AgentDetailPage';
@@ -12,7 +13,8 @@ import { SettingsPage } from './pages/SettingsPage';
 export function App() {
   return (
     <ToastProvider>
-      <Routes>
+      <AppErrorBoundary>
+        <Routes>
         <Route element={<DashboardLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/w/:slug/board" element={<BoardPage />} />
@@ -23,7 +25,8 @@ export function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </Routes>
+      </AppErrorBoundary>
     </ToastProvider>
   );
 }

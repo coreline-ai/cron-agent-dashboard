@@ -81,6 +81,12 @@ func TestRunStartupSelfCheckTerminatesTrackedProcessGroupsBeforeRecovery(t *test
 	var killed []int
 	report, err := RunStartupSelfCheckWithOptions(ctx, st, StartupSelfCheckOptions{
 		ProcessGroupKillGrace: time.Millisecond,
+		ProcessProbe: ProcessProbeFunc(func(ctx context.Context, pid int) ProcessProbeResult {
+			if pid != 9876 {
+				t.Fatalf("probed pid=%d, want 9876", pid)
+			}
+			return ProcessProbeResult{Checked: true, Alive: true, Exe: "/tmp/fake-runner"}
+		}),
 		TerminateProcessGroup: func(pgid int, grace time.Duration) error {
 			killed = append(killed, pgid)
 			return nil
@@ -101,6 +107,53 @@ func TestRunStartupSelfCheckTerminatesTrackedProcessGroupsBeforeRecovery(t *test
 	}
 	if recovered.Status != "cancelled" || recovered.TerminalReason != store.TerminalReasonOrphanRecovered {
 		t.Fatalf("run should be orphan-recovered after cleanup: %#v", recovered)
+	}
+}
+
+func TestRunStartupSelfCheckSkipsDeadRecordedProcess(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Dead Process Metadata",
+		Slug:             "dead-process-metadata",
+		IdentifierPrefix: "PROC",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "fake", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "cleanup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	if err := st.MarkRunProcess(ctx, run.ID, 6543, 6543); err != nil {
+		t.Fatalf("mark process: %v", err)
+	}
+
+	var killed []int
+	report, err := RunStartupSelfCheckWithOptions(ctx, st, StartupSelfCheckOptions{
+		ProcessProbe: ProcessProbeFunc(func(ctx context.Context, pid int) ProcessProbeResult {
+			if pid != 6543 {
+				t.Fatalf("probed pid=%d, want 6543", pid)
+			}
+			return ProcessProbeResult{Checked: true, Alive: false}
+		}),
+		TerminateProcessGroup: func(pgid int, grace time.Duration) error {
+			killed = append(killed, pgid)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(killed) != 0 {
+		t.Fatalf("dead process metadata should not be killed, got %#v", killed)
+	}
+	if report.OrphanProcessGroupsTerminated != 0 || report.OrphanProcessGroupsSkipped != 1 || report.OrphanRunsRecovered != 1 {
+		t.Fatalf("unexpected report: %#v", report)
 	}
 }
 

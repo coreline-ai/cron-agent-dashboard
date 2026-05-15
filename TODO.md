@@ -60,3 +60,4 @@ Corn Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 
 - [x] Startup orphan process cleanup safety guard: `process_recorded_at` freshness check + process metadata retry
 
 - [x] Multi-agent resource controls foundation: token/cost metrics capture, timeout resolve, transient retry, Unicode mention regex
+- [x] Agent instructions version history: instructions 변경 이력 + run snapshot + Agent 상세 UI

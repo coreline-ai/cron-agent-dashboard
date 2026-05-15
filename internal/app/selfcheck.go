@@ -44,6 +44,7 @@ type StartupSelfCheckOptions struct {
 	ProcessGroupKillGrace time.Duration
 	ProcessGroupMaxAge    time.Duration
 	TerminateProcessGroup func(pgid int, grace time.Duration) error
+	ProcessProbe          ProcessProbe
 	Log                   *slog.Logger
 }
 
@@ -143,6 +144,10 @@ func terminateTrackedProcessGroups(ctx context.Context, st *store.Store, opts St
 	if log == nil {
 		log = slog.Default()
 	}
+	probe := opts.ProcessProbe
+	if probe == nil {
+		probe = GopsutilProcessProbe{}
+	}
 	var count int
 	var skipped int
 	now := time.Now().UTC()
@@ -151,6 +156,17 @@ func terminateTrackedProcessGroups(ctx context.Context, st *store.Store, opts St
 			skipped++
 			log.Warn("skip tracked process group termination due to stale or invalid process metadata", "pgid", group.PGID, "recorded_at", group.RecordedAt, "max_age", maxAge.String())
 			continue
+		}
+		if group.PID > 0 {
+			probed := probe.ProbeProcess(ctx, group.PID)
+			if probed.Checked && !probed.Alive {
+				skipped++
+				log.Warn("skip tracked process group termination because recorded process is not alive", "pid", group.PID, "pgid", group.PGID, "recorded_at", group.RecordedAt)
+				continue
+			}
+			if probed.Checked && probed.Alive && strings.TrimSpace(probed.Exe) != "" {
+				log.Info("tracked process probe confirmed live process", "pid", group.PID, "pgid", group.PGID, "exe", probed.Exe)
+			}
 		}
 		if err := terminate(group.PGID, grace); err != nil {
 			log.Warn("terminate tracked process group failed", "pgid", group.PGID, "recorded_at", group.RecordedAt, "error", err)

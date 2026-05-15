@@ -91,8 +91,13 @@ func shouldRetryRunWithPolicy(failureKind string, attempt, maxAttempts int, poli
 	if attempt >= maxAttempts || maxAttempts <= 1 {
 		return false
 	}
-	if len(policy.RetryOn) == 0 {
+	// Omitted retry_on means use the built-in safe defaults. An explicit empty
+	// array means the user intentionally disabled automatic retries.
+	if policy.RetryOn == nil {
 		return isRetryableFailureKind(failureKind)
+	}
+	if len(policy.RetryOn) == 0 {
+		return false
 	}
 	for _, kind := range policy.RetryOn {
 		if kind == failureKind {

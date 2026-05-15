@@ -99,17 +99,31 @@ func (e *RuntimeExecutor) Execute(ctx context.Context, run worker.ExecutionConte
 		Adapter:        adapter,
 		LogDir:         e.LogDir,
 		Timeout:        timeout,
+		OnStart:        e.prepareRunStart,
 		OnProcessStart: e.recordProcessStart,
 	}
 	result := executor.Execute(ctx, run)
 	if parser, ok := adapter.(workerruntime.MetricsParser); ok {
-		stdout := ""
-		if data, err := os.ReadFile(result.StdoutPath); err == nil {
-			stdout = string(data)
-		}
-		result.Metrics = parser.ParseMetrics(stdout, result.StderrTail)
+		// Treat agent stdout as untrusted user-controlled content. Runtime usage
+		// metrics are parsed only from stderr/side-channel output until adapters
+		// provide a dedicated structured metrics stream.
+		result.Metrics = parser.ParseMetrics("", result.StderrTail)
 	}
 	return result
+}
+
+func (e *RuntimeExecutor) prepareRunStart(ctx context.Context, run worker.ExecutionContext, stdoutPath string) error {
+	if err := e.linkRunLog(ctx, run, stdoutPath); err != nil {
+		e.logger().Warn("link run log into workspace failed", "run_id", run.RunID, "stdout_path", stdoutPath, "error", err)
+	}
+	return nil
+}
+
+func (e *RuntimeExecutor) logger() *slog.Logger {
+	if e != nil && e.Log != nil {
+		return e.Log
+	}
+	return slog.Default()
 }
 
 func (e *RuntimeExecutor) linkRunLog(ctx context.Context, run worker.ExecutionContext, stdoutPath string) error {

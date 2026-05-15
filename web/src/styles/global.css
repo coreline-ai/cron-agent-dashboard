@@ -868,6 +868,23 @@ textarea {
   color: var(--destructive) !important;
 }
 
+
+.app-error-shell {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  background: radial-gradient(circle at top, color-mix(in oklab, var(--destructive) 12%, transparent), transparent 34%), var(--background);
+  padding: 1rem;
+}
+
+.app-error-card {
+  width: min(34rem, 100%);
+}
+
+.app-error-card .inline-actions {
+  margin-top: 0.75rem;
+}
+
 .mutation-error-alert {
   display: grid;
   gap: 0.35rem;
@@ -2376,6 +2393,48 @@ button.quick-action {
   gap: 0.35rem;
 }
 
+.issue-flow-graph {
+  height: 24rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--muted) 22%, var(--card));
+}
+
+.issue-flow-graph .react-flow__node {
+  max-width: 11rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow-card);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: center;
+  white-space: pre-line;
+}
+
+.issue-flow-graph .flow-node-issue {
+  border-color: color-mix(in oklab, var(--brand) 42%, var(--border));
+  background: color-mix(in oklab, var(--brand) 12%, var(--card));
+}
+
+.issue-flow-graph .flow-node-run-running,
+.issue-flow-graph .flow-node-run-queued {
+  border-color: color-mix(in oklab, var(--warning) 42%, var(--border));
+}
+
+.issue-flow-graph .flow-node-run-failed,
+.issue-flow-graph .flow-node-issue-cancelled {
+  border-color: color-mix(in oklab, var(--destructive) 42%, var(--border));
+}
+
+.issue-flow-graph .flow-node-run-done,
+.issue-flow-graph .flow-node-issue-done {
+  border-color: color-mix(in oklab, var(--success) 42%, var(--border));
+}
+
 .subissue-list {
   display: grid;
   gap: 0.55rem;
@@ -2403,4 +2462,51 @@ button.quick-action {
 
 .subissue-form {
   margin-top: 0.85rem;
+}
+
+.instruction-history-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.instruction-history-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.instruction-history-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--muted) 28%, transparent);
+  padding: 0.75rem;
+}
+
+.instruction-history-card summary {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+}
+
+.instruction-history-card summary strong {
+  color: var(--foreground);
+  font-size: 0.9rem;
+}
+
+.instruction-history-card pre {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0.65rem 0 0;
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--background) 78%, black 6%);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

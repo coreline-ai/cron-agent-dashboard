@@ -64,6 +64,7 @@ CREATE TABLE agent (
   runtime       TEXT NOT NULL,                     -- "codex" | "claude" | "gemini"
   model         TEXT NOT NULL DEFAULT '',          -- 빈 문자열이면 runtime 기본 모델
   instructions  TEXT NOT NULL DEFAULT '',          -- 시스템 프롬프트
+  instructions_version INTEGER NOT NULL DEFAULT 1 CHECK (instructions_version >= 1),
   is_main       INTEGER NOT NULL DEFAULT 0 CHECK (is_main IN (0, 1)),
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -84,8 +85,30 @@ CREATE UNIQUE INDEX idx_agent_main_unique
 - `name`: 영숫자 + 한글 + 하이픈/언더스코어. `@AgentName` 멘션에 사용.
 - 멘션 매칭은 `lower(name)` 기준 → `Writer`와 `writer`는 같은 에이전트로 취급. 두 행이 동시에 존재할 수 없음.
 - `runtime`: 부팅 시 PATH 스캔으로 가용 목록 확인. 가용하지 않으면 UI에서 경고.
+- `instructions_version`: instructions가 변경될 때만 증가한다. run은 생성 시점의 version을 snapshot해 재현성/감사성을 유지한다.
 - 워크스페이스 생성 시 메인 에이전트도 같이 트랜잭션 INSERT (`is_main=1`)
 - 메인 에이전트 삭제는 다른 에이전트를 메인으로 승격해야 가능 (애플리케이션 레벨 체크)
+
+### 2.2.1 agent_instruction_version
+```sql
+CREATE TABLE agent_instruction_version (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  instructions TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE(agent_id, version)
+);
+
+CREATE INDEX idx_agent_instruction_version_agent
+  ON agent_instruction_version(agent_id, version DESC);
+```
+
+**제약 / 규칙**:
+- 에이전트 생성 시 v1을 기록한다.
+- `PUT /api/agents/:id`에서 instructions 본문이 달라질 때만 새 version을 추가한다.
+- 이름/모델/태그/timeout/retry 정책만 바뀌면 instructions version은 유지한다.
+- run에는 `agent_instructions_version`만 snapshot한다. 과거 전문은 `agent_instruction_version`에서 조회한다.
 
 ### 2.3 issue
 ```sql
@@ -166,7 +189,7 @@ CREATE INDEX idx_comment_run           ON comment(run_id);
 - `content`: markdown. 클라이언트에서 렌더링.
 - `truncated`: 에이전트 결과 댓글이 64KB cap으로 축약됐는지 나타내는 명시 필드. 사용자 댓글 본문 문자열로 추정하지 않는다.
 - 멘션은 `@AgentName` 형태로 본문에 포함됨 (별도 컬럼 없음, 백엔드가 정규식 파싱).
-- 멘션 파싱: `/@([A-Za-z0-9_\-가-힣]+)/g`, 첫 매칭만 사용. 매칭은 `lower(name)` 비교.
+- 멘션 파싱: `/@([\p{L}\p{N}_\-]+)/g`, 첫 매칭만 사용. 매칭은 `lower(name)` 비교.
 
 ### 2.5 run (Durable Queue의 단위)
 ```sql
@@ -174,6 +197,7 @@ CREATE TABLE run (
   id             TEXT PRIMARY KEY,                 -- UUID
   issue_id       TEXT NOT NULL REFERENCES issue(id) ON DELETE CASCADE,
   agent_id       TEXT NOT NULL REFERENCES agent(id) ON DELETE RESTRICT,
+  agent_instructions_version INTEGER NOT NULL DEFAULT 1 CHECK (agent_instructions_version >= 1),
   status         TEXT NOT NULL DEFAULT 'queued'
                  CHECK (status IN ('queued','running','done','failed','cancelled')),
   -- 트리거 정보 (어떤 사용 흐름이 이 run을 만들었는지)
@@ -224,11 +248,12 @@ CREATE INDEX idx_run_trigger_comment
 **제약 / 규칙**:
 - `agent_id`: ON DELETE RESTRICT — 실행 이력은 에이전트 삭제 차단
   - 운영 정책: 에이전트 삭제 시 사용자에게 "관련 run이 N개 있습니다" 확인
+- `agent_instructions_version`: run enqueue 시점의 `agent.instructions_version` snapshot. 이후 instructions가 바뀌어도 기존 run의 재현 기준은 바뀌지 않는다.
 - `stdout_path`: 백엔드 내부 경로. **API 응답에는 노출하지 않음**. 대신 `GET /api/runs/:id/log` 다운로드 URL만 제공.
 - 단일 run 최대 10MB (executor가 cap). cap 도달 후에도 stdout pipe는 io.Discard로 계속 drain (child process pipe blocking 방지).
 - `trigger_type='mention'` 이면 `trigger_comment_id` 채움. 그 외는 NULL 허용.
-- 현재 체이닝 정책은 **explicit-only**다. `mention`은 사용자 댓글의 `@AgentName` 명시 멘션만 의미하며, agent 결과 댓글의 mention은 자동 dispatch하지 않는다.
-- 현재 `run` 테이블에는 `chain_id`, `parent_run_id`, `chain_depth` 컬럼이 없다. 이 컬럼들은 auto-chain opt-in 후보 schema이며 미구현이다.
+- 기본 체이닝 정책은 **explicit-first**다. 사용자 댓글의 `@AgentName` 명시 멘션은 dispatch되고, agent 결과 댓글의 mention은 workspace `auto_chain_enabled=true`일 때만 guard를 통과해 dispatch된다.
+- `chain_id`, `parent_run_id`, `chain_depth`는 auto-chain lineage 추적 필드다. root run은 `chain_depth=0`, auto-chain run은 parent+1이다.
 - `trigger_comment_id`가 `status IN ('queued','running')` run에 연결된 동안 해당 댓글 사용자 삭제 차단 (409).
 - **Worker claim 쿼리** (durable queue + 워크스페이스 직렬화):
   ```sql
@@ -576,7 +601,10 @@ internal/db/migrations/
 ├── 0008_process_tracking.sql
 ├── 0009_process_tracking_safety.sql
 ├── 0010_autopilot_snooze.sql
-└── 0011_run_resource_controls.sql
+├── 0011_run_resource_controls.sql
+├── 0012_phase2_collaboration.sql
+├── 0013_auto_chain_guards.sql
+└── 0014_agent_instruction_history.sql
 ```
 
 이후 변경은 `0003_*.sql` 등으로 누적. forward-only.
@@ -680,7 +708,7 @@ CREATE TABLE run_event (
 
 ### 7.4 run resource control 필드
 
-`run`은 CLI가 제공하는 경우 `input_tokens`, `output_tokens`, `total_cost_micros`, `model_resolved`를 저장한다. 값이 0이면 CLI가 metrics를 제공하지 않았거나 parser가 인식하지 못한 상태다.
+`run`은 CLI가 stderr/structured metrics stream으로 제공하는 경우 `input_tokens`, `output_tokens`, `total_cost_micros`, `model_resolved`를 저장한다. agent stdout은 신뢰하지 않으며, 값이 0이면 CLI가 metrics를 제공하지 않았거나 parser가 인식하지 못한 상태다.
 
 `attempt`, `max_attempts`, `next_retry_at`은 transient retry를 위한 필드다. retry 대상은 timeout/executor_error로 제한하며, exit_nonzero/worker_panic은 자동 재시도하지 않는다.
 
@@ -688,53 +716,49 @@ CREATE TABLE run_event (
 
 ---
 
-## 11. Auto-chain opt-in 후보 데이터 모델 (미구현)
+## 11. Auto-chain opt-in 데이터 모델 (구현됨)
 
-현재 제품은 **사용자 댓글의 명시 멘션만 dispatch**한다. agent 결과 댓글 안의 `@AgentName`은 자동 실행하지 않는다.
+Auto-chain은 workspace 단위 opt-in 기능이다. 기본값은 OFF이며, agent 결과 댓글 안의 첫 `@AgentName`이 guard를 통과하면 새 run으로 dispatch된다.
 
-Auto-chain을 Phase 2+에서 opt-in으로 구현하기로 결정할 경우의 후보 schema는 아래와 같다. 이 섹션은 설계 초안이며 현재 마이그레이션이 아니다.
-
-### 11.1 run lineage 후보
+### 11.1 run lineage
 
 ```sql
 ALTER TABLE run ADD COLUMN chain_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE run ADD COLUMN parent_run_id TEXT REFERENCES run(id) ON DELETE SET NULL;
-ALTER TABLE run ADD COLUMN chain_depth INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE run ADD COLUMN chain_depth INTEGER NOT NULL DEFAULT 0 CHECK (chain_depth >= 0 AND chain_depth <= 20);
 
 CREATE INDEX idx_run_chain ON run(chain_id, chain_depth, enqueued_at);
 CREATE INDEX idx_run_parent ON run(parent_run_id);
 ```
 
-| 후보 컬럼 | 의미 |
+| 컬럼 | 의미 |
 |---|---|
-| `chain_id` | 같은 자동 chain에 속한 run 묶음. root run id 또는 별도 UUID 후보 |
+| `chain_id` | 같은 자동 chain에 속한 run 묶음. root run id를 사용 |
 | `parent_run_id` | agent 결과 comment를 만든 source run |
-| `chain_depth` | root explicit run은 0, auto-chain으로 만든 run은 parent + 1 |
+| `chain_depth` | root explicit run은 0, auto-chain run은 parent + 1 |
 
-### 11.2 opt-in 설정 후보
-
-workspace 단위:
+### 11.2 workspace opt-in / guard
 
 ```sql
 ALTER TABLE workspace ADD COLUMN auto_chain_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auto_chain_enabled IN (0,1));
 ALTER TABLE workspace ADD COLUMN auto_chain_max_depth INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE workspace ADD COLUMN auto_chain_daily_run_limit INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE workspace ADD COLUMN auto_chain_daily_cost_micros INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workspace ADD COLUMN auto_chain_dry_run INTEGER NOT NULL DEFAULT 0 CHECK (auto_chain_dry_run IN (0,1));
 ```
 
-issue 단위:
+- `auto_chain_enabled=false`면 agent 결과 mention은 텍스트로만 저장한다.
+- `auto_chain_max_depth`는 최대 chain depth다.
+- `auto_chain_daily_run_limit=0`이면 run 수 제한을 끈다. 생성 API에서 필드 생략은 기본 20, 명시 0은 제한 없음으로 구분한다.
+- `auto_chain_daily_cost_micros=0`이면 비용 제한을 끈다.
+- `auto_chain_dry_run=true`면 mention 감지와 system comment만 남기고 enqueue 하지 않는다.
 
-```sql
-ALTER TABLE issue ADD COLUMN auto_chain_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auto_chain_enabled IN (0,1));
-```
+### 11.3 제약
 
-둘 중 하나를 선택해야 하며, 기본값은 반드시 off다.
-
-### 11.3 후보 제약
-
-- max depth 기본값은 5를 권장한다.
-- 같은 `chain_id` 안에서 동일 agent 재호출은 차단하는 것을 권장한다.
-- source run이 `failed` 또는 `cancelled`이면 chain을 중단하는 것을 권장한다.
-- 후보 `trigger_type`은 `agent_mention` 또는 `auto_mention` 중 하나를 선택한다. 현재 enum에는 둘 다 없다.
-- agent 결과에 여러 mention이 있으면 첫 번째만 실행하거나 별도 설정을 둔다.
+- source run이 `done`일 때만 체이닝한다.
+- 같은 `chain_id` 안에서 동일 agent 재호출은 차단한다.
+- agent 결과에 여러 mention이 있으면 첫 번째만 실행한다.
+- 기존 `run.trigger_type` enum 호환을 위해 auto-chain도 `mention`을 사용하고 lineage 필드와 `run_event.details.auto_chain=true`로 구분한다.
 
 
 ### 2.8 schema_migration_failures (메타)
@@ -794,3 +818,15 @@ Agent retry policy는 다음 optional field를 지원한다.
 ```
 
 잘못된 JSON, `max_attempts` 범위(1~5) 초과, backoff 초 범위(1~3600) 초과, 허용되지 않은 `retry_on` 값은 validation error다.
+
+
+## Phase 2+ guard fields
+
+`workspace` includes auto-chain guard fields:
+
+- `auto_chain_max_depth INTEGER DEFAULT 5` — max depth before system-comment skip
+- `auto_chain_daily_run_limit INTEGER DEFAULT 20` — `0` disables run count limit
+- `auto_chain_daily_cost_micros INTEGER DEFAULT 0` — `0` disables cost limit
+- `auto_chain_dry_run INTEGER DEFAULT 0` — detect mention without enqueue
+
+These fields are local safety controls. They do not change manual user mentions.

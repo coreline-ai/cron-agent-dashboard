@@ -565,3 +565,88 @@ func TestRuntimeCompatibilityWarning(t *testing.T) {
 		t.Fatal("non-empty version should not warn without a known minimum version")
 	}
 }
+
+func TestHTTPAPIUsageSummary(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	ctx := t.Context()
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{Name: "Usage", Slug: "usage", IdentifierPrefix: "USG", MainAgent: store.CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "usage"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRunWithReason(ctx, run.ID, store.FinishRunInput{ExitCode: 0, Content: "done", InputTokens: 100, OutputTokens: 50, TotalCostMicros: 1234, TerminalReason: store.TerminalReasonCompleted}); err != nil {
+		t.Fatal(err)
+	}
+
+	res := do(t, h, http.MethodGet, "/api/usage/summary?days=30", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("usage status=%d body=%s", res.Code, res.Body.String())
+	}
+	var got struct {
+		Days  int                   `json:"days"`
+		Usage store.RunUsageSummary `json:"usage"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Days != 30 || got.Usage.TotalTokens != 150 || got.Usage.TotalCostMicros != 1234 || got.Usage.MeasuredRunCount != 1 {
+		t.Fatalf("bad usage response: %#v", got)
+	}
+
+	res = do(t, h, http.MethodGet, "/api/usage/summary?days=0", "")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("bad days should be rejected, status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestHTTPAPIAgentInstructionVersions(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	ctx := t.Context()
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{Name: "Audit", Slug: "audit", IdentifierPrefix: "AUD", MainAgent: store.CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := st.UpdateAgent(ctx, main.ID, store.CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.WorkspaceID != ws.ID {
+		t.Fatalf("bad update: %#v", updated)
+	}
+
+	res := do(t, h, http.MethodGet, "/api/agents/"+main.ID+"/instructions", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list instructions status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Versions []store.AgentInstructionVersion `json:"versions"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Versions) != 2 || payload.Versions[0].Version != 2 || payload.Versions[0].Instructions != "lead v2" {
+		t.Fatalf("bad versions payload: %#v", payload.Versions)
+	}
+}

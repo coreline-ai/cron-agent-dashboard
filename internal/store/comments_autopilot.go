@@ -69,7 +69,7 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 			}
 		}
 		var agent Agent
-		err := tx.GetContext(ctx, &agent, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, iss.WorkspaceID, name)
+		err := tx.GetContext(ctx, &agent, agentSelectBase+` WHERE workspace_id=? AND lower(name)=lower(?)`, iss.WorkspaceID, name)
 		if err != nil {
 			warnings = append(warnings, "@"+name+" not found")
 			if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), issueID, "에이전트 @"+name+"을 찾을 수 없습니다", t); err != nil {
@@ -88,7 +88,11 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 				if err != nil {
 					return AddCommentResult{}, err
 				}
-				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts,chain_id,chain_depth) VALUES(?,?,?,'queued','mention',?,?,?,?,?,0)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t, maxAttempts, runID); err != nil {
+				instructionsVersion := agent.InstructionsVersion
+				if instructionsVersion <= 0 {
+					instructionsVersion = 1
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts,agent_instructions_version,chain_id,chain_depth) VALUES(?,?,?,'queued','mention',?,?,?,?,?,?,0)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t, maxAttempts, instructionsVersion, runID); err != nil {
 					return AddCommentResult{}, normalizeErr(err)
 				}
 				if _, err := appendRunEventTx(ctx, tx, RunEventInput{
@@ -475,7 +479,11 @@ func (s *Store) createAutopilotIssueRunAndRecordSuccess(ctx context.Context, rul
 	if err != nil {
 		return Issue{}, Run{}, AutopilotRule{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,chain_id,chain_depth) VALUES(?,?,?,'queued','autopilot',?,?,?,?,0)`, runID, issueID, agentID, capSnapshot(body), t, maxAttempts, runID); err != nil {
+	instructionsVersion, err := agentInstructionsVersionForAgent(ctx, tx, agentID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,agent_instructions_version,chain_id,chain_depth) VALUES(?,?,?,'queued','autopilot',?,?,?,?,?,0)`, runID, issueID, agentID, capSnapshot(body), t, maxAttempts, instructionsVersion, runID); err != nil {
 		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE autopilot_rule

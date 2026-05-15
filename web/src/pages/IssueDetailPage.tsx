@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, Suspense, lazy, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -22,6 +22,8 @@ import {
 } from '../lib/runLabels';
 
 type ConfirmAction = 'rerun' | 'cancelRun' | 'markDone' | 'cancelIssue' | 'reopen';
+
+const IssueFlowGraph = lazy(() => import('../components/IssueFlowGraph'));
 
 type CommentResponse = {
   comment: Comment;
@@ -191,6 +193,16 @@ export function IssueDetailPage() {
             <MarkdownText value={issue.data?.body || '(본문 없음)'} />
           </article>
 
+          {issue.data ? (
+            <article className="panel">
+              <div className="section-heading compact">
+                <h2>흐름 그래프</h2>
+                <span className="badge">lineage</span>
+              </div>
+              <Suspense fallback={<p className="muted-copy">그래프를 불러오는 중입니다.</p>}><IssueFlowGraph issue={issue.data} subIssues={subIssues.data ?? []} runs={runList} /></Suspense>
+            </article>
+          ) : null}
+
           <article className="panel">
             <div className="section-heading compact">
               <h2>하위 이슈</h2>
@@ -327,6 +339,7 @@ function RunHistoryCard({ run }: { run: Run }) {
         {run.input_tokens || run.output_tokens ? <span>토큰 {formatTokens((run.input_tokens ?? 0) + (run.output_tokens ?? 0))}</span> : null}
         {run.total_cost_micros ? <span>비용 {formatCostMicros(run.total_cost_micros)}</span> : null}
         {run.model_resolved ? <span>모델 {run.model_resolved}</span> : null}
+        {run.agent_instructions_version ? <span>instructions v{run.agent_instructions_version}</span> : null}
         {run.parent_run_id ? <span>parent {run.parent_run_id.slice(0, 8)}</span> : null}
         {run.chain_depth ? <span>chain depth {run.chain_depth}</span> : null}
         {run.max_attempts && run.max_attempts > 1 ? <span>attempt {run.attempt ?? 1}/{run.max_attempts}</span> : null}

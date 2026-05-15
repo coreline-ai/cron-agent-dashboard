@@ -51,7 +51,7 @@ func TestRunProcessTrackingRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 1 || groups[0].PGID != 4321 || groups[0].RecordedAt == "" || groups[0].RunCount != 1 {
+	if len(groups) != 1 || groups[0].PID != 4321 || groups[0].PGID != 4321 || groups[0].RecordedAt == "" || groups[0].RunCount != 1 {
 		t.Fatalf("running groups=%#v, want [4321]", groups)
 	}
 	events, err := st.ListRunEvents(ctx, run.ID)

@@ -71,6 +71,7 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 	r.Group(func(api chi.Router) {
 		api.Use(s.auth)
 		api.Get("/api/settings", s.settings)
+		api.Get("/api/usage/summary", s.usageSummary)
 		api.Post("/api/system/backup", s.backup)
 		api.Post("/api/system/vacuum", s.vacuum)
 		api.Post("/api/system/cleanup-logs", s.cleanupLogs)
@@ -89,6 +90,7 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 		api.Post("/api/workspaces/{workspace}/autopilot", s.createAutopilot)
 
 		api.Get("/api/agents/{id}", s.getAgent)
+		api.Get("/api/agents/{id}/instructions", s.listAgentInstructions)
 		api.Put("/api/agents/{id}", s.updateAgent)
 		api.Post("/api/agents/{id}/promote", s.promoteAgent)
 		api.Delete("/api/agents/{id}", s.deleteAgent)
@@ -197,6 +199,21 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) usageSummary(w http.ResponseWriter, r *http.Request) {
+	days := 7
+	if raw := strings.TrimSpace(r.URL.Query().Get("days")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 || parsed > 365 {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "days must be between 1 and 365", nil)
+			return
+		}
+		days = parsed
+	}
+	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+	usage, err := s.store.RunUsageSummary(r.Context(), since)
+	respond(w, map[string]any{"usage": usage, "days": days}, err, http.StatusOK)
+}
+
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 	xs, err := s.store.ListWorkspaces(r.Context())
 	respond(w, map[string]any{"workspaces": xs}, err, http.StatusOK)
@@ -204,20 +221,24 @@ func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name                  string                 `json:"name"`
-		Slug                  string                 `json:"slug"`
-		Description           string                 `json:"description"`
-		IdentifierPrefix      string                 `json:"identifier_prefix"`
-		WorkingDir            string                 `json:"working_dir"`
-		OutputDir             string                 `json:"output_dir"`
-		DefaultTimeoutSeconds int                    `json:"default_timeout_seconds"`
-		AutoChainEnabled      bool                   `json:"auto_chain_enabled"`
-		MainAgent             store.CreateAgentInput `json:"main_agent"`
+		Name                     string                 `json:"name"`
+		Slug                     string                 `json:"slug"`
+		Description              string                 `json:"description"`
+		IdentifierPrefix         string                 `json:"identifier_prefix"`
+		WorkingDir               string                 `json:"working_dir"`
+		OutputDir                string                 `json:"output_dir"`
+		DefaultTimeoutSeconds    int                    `json:"default_timeout_seconds"`
+		AutoChainEnabled         bool                   `json:"auto_chain_enabled"`
+		AutoChainMaxDepth        int                    `json:"auto_chain_max_depth"`
+		AutoChainDailyRunLimit   *int                   `json:"auto_chain_daily_run_limit"`
+		AutoChainDailyCostMicros int64                  `json:"auto_chain_daily_cost_micros"`
+		AutoChainDryRun          bool                   `json:"auto_chain_dry_run"`
+		MainAgent                store.CreateAgentInput `json:"main_agent"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: req.WorkingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, MainAgent: req.MainAgent})
+	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: req.WorkingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, AutoChainMaxDepth: req.AutoChainMaxDepth, AutoChainDailyRunLimit: req.AutoChainDailyRunLimit, AutoChainDailyCostMicros: req.AutoChainDailyCostMicros, AutoChainDryRun: req.AutoChainDryRun, MainAgent: req.MainAgent})
 	respond(w, map[string]any{"workspace": ws, "main_agent": agent}, err, http.StatusCreated)
 }
 
@@ -266,6 +287,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	a, err := s.store.GetAgent(r.Context(), chi.URLParam(r, "id"))
 	respond(w, map[string]any{"agent": a}, err, http.StatusOK)
+}
+func (s *Server) listAgentInstructions(w http.ResponseWriter, r *http.Request) {
+	versions, err := s.store.ListAgentInstructionVersions(r.Context(), chi.URLParam(r, "id"))
+	respond(w, map[string]any{"versions": versions}, err, http.StatusOK)
 }
 func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	var req store.CreateAgentInput

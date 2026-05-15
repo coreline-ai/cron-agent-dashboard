@@ -97,7 +97,7 @@ Notes:
 UI path:
 
 1. Open the issue detail page.
-2. In `Run 이력`, inspect status, trigger type, heartbeat, exit code, terminal reason, failure kind, and cancel reason.
+2. In `Run 이력`, inspect status, trigger type, heartbeat, exit code, terminal reason, failure kind, cancel reason, and `instructions vN`.
 3. Open `이벤트 타임라인` for the run.
 4. Use `전체 로그 보기` only when the stdout body was truncated or when CLI output details are needed.
 
@@ -109,6 +109,10 @@ curl -fsS http://127.0.0.1:8080/api/issues/<issue-id>/runs | jq '.runs[] | {id, 
 
 # Get the audit timeline for one run.
 curl -fsS http://127.0.0.1:8080/api/runs/<run-id>/events | jq '.events[] | {seq, event_type, severity, message, details}'
+
+# Get agent instructions history when reproducing why an old run behaved a certain way.
+curl -fsS http://127.0.0.1:8080/api/agents/<agent-id>/instructions \
+  | jq '.versions[] | {version, created_at, instructions}'
 ```
 
 Common interpretations:
@@ -239,3 +243,62 @@ curl -fsS http://127.0.0.1:8080/api/settings \
 ### Retry policy
 
 Agent 상세에서 max attempts, backoff seconds, retry 대상 failure kind를 조정할 수 있다. 기본은 timeout/executor_error만 재시도하며 backoff는 10초 → 60초 → 5분이다.
+
+## OSS adoption operations
+
+### React error boundary
+
+웹앱 route tree는 `react-error-boundary`로 감싸져 있다. 특정 페이지 렌더 오류가 발생하면 전체 white screen 대신 복구 화면을 표시한다.
+
+운영 확인:
+
+- fallback에 “화면 렌더 실패”와 “다시 시도” 버튼이 표시되어야 한다.
+- 이벤트 핸들러/비동기 mutation 오류는 기존 Toast/MutationErrorAlert 흐름으로 처리한다. ErrorBoundary는 render/lifecycle 오류 방어용이다.
+
+### Process probe
+
+Startup self-check는 running run에 기록된 sample PID를 `gopsutil/v4/process`로 best-effort 확인한다.
+
+정책:
+
+- probe가 “PID 없음”을 확인하면 해당 process group kill은 건너뛰고 orphan run recovery만 수행한다.
+- probe가 실패하거나 권한/OS 차이로 확인할 수 없으면 기존 process group cleanup 경로로 fallback한다.
+- PID/PGID는 운영 safety hint이며, run 상태 전이의 source of truth는 SQLite `run` row다.
+
+### Token/cost display
+
+Issue Detail 작업 콘솔은 현재 이슈의 run token/cost 합계를 표시한다. Settings의 7일 사용량과 함께 비용 이상 징후를 확인한다.
+
+### Deferred OSS candidates
+
+- `@xyflow/react`: lineage/sub-issue graph UI를 실제 구현할 때 lazy import로 도입한다.
+- MCP: readonly tool + workspace root 제한 + run_event audit 설계가 끝난 뒤 workspace opt-in으로 도입한다.
+- 외부 queue, OpenTelemetry, Sentry, testcontainers는 현재 단일 사용자/SQLite/단일 바이너리 철학에는 과하다.
+
+## Phase 2+ graph, guard, export operations
+
+### Lineage graph
+
+Issue Detail의 “흐름 그래프”는 parent issue, sub-issue, run, chained run을 한 화면에 표시한다. 데이터는 `issue.parent_issue_id`, `run.parent_run_id`, `run.chain_id`, `run.chain_depth`에서 온다. 그래프가 깨져도 기존 Run 이력과 이벤트 타임라인이 source of truth다.
+
+### Auto-chain cost guard
+
+`/settings`에서 workspace별로 다음 값을 조정한다.
+
+- 최대 chain depth
+- 24시간 자동 chain run 제한
+- 24시간 자동 chain 비용 제한
+- dry-run 모드
+
+제한 초과 시 run은 생성되지 않고 system comment에 차단 사유가 남는다. 비용 제한은 runtime adapter가 보고한 `total_cost_micros` 기준이므로 CLI가 metric을 출력하지 않으면 0으로 집계될 수 있다.
+
+### Export / import aliases
+
+`backup`/`restore`와 같은 DB snapshot 동작을 더 명확한 이름으로 실행할 수 있다.
+
+```bash
+corn-agent-dashboard export --to ./data-export.db
+corn-agent-dashboard import --from ./data-export.db
+```
+
+`import`는 기존 `restore`와 동일하게 현재 DB를 pre-restore 백업으로 보존한 뒤 복구한다.
