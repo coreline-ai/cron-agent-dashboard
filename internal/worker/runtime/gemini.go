@@ -30,3 +30,8 @@ func (a GeminiAdapter) executable() string {
 	}
 	return RuntimeGemini
 }
+
+func (a GeminiAdapter) ParseMetrics(stdout, stderr string) RunMetrics {
+	metrics := ParseMetricsFromText(stdout, stderr)
+	return metrics
+}

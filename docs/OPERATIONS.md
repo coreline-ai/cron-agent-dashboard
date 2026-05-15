@@ -182,3 +182,15 @@ Release workflow expectation:
 - Tag push or manual workflow dispatch builds `darwin/arm64`, `darwin/amd64`, `linux/amd64`, and `linux/arm64` artifacts.
 - `dist/SHA256SUMS` must include every uploaded `corn-agent-dashboard-*` binary.
 - The release body can use [RELEASE_NOTES_v0.1.0](RELEASE_NOTES_v0.1.0.md), and changes are summarized in [CHANGELOG](../CHANGELOG.md).
+
+
+## Usage and retry check
+
+`GET /api/settings`의 `usage_7d`는 최근 7일 run count, measured run count, token 합계, cost micros를 반환한다.
+
+```bash
+curl -fsS http://127.0.0.1:8080/api/settings \
+  | jq '.usage_7d'
+```
+
+Retry 대기 중인 run은 `status=queued`와 `next_retry_at`을 함께 가진다. timeout/executor_error만 자동 retry 대상이며, max attempts 이후에는 일반 failed run으로 마감된다.

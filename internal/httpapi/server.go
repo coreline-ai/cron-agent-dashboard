@@ -168,6 +168,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
+	usage, _ := s.store.RunUsageSummary(r.Context(), time.Now().Add(-7*24*time.Hour).UTC().Format(time.RFC3339Nano))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":            Version,
 		"data_dir":           s.cfg.DataDir,
@@ -175,6 +176,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		"worker_pool_size":   s.cfg.Workers,
 		"auth_mode":          s.cfg.AuthMode(),
 		"timezone":           s.cfg.Timezone,
+		"usage_7d":           usage,
 		"run_lifecycle": map[string]any{
 			"heartbeat_interval_seconds":  int(worker.DefaultHeartbeatInterval / time.Second),
 			"stale_after_seconds":         int(worker.DefaultStaleAfter / time.Second),

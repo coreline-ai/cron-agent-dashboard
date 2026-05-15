@@ -71,6 +71,8 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 		return ws.cancelClaimed(ctx, run.ID, err)
 	}
 
+	timeoutSeconds := store.ResolveTimeoutSeconds(workspace, agent, issue)
+
 	return &worker.ClaimedRun{
 		RunID:                  run.ID,
 		WorkspaceWorkingDir:    workingDir,
@@ -81,6 +83,7 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 		IssueBody:              issue.Body,
 		TriggerContentSnapshot: run.TriggerContentSnapshot,
 		RecentComments:         recentCommentSnippets(comments, run.ID, 3),
+		TimeoutSeconds:         timeoutSeconds,
 	}, nil
 }
 
@@ -109,6 +112,13 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 	content, truncated := readRunComment(result.StdoutPath, "/api/runs/"+runID+"/log")
 	errMsg := executionErrorMessage(result, exitCode)
 	terminalReason, failureKind := classifyExecutionFailure(result, exitCode)
+	if exitCode != 0 || terminalReason != store.TerminalReasonCompleted {
+		if _, retryErr := ws.store.RescheduleRunForRetry(ctx, runID, failureKind, errMsg, result.StdoutPath); retryErr == nil {
+			return nil
+		} else if !errors.Is(retryErr, store.ErrState) {
+			return retryErr
+		}
+	}
 	_, err := ws.store.CompleteRunWithReason(ctx, runID, store.FinishRunInput{
 		ExitCode:         exitCode,
 		StdoutPath:       result.StdoutPath,
@@ -118,6 +128,10 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 		ErrorMessage:     errMsg,
 		TerminalReason:   terminalReason,
 		FailureKind:      failureKind,
+		InputTokens:      result.Metrics.InputTokens,
+		OutputTokens:     result.Metrics.OutputTokens,
+		TotalCostMicros:  result.Metrics.TotalCostMicros,
+		ModelResolved:    result.Metrics.ModelResolved,
 	})
 	return ignoreTerminalState(err)
 }

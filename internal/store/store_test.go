@@ -610,3 +610,40 @@ func TestAutopilotTriggerFailureVisibilityFields(t *testing.T) {
 		t.Fatalf("issue delete should null last_triggered_issue_id: %#v", afterDelete)
 	}
 }
+
+func TestAddCommentDispatchesUnicodeMention(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "Unicode",
+		Slug:             "unicode",
+		IdentifierPrefix: "UNI",
+		MainAgent:        CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "ライター", Runtime: "codex", Instructions: "write"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, _, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "unicode mention"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Complete initial run so the mention-created run is the only queued run for this agent.
+	claimed, ok, err := st.ClaimNextRun(ctx, "worker")
+	if err != nil || !ok {
+		t.Fatalf("claim initial ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRun(ctx, claimed.ID, 0, "", "done", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	result, err := st.AddUserComment(ctx, issue.ID, "@ライター この記事을 정리해줘")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DispatchedRun == nil || result.DispatchedRun.AgentID != agent.ID {
+		t.Fatalf("unicode mention did not dispatch to agent: %#v", result.DispatchedRun)
+	}
+}

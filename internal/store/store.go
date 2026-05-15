@@ -82,6 +82,7 @@ func validateAgent(in CreateAgentInput) error {
 
 const workspaceSelect = `
 SELECT w.id, w.name, w.slug, w.description, w.output_dir, w.working_dir, w.identifier_prefix, w.next_issue_seq,
+       COALESCE(w.default_timeout_seconds, 600) AS default_timeout_seconds,
        w.created_at, w.updated_at,
        (SELECT COUNT(*) FROM agent a WHERE a.workspace_id = w.id) AS agent_count,
        (SELECT COUNT(*) FROM issue i WHERE i.workspace_id = w.id AND i.status = 'open') AS open_issue_count
@@ -97,7 +98,7 @@ func (s *Store) CreateWorkspaceWithMainAgent(ctx context.Context, in CreateWorks
 	}
 	defer tx.Rollback()
 	t := now()
-	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, CreatedAt: t, UpdatedAt: t}
+	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: 600, CreatedAt: t, UpdatedAt: t}
 	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, t, t)
 	if err != nil {
 		return Workspace{}, Agent{}, normalizeErr(err)
@@ -197,25 +198,25 @@ func (s *Store) CreateAgent(ctx context.Context, workspaceID string, in CreateAg
 
 func (s *Store) ListAgents(ctx context.Context, workspaceID string) ([]Agent, error) {
 	var out []Agent
-	err := s.db.SelectContext(ctx, &out, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)
+	err := s.db.SelectContext(ctx, &out, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)
 	return out, normalizeErr(err)
 }
 
 func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE id=?`, id)
+	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE id=?`, id)
 	return a, normalizeErr(err)
 }
 
 func (s *Store) GetMainAgent(ctx context.Context, workspaceID string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE workspace_id=? AND is_main=1`, workspaceID)
+	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND is_main=1`, workspaceID)
 	return a, normalizeErr(err)
 }
 
 func (s *Store) FindAgentByName(ctx context.Context, workspaceID, name string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
+	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
 	return a, normalizeErr(err)
 }
 

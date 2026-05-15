@@ -12,6 +12,14 @@ func TestFirstMention(t *testing.T) {
 	}
 }
 
+func TestFirstMentionSupportsUnicodeLetters(t *testing.T) {
+	for _, input := range []string{"@ライター 확인", "@撰写 정리", "@người_viết 초안"} {
+		if _, ok := FirstMention(input); !ok {
+			t.Fatalf("expected unicode mention in %q", input)
+		}
+	}
+}
+
 func TestMentionNameEqualCaseInsensitive(t *testing.T) {
 	if !MentionNameEqual("@Writer", "writer") {
 		t.Fatal("expected case-insensitive match")

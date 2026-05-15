@@ -34,3 +34,8 @@ func (a CodexAdapter) executable() string {
 	}
 	return RuntimeCodex
 }
+
+func (a CodexAdapter) ParseMetrics(stdout, stderr string) RunMetrics {
+	metrics := ParseMetricsFromText(stdout, stderr)
+	return metrics
+}

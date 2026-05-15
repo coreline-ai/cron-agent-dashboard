@@ -250,3 +250,89 @@ func containsComment(comments []store.Comment, needle string) bool {
 	}
 	return false
 }
+
+func TestWorkerStoreResolvesTimeoutAndRecordsMetrics(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, agent, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Metrics",
+		Slug:             "metrics",
+		IdentifierPrefix: "MET",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "fake", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE workspace SET default_timeout_seconds=42 WHERE id=?`, ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE agent SET timeout_seconds_override=7 WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "measure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := NewWorkerStore(st).ClaimNextRun(ctx, "worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.TimeoutSeconds != 7 {
+		t.Fatalf("TimeoutSeconds=%d, want agent override", claimed.TimeoutSeconds)
+	}
+	if err := NewWorkerStore(st).FinishRun(ctx, run.ID, worker.ExecutionResult{
+		RunID:    run.ID,
+		ExitCode: 0,
+		Metrics:  worker.RunMetrics{InputTokens: 100, OutputTokens: 25, TotalCostMicros: 1234, ModelResolved: "gpt-test"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.InputTokens != 100 || got.OutputTokens != 25 || got.TotalCostMicros != 1234 || got.ModelResolved != "gpt-test" {
+		t.Fatalf("metrics not recorded: %#v", got)
+	}
+}
+
+func TestWorkerStoreRetriesTransientFailure(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, agent, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Retry",
+		Slug:             "retry",
+		IdentifierPrefix: "TRY",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "fake", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE agent SET retry_policy_json='{"max_attempts":3}' WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err := st.ClaimNextRun(ctx, "worker")
+	if err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	if claimed.MaxAttempts != 3 {
+		t.Fatalf("MaxAttempts=%d, want 3", claimed.MaxAttempts)
+	}
+	if err := NewWorkerStore(st).FinishRun(ctx, run.ID, worker.ExecutionResult{RunID: run.ID, ExitCode: -1, TimedOut: true, ProcessStarted: true, Error: context.DeadlineExceeded}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "queued" || got.Attempt != 2 || got.NextRetryAt == "" {
+		t.Fatalf("transient failure should be rescheduled: %#v", got)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker-too-early"); err != nil || ok {
+		t.Fatalf("retry should not be claimable before next_retry_at ok=%v err=%v", ok, err)
+	}
+}

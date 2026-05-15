@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -17,6 +18,7 @@ SELECT i.id, i.workspace_id, i.identifier, i.title, i.body, i.status,
        COALESCE(aa.name, '') AS assignee_agent_name,
        i.created_by,
        COALESCE(i.autopilot_rule_id, '') AS autopilot_rule_id,
+       i.timeout_seconds_override,
        COALESCE((SELECT status FROM run WHERE issue_id=i.id AND status='running' LIMIT 1),
                 (SELECT status FROM run WHERE issue_id=i.id AND status='queued' ORDER BY enqueued_at ASC LIMIT 1),
                 (SELECT status FROM run WHERE issue_id=i.id ORDER BY enqueued_at DESC LIMIT 1),
@@ -78,7 +80,8 @@ func (s *Store) CreateIssueWithInitialRun(ctx context.Context, workspaceID strin
 		return Issue{}, Run{}, normalizeErr(err)
 	}
 	runID := newID()
-	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued',?,?,?)`, runID, issueID, agentID, trigger, capSnapshot(in.Body), t)
+	maxAttempts := retryMaxAttemptsForAgent(ctx, tx, agentID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts) VALUES(?,?,?,'queued',?,?,?,?)`, runID, issueID, agentID, trigger, capSnapshot(in.Body), t, maxAttempts)
 	if err != nil {
 		return Issue{}, Run{}, normalizeErr(err)
 	}
@@ -325,7 +328,8 @@ func (s *Store) RerunIssue(ctx context.Context, issueID, agentID string) (Run, e
 	if last.ID != "" {
 		snapshot = "[rerun of run " + last.ID + "]"
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','rerun',?,?)`, runID, issueID, agentID, snapshot, t)
+	maxAttempts := retryMaxAttemptsForAgent(ctx, tx, agentID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts) VALUES(?,?,?,'queued','rerun',?,?,?)`, runID, issueID, agentID, snapshot, t, maxAttempts)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
@@ -360,6 +364,13 @@ SELECT r.id, r.issue_id, r.agent_id, COALESCE(a.name,'') AS agent_name, r.status
        COALESCE(r.finished_at,'') AS finished_at,
        COALESCE(r.process_pid, 0) AS process_pid, COALESCE(r.process_pgid, 0) AS process_pgid,
        COALESCE(r.process_recorded_at, '') AS process_recorded_at,
+       COALESCE(r.input_tokens, 0) AS input_tokens,
+       COALESCE(r.output_tokens, 0) AS output_tokens,
+       COALESCE(r.total_cost_micros, 0) AS total_cost_micros,
+       COALESCE(r.model_resolved, '') AS model_resolved,
+       COALESCE(r.attempt, 1) AS attempt,
+       COALESCE(r.max_attempts, 1) AS max_attempts,
+       COALESCE(r.next_retry_at, '') AS next_retry_at,
        r.exit_code, r.stdout_path, r.error_message,
        r.terminal_reason, r.failure_kind, r.cancel_reason
 FROM run r
@@ -396,9 +407,10 @@ func (s *Store) ClaimNextRun(ctx context.Context, workerID string) (Run, bool, e
 	var runID string
 	err = tx.GetContext(ctx, &runID, `SELECT r.id FROM run r JOIN issue i ON i.id=r.issue_id
 WHERE r.status='queued'
+  AND (r.next_retry_at IS NULL OR r.next_retry_at='' OR r.next_retry_at <= ?)
   AND NOT EXISTS (SELECT 1 FROM run r2 WHERE r2.issue_id=r.issue_id AND r2.status='running')
   AND NOT EXISTS (SELECT 1 FROM run r3 JOIN issue i3 ON i3.id=r3.issue_id WHERE i3.workspace_id=i.workspace_id AND r3.status='running')
-ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`)
+ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`, now())
 	if errors.Is(err, sql.ErrNoRows) {
 		return Run{}, false, nil
 	}
@@ -484,7 +496,7 @@ func (s *Store) CompleteRunWithReason(ctx context.Context, runID string, in Fini
 	}
 	defer tx.Rollback()
 	t := now()
-	res, err := tx.ExecContext(ctx, `UPDATE run SET status=?, finished_at=?, exit_code=?, stdout_path=?, error_message=?, terminal_reason=?, failure_kind=?, cancel_reason='' WHERE id=? AND status='running'`, status, t, in.ExitCode, nullIfEmpty(in.StdoutPath), in.ErrorMessage, in.TerminalReason, in.FailureKind, runID)
+	res, err := tx.ExecContext(ctx, `UPDATE run SET status=?, finished_at=?, exit_code=?, stdout_path=?, error_message=?, terminal_reason=?, failure_kind=?, cancel_reason='', input_tokens=?, output_tokens=?, total_cost_micros=?, model_resolved=? WHERE id=? AND status='running'`, status, t, in.ExitCode, nullIfEmpty(in.StdoutPath), in.ErrorMessage, in.TerminalReason, in.FailureKind, in.InputTokens, in.OutputTokens, in.TotalCostMicros, in.ModelResolved, runID)
 	if err != nil {
 		return Run{}, normalizeErr(err)
 	}
@@ -532,9 +544,13 @@ func (s *Store) CompleteRunWithReason(ctx context.Context, runID string, in Fini
 		Severity:  severity,
 		Message:   message,
 		Details: map[string]any{
-			"exit_code":       in.ExitCode,
-			"terminal_reason": in.TerminalReason,
-			"failure_kind":    in.FailureKind,
+			"exit_code":         in.ExitCode,
+			"terminal_reason":   in.TerminalReason,
+			"failure_kind":      in.FailureKind,
+			"input_tokens":      in.InputTokens,
+			"output_tokens":     in.OutputTokens,
+			"total_cost_micros": in.TotalCostMicros,
+			"model_resolved":    in.ModelResolved,
 		},
 	}); err != nil {
 		return Run{}, err
@@ -1001,4 +1017,91 @@ func txGetIssue(ctx context.Context, tx *sqlx.Tx, id string) (Issue, error) {
 	var out Issue
 	err := tx.GetContext(ctx, &out, issueSelectBase+` WHERE i.id=?`, id)
 	return out, normalizeErr(err)
+}
+
+func (s *Store) RescheduleRunForRetry(ctx context.Context, runID, failureKind, errMsg, stdoutPath string) (Run, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Run{}, err
+	}
+	defer tx.Rollback()
+	var run Run
+	if err := tx.GetContext(ctx, &run, runSelectBase+` WHERE r.id=?`, runID); err != nil {
+		return Run{}, normalizeErr(err)
+	}
+	if run.Status != "running" || !shouldRetryRun(failureKind, run.Attempt, run.MaxAttempts) {
+		return Run{}, ErrState
+	}
+	nextRetryAt := time.Now().UTC().Add(retryBackoff(run.Attempt)).Format(time.RFC3339Nano)
+	t := now()
+	res, err := tx.ExecContext(ctx, `UPDATE run
+SET status='queued',
+    next_retry_at=?,
+    attempt=attempt+1,
+    claimed_at=NULL,
+    claimed_by='',
+    started_at=NULL,
+    heartbeat_at=NULL,
+    process_pid=NULL,
+    process_pgid=NULL,
+    process_recorded_at=NULL,
+    stdout_path=?,
+    error_message=?,
+    terminal_reason='',
+    failure_kind='',
+    cancel_reason=''
+WHERE id=? AND status='running' AND attempt<max_attempts`, nullIfEmpty(nextRetryAt), nullIfEmpty(stdoutPath), errMsg, runID)
+	if err != nil {
+		return Run{}, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return Run{}, ErrState
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?, 'system', ?, ?, ?)`, newID(), run.IssueID, run.ID, fmt.Sprintf("일시적 오류로 재시도를 예약했습니다 (attempt %d/%d, %s)", run.Attempt+1, run.MaxAttempts, nextRetryAt), t); err != nil {
+		return Run{}, normalizeErr(err)
+	}
+	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+		RunID:     run.ID,
+		IssueID:   run.IssueID,
+		EventType: RunEventFailed,
+		Severity:  RunEventSeverityWarn,
+		Message:   "Run retry scheduled",
+		Details: map[string]any{
+			"attempt":         run.Attempt,
+			"next_attempt":    run.Attempt + 1,
+			"max_attempts":    run.MaxAttempts,
+			"failure_kind":    failureKind,
+			"next_retry_at":   nextRetryAt,
+			"retry_scheduled": true,
+		},
+	}); err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, err
+	}
+	return s.GetRun(ctx, runID)
+}
+
+func (s *Store) RunUsageSummary(ctx context.Context, since string) (RunUsageSummary, error) {
+	if since == "" {
+		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+	}
+	var out RunUsageSummary
+	out.Since = since
+	err := s.db.GetContext(ctx, &out, `SELECT
+  COUNT(*) AS run_count,
+  COALESCE(SUM(input_tokens), 0) AS input_tokens,
+  COALESCE(SUM(output_tokens), 0) AS output_tokens,
+  COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
+  COALESCE(SUM(total_cost_micros), 0) AS total_cost_micros,
+  COALESCE(SUM(CASE WHEN input_tokens > 0 OR output_tokens > 0 OR total_cost_micros > 0 THEN 1 ELSE 0 END), 0) AS measured_run_count
+FROM run
+WHERE COALESCE(finished_at, enqueued_at) >= ?`, since)
+	if err != nil {
+		return RunUsageSummary{}, normalizeErr(err)
+	}
+	out.Since = since
+	return out, nil
 }

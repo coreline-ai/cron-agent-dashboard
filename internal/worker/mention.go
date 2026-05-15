@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var mentionRE = regexp.MustCompile(`@([A-Za-z0-9_\-가-힣]+)`) // keep in sync with DATA_MODEL.md
+var mentionRE = regexp.MustCompile(`@([\p{L}\p{N}_\-]+)`) // keep in sync with DATA_MODEL.md
 
 type Mention struct {
 	Raw  string

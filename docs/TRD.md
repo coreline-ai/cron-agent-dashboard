@@ -573,3 +573,11 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 5. **Issue Operations Console + Board Filters**: Board URL 기반 status/execution/agent/search 필터, Issue Detail 우측 운영 레일, run event timeline.
 
 검증 기준은 `go test ./...`, `go vet ./...`, `pnpm --filter web build`, `make check` 통과다.
+
+
+### Run resource controls
+
+- Timeout resolve 순서: issue override → agent override → workspace default → executor default(600s).
+- 자동 retry는 `failure_kind IN ('timeout','executor_error')`에만 적용한다. `exit_nonzero`와 `worker_panic`은 deterministic failure로 보고 자동 재시도하지 않는다.
+- retry backoff: 10초 → 60초 → 5분. `agent.retry_policy_json.max_attempts`는 1~5 범위로 clamp한다.
+- CLI stdout/stderr metrics parser는 best-effort이며 metrics 미검출 시 0으로 저장한다.

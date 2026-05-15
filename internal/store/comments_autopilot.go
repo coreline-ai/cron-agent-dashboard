@@ -12,7 +12,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-var mentionRE = regexp.MustCompile(`@([A-Za-z0-9_\-가-힣]+)`)
+var mentionRE = regexp.MustCompile(`@([\p{L}\p{N}_\-]+)`)
 
 const commentSelectBase = `
 SELECT c.id, c.issue_id, c.author_type,
@@ -84,7 +84,8 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 				warnings = append(warnings, "already queued for @"+agent.Name)
 			} else {
 				runID = newID()
-				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','mention',?,?,?)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t); err != nil {
+				maxAttempts := retryMaxAttemptsForAgent(ctx, tx, agent.ID)
+				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts) VALUES(?,?,?,'queued','mention',?,?,?,?)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t, maxAttempts); err != nil {
 					return AddCommentResult{}, normalizeErr(err)
 				}
 				if _, err := appendRunEventTx(ctx, tx, RunEventInput{
@@ -467,7 +468,8 @@ func (s *Store) createAutopilotIssueRunAndRecordSuccess(ctx context.Context, rul
 	if _, err := tx.ExecContext(ctx, `INSERT INTO issue(id,workspace_id,identifier,title,body,status,assignee_agent_id,created_by,autopilot_rule_id,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?,?,?,?)`, issueID, w.ID, identifier, title, body, nullIfEmpty(agentID), "autopilot", rule.ID, t, t); err != nil {
 		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at) VALUES(?,?,?,'queued','autopilot',?,?)`, runID, issueID, agentID, capSnapshot(body), t); err != nil {
+	maxAttempts := retryMaxAttemptsForAgent(ctx, tx, agentID)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts) VALUES(?,?,?,'queued','autopilot',?,?,?)`, runID, issueID, agentID, capSnapshot(body), t, maxAttempts); err != nil {
 		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE autopilot_rule

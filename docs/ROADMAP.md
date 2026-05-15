@@ -402,3 +402,11 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P5 ─▶ P6 ─▶ P7
 1. PRD / TRD / ARCHITECTURE / DATA_MODEL / API / UX_FLOW 검토 → 이의 있으면 수정
 2. **Phase 0 시작 권장**
 3. 또는 Phase 1.1만 먼저 구현해서 빠르게 검증
+
+## v0.1.x Resource Controls Foundation
+
+- [x] Run token/cost/model metrics columns + best-effort runtime parser
+- [x] Settings 7-day usage summary
+- [x] Timeout resolve foundation (`issue > agent > workspace > executor default`)
+- [x] Limited transient retry for timeout/executor_error
+- [x] Unicode mention regex for multilingual agent names

@@ -57,3 +57,10 @@ func TestGeminiAdapterBuildCommand(t *testing.T) {
 		t.Fatalf("gemini prompt should be passed by argv, got stdin=%q", string(stdin))
 	}
 }
+
+func TestParseMetricsFromText(t *testing.T) {
+	metrics := ParseMetricsFromText(`{"usage":{"input_tokens":1234,"output_tokens":567},"model":"gpt-5.5","total_cost_usd":0.012345}`, "")
+	if metrics.InputTokens != 1234 || metrics.OutputTokens != 567 || metrics.TotalCostMicros != 12345 || metrics.ModelResolved != "gpt-5.5" {
+		t.Fatalf("bad metrics: %#v", metrics)
+	}
+}

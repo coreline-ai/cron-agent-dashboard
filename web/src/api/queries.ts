@@ -68,6 +68,13 @@ export type Run = {
   error_message?: string;
   exit_code?: number | null;
   stdout_size_bytes?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_cost_micros?: number;
+  model_resolved?: string;
+  attempt?: number;
+  max_attempts?: number;
+  next_retry_at?: string;
   enqueued_at?: string;
   claimed_at?: string;
   claimed_by?: string;
@@ -137,6 +144,15 @@ export type SettingsResponse = {
   worker_pool_size: number;
   auth_mode: string;
   timezone: string;
+  usage_7d?: {
+    since: string;
+    run_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    total_cost_micros: number;
+    measured_run_count: number;
+  };
   run_lifecycle?: {
     heartbeat_interval_seconds: number;
     stale_after_seconds: number;

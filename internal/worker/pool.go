@@ -20,6 +20,7 @@ type ClaimedRun struct {
 	IssueBody              string
 	TriggerContentSnapshot string
 	RecentComments         []CommentSnippet
+	TimeoutSeconds         int
 }
 
 type ClaimStore interface {
@@ -425,6 +426,7 @@ func (p *Pool) claimOnce(workerID string) {
 		IssueBody:              run.IssueBody,
 		TriggerContentSnapshot: run.TriggerContentSnapshot,
 		RecentComments:         run.RecentComments,
+		TimeoutSeconds:         run.TimeoutSeconds,
 	})
 	stopHeartbeat()
 	if result.Cancelled && result.CancelReason == "" {

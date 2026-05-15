@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -89,13 +90,25 @@ func (e *RuntimeExecutor) Execute(ctx context.Context, run worker.ExecutionConte
 			Error:    fmt.Errorf("runtime %q is not configured", runtimeName),
 		}
 	}
+	timeout := e.Timeout
+	if run.TimeoutSeconds > 0 {
+		timeout = time.Duration(run.TimeoutSeconds) * time.Second
+	}
 	executor := worker.Executor{
 		Adapter:        adapter,
 		LogDir:         e.LogDir,
-		Timeout:        e.Timeout,
+		Timeout:        timeout,
 		OnProcessStart: e.recordProcessStart,
 	}
-	return executor.Execute(ctx, run)
+	result := executor.Execute(ctx, run)
+	if parser, ok := adapter.(workerruntime.MetricsParser); ok {
+		stdout := ""
+		if data, err := os.ReadFile(result.StdoutPath); err == nil {
+			stdout = string(data)
+		}
+		result.Metrics = parser.ParseMetrics(stdout, result.StderrTail)
+	}
+	return result
 }
 
 func (e *RuntimeExecutor) recordProcessStart(ctx context.Context, run worker.ExecutionContext, info worker.ProcessInfo) error {

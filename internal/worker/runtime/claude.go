@@ -30,3 +30,8 @@ func (a ClaudeAdapter) executable() string {
 	}
 	return RuntimeClaude
 }
+
+func (a ClaudeAdapter) ParseMetrics(stdout, stderr string) RunMetrics {
+	metrics := ParseMetricsFromText(stdout, stderr)
+	return metrics
+}

@@ -5,6 +5,21 @@ import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPane
 import { PageHeader } from '../components/PageHeader';
 import { useSettingsQuery } from '../api/queries';
 
+function formatTokens(value?: number) {
+  const n = value ?? 0;
+  if (n >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(2)}M`;
+  }
+  if (n >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}k`;
+  }
+  return String(n);
+}
+
+function formatCostMicros(value?: number) {
+  return `$${((value ?? 0) / 1_000_000).toFixed(4)}`;
+}
+
 function formatBytes(value?: number) {
   if (!value) {
     return '0 B';
@@ -73,6 +88,13 @@ export function SettingsPage() {
               ? data.available_runtimes.map((runtime) => `${runtime.name}${runtime.version ? ` (${runtime.version})` : ''}`).join(', ')
               : 'PATH에서 탐지된 런타임 없음'}
           </dd>
+          <dt>7일 토큰</dt>
+          <dd>
+            {formatTokens(data?.usage_7d?.total_tokens)}
+            {data?.usage_7d?.measured_run_count ? ` · 측정 run ${data.usage_7d.measured_run_count}/${data.usage_7d.run_count}` : ' · 측정된 run 없음'}
+          </dd>
+          <dt>7일 비용</dt>
+          <dd>{formatCostMicros(data?.usage_7d?.total_cost_micros)}</dd>
         </dl>
       </article>
 

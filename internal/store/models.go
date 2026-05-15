@@ -17,49 +17,53 @@ func (n NullInt64) MarshalJSON() ([]byte, error) {
 }
 
 type Workspace struct {
-	ID               string `db:"id" json:"id"`
-	Name             string `db:"name" json:"name"`
-	Slug             string `db:"slug" json:"slug"`
-	Description      string `db:"description" json:"description"`
-	OutputDir        string `db:"output_dir" json:"output_dir"`
-	WorkingDir       string `db:"working_dir" json:"working_dir"`
-	IdentifierPrefix string `db:"identifier_prefix" json:"identifier_prefix"`
-	NextIssueSeq     int64  `db:"next_issue_seq" json:"-"`
-	CreatedAt        string `db:"created_at" json:"created_at"`
-	UpdatedAt        string `db:"updated_at" json:"updated_at"`
-	AgentCount       int64  `db:"agent_count" json:"agent_count,omitempty"`
-	OpenIssueCount   int64  `db:"open_issue_count" json:"open_issue_count,omitempty"`
+	ID                    string `db:"id" json:"id"`
+	Name                  string `db:"name" json:"name"`
+	Slug                  string `db:"slug" json:"slug"`
+	Description           string `db:"description" json:"description"`
+	OutputDir             string `db:"output_dir" json:"output_dir"`
+	WorkingDir            string `db:"working_dir" json:"working_dir"`
+	IdentifierPrefix      string `db:"identifier_prefix" json:"identifier_prefix"`
+	NextIssueSeq          int64  `db:"next_issue_seq" json:"-"`
+	DefaultTimeoutSeconds int    `db:"default_timeout_seconds" json:"default_timeout_seconds"`
+	CreatedAt             string `db:"created_at" json:"created_at"`
+	UpdatedAt             string `db:"updated_at" json:"updated_at"`
+	AgentCount            int64  `db:"agent_count" json:"agent_count,omitempty"`
+	OpenIssueCount        int64  `db:"open_issue_count" json:"open_issue_count,omitempty"`
 }
 
 type Agent struct {
-	ID           string `db:"id" json:"id"`
-	WorkspaceID  string `db:"workspace_id" json:"workspace_id"`
-	Name         string `db:"name" json:"name"`
-	Runtime      string `db:"runtime" json:"runtime"`
-	Model        string `db:"model" json:"model"`
-	Instructions string `db:"instructions" json:"instructions"`
-	IsMain       bool   `db:"is_main" json:"is_main"`
-	CreatedAt    string `db:"created_at" json:"created_at"`
-	UpdatedAt    string `db:"updated_at" json:"updated_at"`
+	ID                     string    `db:"id" json:"id"`
+	WorkspaceID            string    `db:"workspace_id" json:"workspace_id"`
+	Name                   string    `db:"name" json:"name"`
+	Runtime                string    `db:"runtime" json:"runtime"`
+	Model                  string    `db:"model" json:"model"`
+	Instructions           string    `db:"instructions" json:"instructions"`
+	IsMain                 bool      `db:"is_main" json:"is_main"`
+	TimeoutSecondsOverride NullInt64 `db:"timeout_seconds_override" json:"timeout_seconds_override"`
+	RetryPolicyJSON        string    `db:"retry_policy_json" json:"retry_policy_json"`
+	CreatedAt              string    `db:"created_at" json:"created_at"`
+	UpdatedAt              string    `db:"updated_at" json:"updated_at"`
 }
 
 type Issue struct {
-	ID                string `db:"id" json:"id"`
-	WorkspaceID       string `db:"workspace_id" json:"workspace_id"`
-	Identifier        string `db:"identifier" json:"identifier"`
-	Title             string `db:"title" json:"title"`
-	Body              string `db:"body" json:"body"`
-	Status            string `db:"status" json:"status"`
-	AssigneeAgentID   string `db:"assignee_agent_id" json:"assignee_agent_id,omitempty"`
-	AssigneeAgentName string `db:"assignee_agent_name" json:"assignee_agent_name,omitempty"`
-	CreatedBy         string `db:"created_by" json:"created_by"`
-	AutopilotRuleID   string `db:"autopilot_rule_id" json:"autopilot_rule_id,omitempty"`
-	ExecutionStatus   string `db:"execution_status" json:"execution_status"`
-	LastRunAgentID    string `db:"last_run_agent_id" json:"last_run_agent_id,omitempty"`
-	LastRunAgentName  string `db:"last_run_agent_name" json:"last_run_agent_name,omitempty"`
-	CommentCount      int64  `db:"comment_count" json:"comment_count"`
-	CreatedAt         string `db:"created_at" json:"created_at"`
-	UpdatedAt         string `db:"updated_at" json:"updated_at"`
+	ID                     string    `db:"id" json:"id"`
+	WorkspaceID            string    `db:"workspace_id" json:"workspace_id"`
+	Identifier             string    `db:"identifier" json:"identifier"`
+	Title                  string    `db:"title" json:"title"`
+	Body                   string    `db:"body" json:"body"`
+	Status                 string    `db:"status" json:"status"`
+	AssigneeAgentID        string    `db:"assignee_agent_id" json:"assignee_agent_id,omitempty"`
+	AssigneeAgentName      string    `db:"assignee_agent_name" json:"assignee_agent_name,omitempty"`
+	CreatedBy              string    `db:"created_by" json:"created_by"`
+	AutopilotRuleID        string    `db:"autopilot_rule_id" json:"autopilot_rule_id,omitempty"`
+	TimeoutSecondsOverride NullInt64 `db:"timeout_seconds_override" json:"timeout_seconds_override"`
+	ExecutionStatus        string    `db:"execution_status" json:"execution_status"`
+	LastRunAgentID         string    `db:"last_run_agent_id" json:"last_run_agent_id,omitempty"`
+	LastRunAgentName       string    `db:"last_run_agent_name" json:"last_run_agent_name,omitempty"`
+	CommentCount           int64     `db:"comment_count" json:"comment_count"`
+	CreatedAt              string    `db:"created_at" json:"created_at"`
+	UpdatedAt              string    `db:"updated_at" json:"updated_at"`
 }
 
 type Comment struct {
@@ -93,6 +97,13 @@ type Run struct {
 	ProcessPID             int            `db:"process_pid" json:"-"`
 	ProcessPGID            int            `db:"process_pgid" json:"-"`
 	ProcessRecordedAt      string         `db:"process_recorded_at" json:"-"`
+	InputTokens            int64          `db:"input_tokens" json:"input_tokens"`
+	OutputTokens           int64          `db:"output_tokens" json:"output_tokens"`
+	TotalCostMicros        int64          `db:"total_cost_micros" json:"total_cost_micros"`
+	ModelResolved          string         `db:"model_resolved" json:"model_resolved,omitempty"`
+	Attempt                int            `db:"attempt" json:"attempt"`
+	MaxAttempts            int            `db:"max_attempts" json:"max_attempts"`
+	NextRetryAt            string         `db:"next_retry_at" json:"next_retry_at,omitempty"`
 	ExitCode               NullInt64      `db:"exit_code" json:"exit_code"`
 	StdoutPath             sql.NullString `db:"stdout_path" json:"-"`
 	StdoutSizeBytes        int64          `db:"stdout_size_bytes" json:"stdout_size_bytes"`
@@ -101,6 +112,16 @@ type Run struct {
 	TerminalReason         string         `db:"terminal_reason" json:"terminal_reason"`
 	FailureKind            string         `db:"failure_kind" json:"failure_kind"`
 	CancelReason           string         `db:"cancel_reason" json:"cancel_reason"`
+}
+
+type RunUsageSummary struct {
+	Since            string `json:"since"`
+	RunCount         int64  `db:"run_count" json:"run_count"`
+	InputTokens      int64  `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int64  `db:"output_tokens" json:"output_tokens"`
+	TotalTokens      int64  `db:"total_tokens" json:"total_tokens"`
+	TotalCostMicros  int64  `db:"total_cost_micros" json:"total_cost_micros"`
+	MeasuredRunCount int64  `db:"measured_run_count" json:"measured_run_count"`
 }
 
 type RunningProcessGroup struct {
@@ -163,6 +184,10 @@ type FinishRunInput struct {
 	ErrorMessage     string
 	TerminalReason   string
 	FailureKind      string
+	InputTokens      int64
+	OutputTokens     int64
+	TotalCostMicros  int64
+	ModelResolved    string
 }
 
 type CancelReasonInput struct {

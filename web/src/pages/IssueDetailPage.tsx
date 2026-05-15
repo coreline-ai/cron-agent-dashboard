@@ -272,6 +272,11 @@ function RunHistoryCard({ run }: { run: Run }) {
         {run.failure_kind ? <span>{getFailureKindLabel(run.failure_kind)}</span> : null}
         {run.cancel_reason ? <span>{getCancelReasonLabel(run.cancel_reason)}</span> : null}
         {typeof run.stdout_size_bytes === 'number' && run.stdout_size_bytes > 0 && <span>로그 {formatBytes(run.stdout_size_bytes)}</span>}
+        {run.input_tokens || run.output_tokens ? <span>토큰 {formatTokens((run.input_tokens ?? 0) + (run.output_tokens ?? 0))}</span> : null}
+        {run.total_cost_micros ? <span>비용 {formatCostMicros(run.total_cost_micros)}</span> : null}
+        {run.model_resolved ? <span>모델 {run.model_resolved}</span> : null}
+        {run.max_attempts && run.max_attempts > 1 ? <span>attempt {run.attempt ?? 1}/{run.max_attempts}</span> : null}
+        {run.next_retry_at ? <span>다음 재시도 <DateTimeText value={run.next_retry_at} mode="both" /></span> : null}
         {run.log_url && (
           <a className="inline-link" href={run.log_url}>
             전체 로그 보기
@@ -342,6 +347,20 @@ function formatDetails(details: Record<string, unknown>) {
   return Object.entries(details)
     .map(([key, value]) => `${key}: ${String(value)}`)
     .join(' · ');
+}
+
+function formatTokens(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}k`;
+  }
+  return String(value);
+}
+
+function formatCostMicros(value: number) {
+  return `$${(value / 1_000_000).toFixed(4)}`;
 }
 
 function formatBytes(value: number) {

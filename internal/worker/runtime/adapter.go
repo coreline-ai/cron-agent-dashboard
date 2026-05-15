@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +27,15 @@ type RuntimeInfo struct {
 	Version   string
 	Available bool
 	Error     string
+}
+
+// RunMetrics contains best-effort usage/cost values emitted by CLI runtimes.
+// Adapters should leave fields at zero when a CLI version does not expose them.
+type RunMetrics struct {
+	InputTokens     int64
+	OutputTokens    int64
+	TotalCostMicros int64
+	ModelResolved   string
 }
 
 // CommentSnippet is intentionally small so runtime adapters do not depend on
@@ -46,6 +58,7 @@ type RunContext struct {
 	IssueBody              string
 	TriggerContentSnapshot string
 	RecentComments         []CommentSnippet
+	TimeoutSeconds         int
 
 	// Prompt is optional. If supplied, adapters can pass it directly to the CLI.
 	// Worker prompt rendering owns truncation policy; this field keeps the
@@ -89,6 +102,13 @@ type RuntimeAdapter interface {
 	Name() string
 	Detect(ctx context.Context) RuntimeInfo
 	BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error)
+}
+
+// MetricsParser is optional. RuntimeExecutor uses it after a process exits to
+// capture token/cost metadata from stdout/stderr without making command
+// construction depend on store models.
+type MetricsParser interface {
+	ParseMetrics(stdout, stderr string) RunMetrics
 }
 
 // DefaultAdapters returns the built-in CLI adapters.
@@ -161,4 +181,59 @@ func command(ctx context.Context, executable string, args []string, run RunConte
 		cmd.Dir = run.WorkspaceWorkingDir
 	}
 	return cmd, nil
+}
+
+var (
+	inputTokenRE  = regexp.MustCompile(`(?i)["']?(input_tokens|prompt_tokens)["']?\s*[:=]\s*([0-9]+)`)
+	outputTokenRE = regexp.MustCompile(`(?i)["']?(output_tokens|completion_tokens)["']?\s*[:=]\s*([0-9]+)`)
+	costMicrosRE  = regexp.MustCompile(`(?i)["']?(total_cost_micros|cost_micros)["']?\s*[:=]\s*([0-9]+)`)
+	costUSDRE     = regexp.MustCompile(`(?i)["']?(total_cost_usd|cost_usd|cost)["']?\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)`)
+	modelRE       = regexp.MustCompile(`(?i)["']?(model_resolved|model)["']?\s*[:=]\s*["']([^"']+)["']`)
+)
+
+// ParseMetricsFromText extracts common usage field names used by CLI JSON logs.
+// It is intentionally best-effort: unknown CLI formats simply produce zeros.
+func ParseMetricsFromText(stdout, stderr string) RunMetrics {
+	text := stdout + "\n" + stderr
+	return RunMetrics{
+		InputTokens:     firstInt64(inputTokenRE, text),
+		OutputTokens:    firstInt64(outputTokenRE, text),
+		TotalCostMicros: firstCostMicros(text),
+		ModelResolved:   firstString(modelRE, text),
+	}
+}
+
+func firstInt64(re *regexp.Regexp, text string) int64 {
+	match := re.FindStringSubmatch(text)
+	if len(match) < 3 {
+		return 0
+	}
+	value, _ := strconv.ParseInt(match[2], 10, 64)
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func firstCostMicros(text string) int64 {
+	if micros := firstInt64(costMicrosRE, text); micros > 0 {
+		return micros
+	}
+	match := costUSDRE.FindStringSubmatch(text)
+	if len(match) < 3 {
+		return 0
+	}
+	usd, err := strconv.ParseFloat(match[2], 64)
+	if err != nil || usd <= 0 {
+		return 0
+	}
+	return int64(math.Round(usd * 1_000_000))
+}
+
+func firstString(re *regexp.Regexp, text string) string {
+	match := re.FindStringSubmatch(text)
+	if len(match) < 3 {
+		return ""
+	}
+	return strings.TrimSpace(match[2])
 }

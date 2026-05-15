@@ -106,6 +106,7 @@ CREATE TABLE issue (
   created_by         TEXT NOT NULL DEFAULT 'user'
                      CHECK (created_by IN ('user','autopilot')),
   autopilot_rule_id  TEXT REFERENCES autopilot_rule(id) ON DELETE SET NULL,
+  timeout_seconds_override INTEGER,
   created_at         TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (workspace_id, identifier)
@@ -573,7 +574,8 @@ internal/db/migrations/
 ├── 0007_autopilot_failure_visibility.sql
 ├── 0008_process_tracking.sql
 ├── 0009_process_tracking_safety.sql
-└── 0010_autopilot_snooze.sql
+├── 0010_autopilot_snooze.sql
+└── 0011_run_resource_controls.sql
 ```
 
 이후 변경은 `0003_*.sql` 등으로 누적. forward-only.
@@ -673,6 +675,15 @@ CREATE TABLE run_event (
 ### 7.3 autopilot_rule failure 필드
 
 `autopilot_rule`은 마지막 실패 및 마지막 생성 이슈 추적을 위해 `last_error`, `consecutive_failures`, `last_triggered_issue_id`를 가진다. `snooze_until`은 일시 정지 만료 시각이며, 미래 시각이면 failure count를 올리지 않고 trigger를 건너뛴다.
+
+
+### 7.4 run resource control 필드
+
+`run`은 CLI가 제공하는 경우 `input_tokens`, `output_tokens`, `total_cost_micros`, `model_resolved`를 저장한다. 값이 0이면 CLI가 metrics를 제공하지 않았거나 parser가 인식하지 못한 상태다.
+
+`attempt`, `max_attempts`, `next_retry_at`은 transient retry를 위한 필드다. retry 대상은 timeout/executor_error로 제한하며, exit_nonzero/worker_panic은 자동 재시도하지 않는다.
+
+`workspace.default_timeout_seconds`, `agent.timeout_seconds_override`, `issue.timeout_seconds_override`는 실행 timeout resolve에 사용된다. 우선순위는 issue > agent > workspace > executor default다.
 
 ---
 

@@ -13,6 +13,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 - React Query now refetches on window focus, with explicit refresh buttons on board, issue detail, and Autopilot pages.
 - Issue comments now include lightweight agent mention autocomplete for `@AgentName` delegation.
 - Autopilot rules now support `snooze_until` temporary pause, UI quick actions, and no-op trigger handling without increasing failure counts.
+- Added run resource-control foundation: best-effort token/cost/model metrics capture, timeout resolution, limited transient retry, and Unicode mention matching.
 - README, architecture, TRD, data model, roadmap, and operations docs now describe the shipped startup cleanup and release state more accurately.
 
 ## [0.1.0] - 2026-05-14

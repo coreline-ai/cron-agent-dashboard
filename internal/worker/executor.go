@@ -31,6 +31,7 @@ const (
 // BuildCommand contract. Store/API models should still adapt into this narrow
 // shape instead of being imported here.
 type ExecutionContext = workerruntime.RunContext
+type RunMetrics = workerruntime.RunMetrics
 
 type CommandBuilder interface {
 	Name() string
@@ -78,6 +79,7 @@ type ExecutionResult struct {
 	TimedOut        bool
 	Cancelled       bool
 	CancelReason    string
+	Metrics         RunMetrics
 	Error           error
 }
 
