@@ -66,6 +66,13 @@ var (
 	uuidRE   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 func validateWorkspace(in CreateWorkspaceInput) error {
 	if strings.TrimSpace(in.Name) == "" || !slugRE.MatchString(in.Slug) || !prefixRE.MatchString(in.IdentifierPrefix) {
 		return ErrValidation
@@ -77,12 +84,43 @@ func validateAgent(in CreateAgentInput) error {
 	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Runtime) == "" || strings.TrimSpace(in.Instructions) == "" {
 		return ErrValidation
 	}
-	return nil
+	_, _, err := normalizeAgentControls(in)
+	return err
+}
+
+func normalizeAgentControls(in CreateAgentInput) (timeout any, retryPolicyJSON string, err error) {
+	if in.TimeoutSecondsOverride != nil {
+		if *in.TimeoutSecondsOverride < 0 || *in.TimeoutSecondsOverride > 86400 {
+			return nil, "", ErrValidation
+		}
+		if *in.TimeoutSecondsOverride > 0 {
+			timeout = *in.TimeoutSecondsOverride
+		}
+	}
+	retryPolicyJSON = strings.TrimSpace(in.RetryPolicyJSON)
+	if retryPolicyJSON == "" {
+		retryPolicyJSON = `{"max_attempts":1}`
+	}
+	if _, err := parseRetryPolicy(retryPolicyJSON); err != nil {
+		return nil, "", err
+	}
+	return timeout, retryPolicyJSON, nil
+}
+
+func normalizeWorkspaceTimeout(seconds int) (int, error) {
+	if seconds == 0 {
+		return defaultWorkspaceTimeoutSeconds, nil
+	}
+	if seconds < 0 || seconds > 86400 {
+		return 0, ErrValidation
+	}
+	return seconds, nil
 }
 
 const workspaceSelect = `
 SELECT w.id, w.name, w.slug, w.description, w.output_dir, w.working_dir, w.identifier_prefix, w.next_issue_seq,
        COALESCE(w.default_timeout_seconds, 600) AS default_timeout_seconds,
+       COALESCE(w.auto_chain_enabled, 0) AS auto_chain_enabled,
        w.created_at, w.updated_at,
        (SELECT COUNT(*) FROM agent a WHERE a.workspace_id = w.id) AS agent_count,
        (SELECT COUNT(*) FROM issue i WHERE i.workspace_id = w.id AND i.status = 'open') AS open_issue_count
@@ -98,13 +136,21 @@ func (s *Store) CreateWorkspaceWithMainAgent(ctx context.Context, in CreateWorks
 	}
 	defer tx.Rollback()
 	t := now()
-	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: 600, CreatedAt: t, UpdatedAt: t}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, t, t)
+	timeoutSeconds, err := normalizeWorkspaceTimeout(in.DefaultTimeoutSeconds)
+	if err != nil {
+		return Workspace{}, Agent{}, err
+	}
+	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: timeoutSeconds, AutoChainEnabled: in.AutoChainEnabled, CreatedAt: t, UpdatedAt: t}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,default_timeout_seconds,auto_chain_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, w.DefaultTimeoutSeconds, boolInt(w.AutoChainEnabled), t, t)
 	if err != nil {
 		return Workspace{}, Agent{}, normalizeErr(err)
 	}
-	a := Agent{ID: newID(), WorkspaceID: w.ID, Name: in.MainAgent.Name, Runtime: in.MainAgent.Runtime, Model: in.MainAgent.Model, Instructions: in.MainAgent.Instructions, IsMain: true, CreatedAt: t, UpdatedAt: t}
-	_, err = tx.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, 1, t, t)
+	agentTimeout, retryPolicy, err := normalizeAgentControls(in.MainAgent)
+	if err != nil {
+		return Workspace{}, Agent{}, err
+	}
+	a := Agent{ID: newID(), WorkspaceID: w.ID, Name: in.MainAgent.Name, Runtime: in.MainAgent.Runtime, Model: in.MainAgent.Model, Instructions: in.MainAgent.Instructions, Summary: in.MainAgent.Summary, Tags: in.MainAgent.Tags, IsMain: true, RetryPolicyJSON: retryPolicy, CreatedAt: t, UpdatedAt: t}
+	_, err = tx.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,summary,tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, a.Summary, a.Tags, 1, agentTimeout, retryPolicy, t, t)
 	if err != nil {
 		return Workspace{}, Agent{}, normalizeErr(err)
 	}
@@ -136,15 +182,27 @@ func (s *Store) GetWorkspace(ctx context.Context, idOrSlug string) (Workspace, A
 	return w, a, err
 }
 
-func (s *Store) UpdateWorkspace(ctx context.Context, idOrSlug string, name, description, workingDir, outputDir string) (Workspace, error) {
+func (s *Store) UpdateWorkspace(ctx context.Context, idOrSlug string, in UpdateWorkspaceInput) (Workspace, error) {
 	w, _, err := s.GetWorkspace(ctx, idOrSlug)
 	if err != nil {
 		return Workspace{}, err
 	}
-	if strings.TrimSpace(name) == "" {
+	if strings.TrimSpace(in.Name) == "" {
 		return Workspace{}, ErrValidation
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE workspace SET name=?, description=?, working_dir=?, output_dir=?, updated_at=? WHERE id=?`, name, description, workingDir, outputDir, now(), w.ID)
+	timeoutSeconds := w.DefaultTimeoutSeconds
+	if in.DefaultTimeoutSeconds != nil {
+		var err error
+		timeoutSeconds, err = normalizeWorkspaceTimeout(*in.DefaultTimeoutSeconds)
+		if err != nil {
+			return Workspace{}, err
+		}
+	}
+	autoChain := w.AutoChainEnabled
+	if in.AutoChainEnabled != nil {
+		autoChain = *in.AutoChainEnabled
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE workspace SET name=?, description=?, working_dir=?, output_dir=?, default_timeout_seconds=?, auto_chain_enabled=?, updated_at=? WHERE id=?`, in.Name, in.Description, in.WorkingDir, in.OutputDir, timeoutSeconds, boolInt(autoChain), now(), w.ID)
 	if err != nil {
 		return Workspace{}, normalizeErr(err)
 	}
@@ -187,9 +245,13 @@ func (s *Store) CreateAgent(ctx context.Context, workspaceID string, in CreateAg
 	if _, _, err := s.GetWorkspace(ctx, workspaceID); err != nil {
 		return Agent{}, err
 	}
+	timeout, retryPolicy, err := normalizeAgentControls(in)
+	if err != nil {
+		return Agent{}, err
+	}
 	t := now()
-	a := Agent{ID: newID(), WorkspaceID: workspaceID, Name: in.Name, Runtime: in.Runtime, Model: in.Model, Instructions: in.Instructions, CreatedAt: t, UpdatedAt: t}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,is_main,created_at,updated_at) VALUES(?,?,?,?,?,?,0,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, t, t)
+	a := Agent{ID: newID(), WorkspaceID: workspaceID, Name: in.Name, Runtime: in.Runtime, Model: in.Model, Instructions: in.Instructions, Summary: in.Summary, Tags: in.Tags, RetryPolicyJSON: retryPolicy, CreatedAt: t, UpdatedAt: t}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO agent(id,workspace_id,name,runtime,model,instructions,summary,tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,0,?,?,?,?)`, a.ID, a.WorkspaceID, a.Name, a.Runtime, a.Model, a.Instructions, a.Summary, a.Tags, timeout, retryPolicy, t, t)
 	if err != nil {
 		return Agent{}, normalizeErr(err)
 	}
@@ -198,25 +260,25 @@ func (s *Store) CreateAgent(ctx context.Context, workspaceID string, in CreateAg
 
 func (s *Store) ListAgents(ctx context.Context, workspaceID string) ([]Agent, error) {
 	var out []Agent
-	err := s.db.SelectContext(ctx, &out, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)
+	err := s.db.SelectContext(ctx, &out, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)
 	return out, normalizeErr(err)
 }
 
 func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE id=?`, id)
+	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE id=?`, id)
 	return a, normalizeErr(err)
 }
 
 func (s *Store) GetMainAgent(ctx context.Context, workspaceID string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND is_main=1`, workspaceID)
+	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND is_main=1`, workspaceID)
 	return a, normalizeErr(err)
 }
 
 func (s *Store) FindAgentByName(ctx context.Context, workspaceID, name string) (Agent, error) {
 	var a Agent
-	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
+	err := s.db.GetContext(ctx, &a, `SELECT id,workspace_id,name,runtime,model,instructions,COALESCE(summary,'') AS summary,COALESCE(tags,'') AS tags,is_main,timeout_seconds_override,retry_policy_json,created_at,updated_at FROM agent WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
 	return a, normalizeErr(err)
 }
 
@@ -224,7 +286,11 @@ func (s *Store) UpdateAgent(ctx context.Context, id string, in CreateAgentInput)
 	if err := validateAgent(in); err != nil {
 		return Agent{}, err
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE agent SET name=?, runtime=?, model=?, instructions=?, updated_at=? WHERE id=?`, in.Name, in.Runtime, in.Model, in.Instructions, now(), id)
+	timeout, retryPolicy, err := normalizeAgentControls(in)
+	if err != nil {
+		return Agent{}, err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE agent SET name=?, runtime=?, model=?, instructions=?, summary=?, tags=?, timeout_seconds_override=?, retry_policy_json=?, updated_at=? WHERE id=?`, in.Name, in.Runtime, in.Model, in.Instructions, in.Summary, in.Tags, timeout, retryPolicy, now(), id)
 	if err != nil {
 		return Agent{}, normalizeErr(err)
 	}

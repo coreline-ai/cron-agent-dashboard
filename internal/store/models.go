@@ -26,6 +26,7 @@ type Workspace struct {
 	IdentifierPrefix      string `db:"identifier_prefix" json:"identifier_prefix"`
 	NextIssueSeq          int64  `db:"next_issue_seq" json:"-"`
 	DefaultTimeoutSeconds int    `db:"default_timeout_seconds" json:"default_timeout_seconds"`
+	AutoChainEnabled      bool   `db:"auto_chain_enabled" json:"auto_chain_enabled"`
 	CreatedAt             string `db:"created_at" json:"created_at"`
 	UpdatedAt             string `db:"updated_at" json:"updated_at"`
 	AgentCount            int64  `db:"agent_count" json:"agent_count,omitempty"`
@@ -39,6 +40,8 @@ type Agent struct {
 	Runtime                string    `db:"runtime" json:"runtime"`
 	Model                  string    `db:"model" json:"model"`
 	Instructions           string    `db:"instructions" json:"instructions"`
+	Summary                string    `db:"summary" json:"summary"`
+	Tags                   string    `db:"tags" json:"tags"`
 	IsMain                 bool      `db:"is_main" json:"is_main"`
 	TimeoutSecondsOverride NullInt64 `db:"timeout_seconds_override" json:"timeout_seconds_override"`
 	RetryPolicyJSON        string    `db:"retry_policy_json" json:"retry_policy_json"`
@@ -55,6 +58,7 @@ type Issue struct {
 	Status                 string    `db:"status" json:"status"`
 	AssigneeAgentID        string    `db:"assignee_agent_id" json:"assignee_agent_id,omitempty"`
 	AssigneeAgentName      string    `db:"assignee_agent_name" json:"assignee_agent_name,omitempty"`
+	ParentIssueID          string    `db:"parent_issue_id" json:"parent_issue_id,omitempty"`
 	CreatedBy              string    `db:"created_by" json:"created_by"`
 	AutopilotRuleID        string    `db:"autopilot_rule_id" json:"autopilot_rule_id,omitempty"`
 	TimeoutSecondsOverride NullInt64 `db:"timeout_seconds_override" json:"timeout_seconds_override"`
@@ -88,6 +92,9 @@ type Run struct {
 	TriggerType            string         `db:"trigger_type" json:"trigger_type"`
 	TriggerCommentID       string         `db:"trigger_comment_id" json:"trigger_comment_id,omitempty"`
 	TriggerContentSnapshot string         `db:"trigger_content_snapshot" json:"trigger_content_snapshot,omitempty"`
+	ParentRunID            string         `db:"parent_run_id" json:"parent_run_id,omitempty"`
+	ChainID                string         `db:"chain_id" json:"chain_id,omitempty"`
+	ChainDepth             int            `db:"chain_depth" json:"chain_depth"`
 	EnqueuedAt             string         `db:"enqueued_at" json:"enqueued_at"`
 	ClaimedAt              string         `db:"claimed_at" json:"claimed_at,omitempty"`
 	ClaimedBy              string         `db:"claimed_by" json:"claimed_by,omitempty"`
@@ -239,20 +246,35 @@ type AutopilotRule struct {
 }
 
 type CreateWorkspaceInput struct {
-	Name             string           `json:"name"`
-	Slug             string           `json:"slug"`
-	Description      string           `json:"description"`
-	IdentifierPrefix string           `json:"identifier_prefix"`
-	WorkingDir       string           `json:"working_dir"`
-	OutputDir        string           `json:"output_dir"`
-	MainAgent        CreateAgentInput `json:"main_agent"`
+	Name                  string           `json:"name"`
+	Slug                  string           `json:"slug"`
+	Description           string           `json:"description"`
+	IdentifierPrefix      string           `json:"identifier_prefix"`
+	WorkingDir            string           `json:"working_dir"`
+	OutputDir             string           `json:"output_dir"`
+	DefaultTimeoutSeconds int              `json:"default_timeout_seconds"`
+	AutoChainEnabled      bool             `json:"auto_chain_enabled"`
+	MainAgent             CreateAgentInput `json:"main_agent"`
 }
 
 type CreateAgentInput struct {
-	Name         string `json:"name"`
-	Runtime      string `json:"runtime"`
-	Model        string `json:"model"`
-	Instructions string `json:"instructions"`
+	Name                   string `json:"name"`
+	Runtime                string `json:"runtime"`
+	Model                  string `json:"model"`
+	Instructions           string `json:"instructions"`
+	Summary                string `json:"summary"`
+	Tags                   string `json:"tags"`
+	TimeoutSecondsOverride *int   `json:"timeout_seconds_override"`
+	RetryPolicyJSON        string `json:"retry_policy_json"`
+}
+
+type UpdateWorkspaceInput struct {
+	Name                  string `json:"name"`
+	Description           string `json:"description"`
+	WorkingDir            string `json:"working_dir"`
+	OutputDir             string `json:"output_dir"`
+	DefaultTimeoutSeconds *int   `json:"default_timeout_seconds"`
+	AutoChainEnabled      *bool  `json:"auto_chain_enabled"`
 }
 
 type CreateIssueInput struct {
@@ -262,6 +284,7 @@ type CreateIssueInput struct {
 	CreatedBy       string `json:"created_by"`
 	AutopilotRuleID string `json:"autopilot_rule_id"`
 	TriggerType     string `json:"trigger_type"`
+	ParentIssueID   string `json:"parent_issue_id"`
 }
 
 type UpdateIssueInput struct {

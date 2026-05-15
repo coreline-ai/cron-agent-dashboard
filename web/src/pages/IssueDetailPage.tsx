@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useWorkspaceIssueQuery } from '../api/queries';
+import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useSubIssuesQuery, useWorkspaceIssueQuery } from '../api/queries';
 import type { Comment, IssueStatus, Run, RunEvent } from '../api/queries';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DateTimeText } from '../components/DateTimeText';
@@ -34,10 +34,12 @@ export function IssueDetailPage() {
   const issue = useWorkspaceIssueQuery(slug, identifier);
   const comments = useCommentsQuery(issue.data?.id, issue.data?.execution_status);
   const runs = useRunsQuery(issue.data?.id, issue.data?.execution_status);
+  const subIssues = useSubIssuesQuery(issue.data?.id);
   const agents = useAgentsQuery(slug);
   const queryClient = useQueryClient();
   const toast = useToast();
   const [content, setContent] = useState('');
+  const [subIssueForm, setSubIssueForm] = useState({ title: '', body: '', assignee_agent_id: '' });
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const runList = useMemo(() => runs.data ?? [], [runs.data]);
   const busy = issue.data?.execution_status === 'queued' || issue.data?.execution_status === 'running';
@@ -47,6 +49,7 @@ export function IssueDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['comments', issue.data?.id] });
     queryClient.invalidateQueries({ queryKey: ['runs', issue.data?.id] });
     queryClient.invalidateQueries({ queryKey: ['issues', slug] });
+    queryClient.invalidateQueries({ queryKey: ['subissues', issue.data?.id] });
     for (const run of runList) {
       queryClient.invalidateQueries({ queryKey: ['run-events', run.id] });
     }
@@ -97,10 +100,20 @@ export function IssueDetailPage() {
     onSettled: () => setConfirmAction(null)
   });
 
+  const createSubIssue = useMutation({
+    mutationFn: () => apiClient.post(`/issues/${issue.data?.id}/subissues`, subIssueForm),
+    onSuccess: () => {
+      setSubIssueForm({ title: '', body: '', assignee_agent_id: '' });
+      invalidateIssue();
+      toast.success('하위 이슈를 생성했습니다.');
+    },
+    onError: (error) => toast.error('하위 이슈 생성 실패', { description: errorMessage(error) })
+  });
+
   const actionPending = rerun.isPending || cancelRun.isPending || updateStatus.isPending;
   const refreshPending = issue.isFetching || comments.isFetching || runs.isFetching || agents.isFetching;
   const refreshIssue = () => {
-    const tasks: Array<Promise<unknown>> = [issue.refetch(), agents.refetch()];
+    const tasks: Array<Promise<unknown>> = [issue.refetch(), agents.refetch(), subIssues.refetch()];
     if (issue.data?.id) {
       tasks.push(comments.refetch(), runs.refetch());
       for (const run of runList) {
@@ -116,6 +129,14 @@ export function IssueDetailPage() {
       return;
     }
     addComment.mutate();
+  };
+
+  const onSubIssueSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!issue.data || !subIssueForm.title.trim()) {
+      return;
+    }
+    createSubIssue.mutate();
   };
 
   const runConfirmedAction = () => {
@@ -168,6 +189,37 @@ export function IssueDetailPage() {
               {issue.data ? <StatusPill kind="issue" status={issue.data.status} /> : null}
             </div>
             <MarkdownText value={issue.data?.body || '(본문 없음)'} />
+          </article>
+
+          <article className="panel">
+            <div className="section-heading compact">
+              <h2>하위 이슈</h2>
+              <span className="badge">{subIssues.data?.length ?? 0}</span>
+            </div>
+            <div className="subissue-list">
+              {subIssues.data?.map((subIssue) => (
+                <a className="subissue-card" href={`/w/${slug}/issues/${subIssue.identifier}`} key={subIssue.id}>
+                  <strong>{subIssue.identifier}</strong>
+                  <span>{subIssue.title}</span>
+                  <StatusPill kind="issue" status={subIssue.status} />
+                </a>
+              ))}
+            </div>
+            {!subIssues.isLoading && !subIssues.data?.length ? <p className="muted-copy">아직 하위 이슈가 없습니다.</p> : null}
+            <form className="form-grid subissue-form" onSubmit={onSubIssueSubmit}>
+              <input placeholder="하위 이슈 제목" value={subIssueForm.title} onChange={(e) => setSubIssueForm({ ...subIssueForm, title: e.target.value })} />
+              <select value={subIssueForm.assignee_agent_id} onChange={(e) => setSubIssueForm({ ...subIssueForm, assignee_agent_id: e.target.value })}>
+                <option value="">메인 에이전트 자동 선택</option>
+                {(agents.data ?? []).map((agent) => (
+                  <option key={agent.id} value={agent.id}>@{agent.name} · {agent.runtime}</option>
+                ))}
+              </select>
+              <textarea placeholder="하위 이슈 본문" value={subIssueForm.body} onChange={(e) => setSubIssueForm({ ...subIssueForm, body: e.target.value })} />
+              <button className="button secondary" type="submit" disabled={!issue.data || createSubIssue.isPending || !subIssueForm.title.trim()}>
+                {createSubIssue.isPending ? '생성 중' : '하위 이슈 생성'}
+              </button>
+              {createSubIssue.isError ? <MutationErrorAlert error={createSubIssue.error} title="하위 이슈 생성 실패" /> : null}
+            </form>
           </article>
 
           <article className="panel">
@@ -275,6 +327,8 @@ function RunHistoryCard({ run }: { run: Run }) {
         {run.input_tokens || run.output_tokens ? <span>토큰 {formatTokens((run.input_tokens ?? 0) + (run.output_tokens ?? 0))}</span> : null}
         {run.total_cost_micros ? <span>비용 {formatCostMicros(run.total_cost_micros)}</span> : null}
         {run.model_resolved ? <span>모델 {run.model_resolved}</span> : null}
+        {run.parent_run_id ? <span>parent {run.parent_run_id.slice(0, 8)}</span> : null}
+        {run.chain_depth ? <span>chain depth {run.chain_depth}</span> : null}
         {run.max_attempts && run.max_attempts > 1 ? <span>attempt {run.attempt ?? 1}/{run.max_attempts}</span> : null}
         {run.next_retry_at ? <span>다음 재시도 <DateTimeText value={run.next_retry_at} mode="both" /></span> : null}
         {run.log_url && (

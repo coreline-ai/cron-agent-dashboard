@@ -157,7 +157,10 @@ shadcn/ui · Tailwind v4 · 다크모드.
 - [x] 🎫 이슈 트래커 (`identifier` `NEWS-12`, status: `open` / `done` / `cancelled`)
 - [x] 💬 댓글 스레드 + system 댓글 (실행 시작 / 취소 / 경고)
 - [x] 🔀 `@AgentName` 멘션 위임 — **assignee는 바꾸지 않음**, 같은 이슈에 새 run 추가
-- [x] 🧭 체이닝 정책 — 현재는 **explicit-only**: 사용자 댓글의 명시 멘션만 실행, agent 결과 댓글의 멘션은 자동 실행하지 않음
+- [x] 🧭 체이닝 정책 — 기본은 explicit-only, workspace opt-in 시 agent 결과 댓글의 첫 `@AgentName` 자동 체이닝
+- [x] 🌿 Sub-issue — 이슈 상세에서 하위 이슈 생성/조회, 부모-자식 관계 보존
+- [x] 🧷 Run context sharing — workspace `.corn-runs/<run-id>.log` 경로로 run stdout 참조
+- [x] 🏷️ Agent metadata — summary/tags와 retry backoff 정책 관리
 - [x] ⏰ Autopilot (robfig/cron, 시스템 timezone `Asia/Seoul` 기본)
 - [x] 🔁 [재실행] — 마지막 run의 agent로 자동 dispatch
 - [x] 🛑 [취소] — process group SIGTERM → 30초 후 SIGKILL
@@ -458,6 +461,10 @@ NewsLead 결과 아래 댓글:
 | `--timezone` | `CORN_AGENT_DASHBOARD_TIMEZONE` | `Asia/Seoul` | Autopilot cron timezone |
 | `--token` | `CORN_AGENT_DASHBOARD_TOKEN` | (없음) | 단일 토큰 인증 (옵션) |
 | `--cors` | `CORN_AGENT_DASHBOARD_CORS` | (없음) | 추가 허용 origin (콤마 구분) |
+| `--auto-backup` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP` | `true` | 서버 실행 중 자동 DB 백업 활성화 |
+| `--auto-backup-keep` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP` | `7` | 자동 백업 보존 개수 |
+| `--auto-cleanup-log-days` | `CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS` | `90` | 지정 일수 초과 run 로그 자동 삭제 (`0`이면 비활성) |
+| `--maintenance-interval` | `CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL` | `24h` | 자동 백업/log cleanup 실행 주기 |
 | `--to` | — | 자동 `.bak` 경로 | `backup` 명령의 백업 파일 경로 |
 | `--from` | — | (필수) | `restore` 명령의 복구 원본 DB 경로 |
 
@@ -469,6 +476,8 @@ NewsLead 결과 아래 댓글:
 ├── runs/
 │   ├── <run-id>.log       # 각 run의 stdout (최대 10MB)
 │   └── ...
+├── backups/
+│   └── data-<timestamp>.db # 자동 백업 (기본 최근 7개 보존)
 ├── workdirs/
 │   └── <workspace-slug>/  # 에이전트 실행 cwd (자동 생성)
 └── config.toml            # (선택)
@@ -477,8 +486,10 @@ NewsLead 결과 아래 댓글:
 ### 백업 / 복구
 
 ```bash
-# 백업 (UI에서도 가능: /settings → [DB 백업])
+# 수동 백업 (UI에서도 가능: /settings → [DB 백업])
 corn-agent-dashboard backup --to ~/backup/data.db.$(date +%Y%m%d)
+
+# 서버 실행 중에는 기본적으로 24시간마다 ~/.corn-agent-dashboard/backups에 자동 백업한다.
 
 # 복구 전 기존 DB는 data.db.pre-restore-<timestamp>로 자동 보존
 corn-agent-dashboard restore --from ~/backup/data.db.20260512

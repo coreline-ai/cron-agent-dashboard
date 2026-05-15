@@ -84,8 +84,11 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 				warnings = append(warnings, "already queued for @"+agent.Name)
 			} else {
 				runID = newID()
-				maxAttempts := retryMaxAttemptsForAgent(ctx, tx, agent.ID)
-				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts) VALUES(?,?,?,'queued','mention',?,?,?,?)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t, maxAttempts); err != nil {
+				maxAttempts, err := retryMaxAttemptsForAgent(ctx, tx, agent.ID)
+				if err != nil {
+					return AddCommentResult{}, err
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts,chain_id,chain_depth) VALUES(?,?,?,'queued','mention',?,?,?,?,?,0)`, runID, issueID, agent.ID, commentID, capSnapshot(content), t, maxAttempts, runID); err != nil {
 					return AddCommentResult{}, normalizeErr(err)
 				}
 				if _, err := appendRunEventTx(ctx, tx, RunEventInput{
@@ -468,8 +471,11 @@ func (s *Store) createAutopilotIssueRunAndRecordSuccess(ctx context.Context, rul
 	if _, err := tx.ExecContext(ctx, `INSERT INTO issue(id,workspace_id,identifier,title,body,status,assignee_agent_id,created_by,autopilot_rule_id,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?,?,?,?)`, issueID, w.ID, identifier, title, body, nullIfEmpty(agentID), "autopilot", rule.ID, t, t); err != nil {
 		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
 	}
-	maxAttempts := retryMaxAttemptsForAgent(ctx, tx, agentID)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts) VALUES(?,?,?,'queued','autopilot',?,?,?)`, runID, issueID, agentID, capSnapshot(body), t, maxAttempts); err != nil {
+	maxAttempts, err := retryMaxAttemptsForAgent(ctx, tx, agentID)
+	if err != nil {
+		return Issue{}, Run{}, AutopilotRule{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_content_snapshot,enqueued_at,max_attempts,chain_id,chain_depth) VALUES(?,?,?,'queued','autopilot',?,?,?,?,0)`, runID, issueID, agentID, capSnapshot(body), t, maxAttempts, runID); err != nil {
 		return Issue{}, Run{}, AutopilotRule{}, normalizeErr(err)
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE autopilot_rule

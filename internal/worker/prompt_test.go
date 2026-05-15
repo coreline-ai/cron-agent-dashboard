@@ -145,3 +145,14 @@ func assertInsideFence(t *testing.T, prompt, name, phrase string) {
 		t.Fatalf("phrase %q is outside %s fence in %q", phrase, name, prompt)
 	}
 }
+
+func TestRenderPromptIncludesRunLogPath(t *testing.T) {
+	prompt := RenderPrompt(PromptInput{
+		IssueTitle: "artifact task",
+		IssueBody:  "body",
+		RunLogPath: ".corn-runs/run-1.log",
+	})
+	if !strings.Contains(prompt, "# Run artifact") || !strings.Contains(prompt, ".corn-runs/run-1.log") {
+		t.Fatalf("prompt missing run log path: %q", prompt)
+	}
+}

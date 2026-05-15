@@ -2340,3 +2340,67 @@ button.quick-action {
     order: -1;
   }
 }
+
+.field-help {
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.settings-code {
+  display: block;
+  max-height: 7rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: color-mix(in oklab, var(--background) 84%, var(--muted));
+  color: var(--muted-foreground);
+  padding: 0.65rem;
+  font-size: 0.74rem;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.checkbox-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.subissue-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.subissue-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--muted) 28%, transparent);
+  color: var(--foreground);
+  padding: 0.7rem 0.8rem;
+  text-decoration: none;
+}
+
+.subissue-card span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subissue-form {
+  margin-top: 0.85rem;
+}

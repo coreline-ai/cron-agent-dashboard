@@ -25,6 +25,7 @@ type PromptInput struct {
 	IssueTitle             string
 	IssueBody              string
 	TriggerContentSnapshot string
+	RunLogPath             string
 	RecentComments         []CommentSnippet // newest-first; only the first 3 are rendered
 	ContextCap             int
 }
@@ -53,6 +54,14 @@ func RenderPrompt(input PromptInput) string {
 		b.WriteString("\n\n# 이번 실행 트리거\n")
 		b.WriteString("다음 내용은 이 run을 직접 만든 트리거 시점의 스냅샷입니다.\n\n")
 		writeFence(&b, "TRIGGER_SNAPSHOT", triggerSnapshot)
+	}
+
+	runLogPath := strings.TrimSpace(input.RunLogPath)
+	if runLogPath != "" {
+		b.WriteString("\n\n# Run artifact\n")
+		b.WriteString("이 run의 stdout 로그는 실행 중/후 다음 workspace 상대 경로에서 확인할 수 있습니다: `")
+		b.WriteString(runLogPath)
+		b.WriteString("`")
 	}
 
 	contextText := renderRecentComments(input.RecentComments, DefaultRecentComments)

@@ -23,6 +23,13 @@ type ClaimedRun struct {
 	TimeoutSeconds         int
 }
 
+func (r ClaimedRun) RelativeRunLogPath() string {
+	if r.RunID == "" || r.WorkspaceWorkingDir == "" {
+		return ""
+	}
+	return ".corn-runs/" + r.RunID + ".log"
+}
+
 type ClaimStore interface {
 	ClaimNextRun(ctx context.Context, workerID string) (*ClaimedRun, error)
 	HeartbeatRun(ctx context.Context, runID string) error

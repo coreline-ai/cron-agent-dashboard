@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiAuth, apiClient } from '../api/client';
 import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPanel';
 import { PageHeader } from '../components/PageHeader';
-import { useSettingsQuery } from '../api/queries';
+import { WorkspaceSummary, useSettingsQuery, useWorkspacesQuery } from '../api/queries';
 
 function formatTokens(value?: number) {
   const n = value ?? 0;
@@ -33,8 +33,51 @@ function formatBytes(value?: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
+  const queryClient = useQueryClient();
+  const [timeoutSeconds, setTimeoutSeconds] = useState(String(workspace.default_timeout_seconds ?? 600));
+  const [autoChainEnabled, setAutoChainEnabled] = useState(Boolean(workspace.auto_chain_enabled));
+  const save = useMutation({
+    mutationFn: () =>
+      apiClient.put(`/workspaces/${workspace.slug}`, {
+        name: workspace.name,
+        description: workspace.description ?? '',
+        working_dir: workspace.working_dir ?? '',
+        output_dir: workspace.output_dir ?? '',
+        default_timeout_seconds: Number(timeoutSeconds) || 600,
+        auto_chain_enabled: autoChainEnabled
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', workspace.slug] });
+    }
+  });
+
+  return (
+    <section className="setting-action compact-action">
+      <div className="setting-copy">
+        <strong>{workspace.name}</strong>
+        <p>{workspace.slug} · 기본 run timeout을 초 단위로 설정합니다.</p>
+      </div>
+      <label className="field-label">
+        기본 timeout (초)
+        <input min="1" max="86400" type="number" value={timeoutSeconds} onChange={(e) => setTimeoutSeconds(e.target.value)} />
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={autoChainEnabled} onChange={(e) => setAutoChainEnabled(e.target.checked)} />
+        agent 결과 @mention 자동 체이닝 허용
+      </label>
+      <button className="button secondary" type="button" onClick={() => save.mutate()} disabled={save.isPending}>
+        {save.isPending ? '저장 중' : '저장'}
+      </button>
+      {save.isError && <p className="error-text">저장 실패: {save.error instanceof Error ? save.error.message : '알 수 없는 오류'}</p>}
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const settings = useSettingsQuery();
+  const workspaces = useWorkspacesQuery();
   const queryClient = useQueryClient();
   const data = settings.data;
   const [message, setMessage] = useState('');
@@ -85,7 +128,7 @@ export function SettingsPage() {
           <dt>런타임</dt>
           <dd>
             {data?.available_runtimes?.length
-              ? data.available_runtimes.map((runtime) => `${runtime.name}${runtime.version ? ` (${runtime.version})` : ''}`).join(', ')
+              ? data.available_runtimes.map((runtime) => `${runtime.name}${runtime.version ? ` (${runtime.version})` : ''}${runtime.warning ? ` · ${runtime.warning}` : ''}`).join(', ')
               : 'PATH에서 탐지된 런타임 없음'}
           </dd>
           <dt>7일 토큰</dt>
@@ -95,7 +138,47 @@ export function SettingsPage() {
           </dd>
           <dt>7일 비용</dt>
           <dd>{formatCostMicros(data?.usage_7d?.total_cost_micros)}</dd>
+          <dt>자동 백업</dt>
+          <dd>
+            {data?.maintenance?.auto_backup ? `ON · 최근 ${data.maintenance.auto_backup_keep}개 보존` : 'OFF'}
+          </dd>
+          <dt>자동 로그 정리</dt>
+          <dd>{data?.maintenance?.auto_cleanup_log_days ? `${data.maintenance.auto_cleanup_log_days}일 초과 run 로그 자동 삭제` : 'OFF'}</dd>
+          <dt>마이그레이션 실패</dt>
+          <dd>{data?.migration_fail_count ? `${data.migration_fail_count}건 이력 있음 · 로그/DB 확인 권장` : '없음'}</dd>
         </dl>
+      </article>
+
+      {Boolean(data?.migration_failures?.length) && (
+        <article className="panel settings-card read-only-note">
+          <div>
+            <h2>최근 마이그레이션 실패 이력</h2>
+            <p>서버는 실패한 migration을 트랜잭션 rollback 후 기록합니다. 같은 실패가 반복되면 DB 백업 후 로그를 확인하세요.</p>
+          </div>
+          <div className="settings-grid">
+            {data?.migration_failures?.map((failure) => (
+              <section className="setting-action" key={failure.id}>
+                <div className="setting-copy">
+                  <strong>{failure.version} · {failure.name}</strong>
+                  <p>{failure.failed_at}</p>
+                </div>
+                <code className="settings-code">{failure.error}</code>
+              </section>
+            ))}
+          </div>
+        </article>
+      )}
+
+      <article className="panel settings-card">
+        <div className="section-heading">
+          <div>
+            <h2>워크스페이스 실행 기본값</h2>
+            <p>에이전트별 override가 없을 때 적용되는 기본 run timeout입니다.</p>
+          </div>
+        </div>
+        <div className="settings-grid two">
+          {workspaces.data?.length ? workspaces.data.map((workspace) => <WorkspaceTimeoutRow key={workspace.id} workspace={workspace} />) : <p>워크스페이스가 아직 없습니다.</p>}
+        </div>
       </article>
 
       <article className="panel settings-card">

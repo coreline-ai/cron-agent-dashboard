@@ -194,3 +194,48 @@ curl -fsS http://127.0.0.1:8080/api/settings \
 ```
 
 Retry 대기 중인 run은 `status=queued`와 `next_retry_at`을 함께 가진다. timeout/executor_error만 자동 retry 대상이며, max attempts 이후에는 일반 failed run으로 마감된다.
+
+## Automatic maintenance
+
+서버는 기본값으로 자동 유지보수를 수행한다.
+
+- `--auto-backup=true`: 실행 직후 및 `--maintenance-interval`마다 SQLite DB를 `data_dir/backups/data-<timestamp>.db`로 백업한다.
+- `--auto-backup-keep=7`: 자동 백업 파일은 최신 N개만 보존한다.
+- `--auto-cleanup-log-days=90`: 지정 일수보다 오래된 `runs/*.log` 파일을 삭제한다. DB의 issue/comment/run 기록은 유지된다.
+- `/settings`에서 현재 자동 유지보수 설정과 workspace별 기본 run timeout을 확인할 수 있다.
+
+자동 백업을 끄려면 `CORN_AGENT_DASHBOARD_AUTO_BACKUP=false` 또는 `--auto-backup=false`로 실행한다.
+
+## Migration failure visibility
+
+마이그레이션은 파일 단위 트랜잭션으로 적용된다. 실패하면 해당 migration은 rollback되고 `schema_migration_failures`에 버전, 이름, 오류 메시지, 실패 시각이 기록된다.
+
+확인 방법:
+
+```bash
+curl -fsS http://127.0.0.1:8080/api/settings \
+  | jq '.migration_failures'
+```
+
+실패 이력이 있으면 먼저 DB를 백업한 뒤 서버 로그와 migration 파일을 확인한다.
+
+## Phase 2 collaboration operations
+
+### Auto-chain
+
+자동 체이닝은 workspace별 opt-in이다. `/settings`에서 “agent 결과 @mention 자동 체이닝 허용”을 켜면 완료된 agent 결과 댓글의 첫 `@AgentName`이 다음 run으로 등록된다.
+
+운영 가드:
+
+- 최대 depth 5
+- 같은 chain 내 동일 agent 재호출 차단
+- dispatch 결과 system comment + run_event 기록
+- 문제가 생기면 workspace toggle을 OFF로 전환
+
+### Run log context sharing
+
+각 run은 stdout 로그를 workspace 내부 `.corn-runs/<run-id>.log`에 symlink한다. symlink가 불가능한 파일시스템에서는 같은 경로에 실제 로그 파일 경로를 담은 pointer file을 쓴다. Prompt에도 이 상대 경로가 안내된다.
+
+### Retry policy
+
+Agent 상세에서 max attempts, backoff seconds, retry 대상 failure kind를 조정할 수 있다. 기본은 timeout/executor_error만 재시도하며 backoff는 10초 → 60초 → 5분이다.

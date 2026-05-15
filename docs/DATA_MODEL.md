@@ -26,6 +26,7 @@
 | `run` | 이슈당 1~3 | 실행 audit |
 | `autopilot_rule` | 워크스페이스당 0~5 | cron 자동화 |
 | `schema_migrations` | (메타) | 마이그레이션 이력 |
+| `schema_migration_failures` | (메타) | 실패한 마이그레이션 이력 |
 
 ---
 
@@ -124,7 +125,7 @@ CREATE INDEX idx_issue_workspace_identifier ON issue(workspace_id, identifier);
 **제약 / 규칙**:
 - `identifier`: 자동 생성. `<workspace.identifier_prefix>-<seq>`. seq는 workspace.next_issue_seq에서 발급.
 - `assignee_agent_id`: 기본 담당. NULL 가능 → 메인 에이전트로 fallback. **멘션이 들어와도 변경되지 않는다** (멘션은 run.agent_id만 다르게 만듦).
-- `parent_issue_id`: **Phase 1 예약 필드** — UI/API 노출 안 함. Phase 2에서 sub-issue 기능 도입 시 활성화.
+- `parent_issue_id`: Sub-issue 기능에서 활성 사용. 부모 이슈 삭제 시 child는 유지하되 parent reference는 NULL 처리된다.
 - `created_by`: audit 용도. `'user' | 'autopilot'` 만. 멘션으로 만들어진 run의 트리거는 issue가 아니라 run의 `trigger_type`으로 기록.
 - **`status`는 사용자 의도. 실행 상태는 run.status에서 derive (`execution_status`)**.
 - 자동 전이: 마지막 run.status='done' → issue.status='done'. 그 외 (running/queued/failed/cancelled run) → issue.status는 'open' 유지.
@@ -734,3 +735,62 @@ ALTER TABLE issue ADD COLUMN auto_chain_enabled INTEGER NOT NULL DEFAULT 0 CHECK
 - source run이 `failed` 또는 `cancelled`이면 chain을 중단하는 것을 권장한다.
 - 후보 `trigger_type`은 `agent_mention` 또는 `auto_mention` 중 하나를 선택한다. 현재 enum에는 둘 다 없다.
 - agent 결과에 여러 mention이 있으면 첫 번째만 실행하거나 별도 설정을 둔다.
+
+
+### 2.8 schema_migration_failures (메타)
+
+마이그레이션 실패 시 개별 migration 트랜잭션은 rollback되고, 실패 버전/이름/오류/시간은 이 테이블에 best-effort로 기록된다. `/api/settings`는 최근 실패 5개를 노출한다.
+
+```sql
+CREATE TABLE schema_migration_failures (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  error TEXT NOT NULL,
+  failed_at TEXT NOT NULL
+);
+```
+
+## 7. Phase 2 collaboration fields
+
+Migration `0012_phase2_collaboration.sql` activates previously reserved collaboration primitives.
+
+### workspace
+
+- `auto_chain_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auto_chain_enabled IN (0,1))`
+  - 기본 OFF.
+  - ON이면 완료된 agent 결과 댓글의 첫 `@AgentName`이 auto-chain 후보가 된다.
+
+### agent
+
+- `summary TEXT NOT NULL DEFAULT ''`
+  - UI 목록/선택에서 보이는 한 줄 역할 요약.
+- `tags TEXT NOT NULL DEFAULT ''`
+  - 쉼표 구분 태그. 자동 routing에는 아직 사용하지 않고 검색/식별용이다.
+
+### issue
+
+- `parent_issue_id`가 Sub-issue API/UI에서 사용된다.
+  - `POST /api/issues/{id}/subissues`는 같은 workspace에 child issue를 만들고 이 필드를 채운다.
+
+### run lineage
+
+- `parent_run_id TEXT REFERENCES run(id) ON DELETE SET NULL`
+- `chain_id TEXT NOT NULL DEFAULT ''`
+- `chain_depth INTEGER NOT NULL DEFAULT 0 CHECK (chain_depth >= 0 AND chain_depth <= 20)`
+
+Root run은 `chain_id=<run_id>`, `chain_depth=0`이다. Auto-chain run은 source run을 `parent_run_id`로 기록하고 같은 `chain_id`를 공유한다.
+
+### retry_policy_json
+
+Agent retry policy는 다음 optional field를 지원한다.
+
+```json
+{
+  "max_attempts": 3,
+  "backoff_seconds": [10, 60, 300],
+  "retry_on": ["timeout", "executor_error"]
+}
+```
+
+잘못된 JSON, `max_attempts` 범위(1~5) 초과, backoff 초 범위(1~3600) 초과, 허용되지 않은 `retry_on` 값은 validation error다.

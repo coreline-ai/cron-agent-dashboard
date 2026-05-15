@@ -1,6 +1,8 @@
 package db
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -35,5 +37,28 @@ func TestOpenAndMigrateAppliesSchemaAndPragmas(t *testing.T) {
 	}
 	if journal != "wal" {
 		t.Fatalf("journal_mode=%q, want wal", journal)
+	}
+}
+
+func TestMigrationFailureMetadataRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+	m := migration{Version: 999, Name: "bad_migration"}
+	if err := recordMigrationFailure(database, m, errors.New("boom")); err != nil {
+		t.Fatalf("recordMigrationFailure: %v", err)
+	}
+	failures, err := RecentMigrationFailures(context.Background(), database, 5)
+	if err != nil {
+		t.Fatalf("RecentMigrationFailures: %v", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("failures=%#v", failures)
+	}
+	if failures[0].Version != 999 || failures[0].Name != "bad_migration" || failures[0].Error != "boom" || failures[0].FailedAt == "" {
+		t.Fatalf("failure row=%#v", failures[0])
 	}
 }

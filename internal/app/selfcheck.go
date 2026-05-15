@@ -22,6 +22,7 @@ type StartupCheckReport struct {
 	OrphanProcessGroupsTerminated int      `json:"orphan_process_groups_terminated"`
 	OrphanProcessGroupsSkipped    int      `json:"orphan_process_groups_skipped"`
 	OrphanRunsRecovered           int64    `json:"orphan_runs_recovered"`
+	MigrationFailureCount         int      `json:"migration_failure_count"`
 }
 
 func (r StartupCheckReport) LogFields() []any {
@@ -35,6 +36,7 @@ func (r StartupCheckReport) LogFields() []any {
 		"orphan_process_groups_terminated", r.OrphanProcessGroupsTerminated,
 		"orphan_process_groups_skipped", r.OrphanProcessGroupsSkipped,
 		"orphan_runs_recovered", r.OrphanRunsRecovered,
+		"migration_failure_count", r.MigrationFailureCount,
 	}
 }
 
@@ -103,6 +105,9 @@ func RunStartupSelfCheckWithOptions(ctx context.Context, st *store.Store, opts S
 
 	if err := st.DB().GetContext(ctx, &report.WorkspaceCount, `SELECT COUNT(*) FROM workspace`); err != nil {
 		return report, fmt.Errorf("count workspaces: %w", err)
+	}
+	if err := st.DB().GetContext(ctx, &report.MigrationFailureCount, `SELECT COUNT(*) FROM schema_migration_failures`); err != nil {
+		return report, fmt.Errorf("count migration failures: %w", err)
 	}
 	report.MainAgentIssues, err = mainAgentIssues(ctx, st)
 	if err != nil {

@@ -33,7 +33,7 @@ export function AgentsPage() {
       if (!q) {
         return true;
       }
-      return [agent.name, agent.runtime, agent.model || '기본', agent.instructions]
+      return [agent.name, agent.runtime, agent.model || '기본', agent.summary, agent.tags, agent.instructions]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(q));
     });
@@ -89,7 +89,7 @@ export function AgentsPage() {
             <span>Runtime</span>
             <span>Model</span>
             <span>Role</span>
-            <span>Instructions</span>
+            <span>Summary / Tags</span>
           </div>
           {visibleAgents.map((agent) => (
             <Link className="data-row" key={agent.id} to={`/w/${slug}/agents/${agent.id}`}>
@@ -100,7 +100,7 @@ export function AgentsPage() {
               <span>{agent.runtime}</span>
               <span>{agent.model || '기본'}</span>
               <span>{agent.is_main ? <span className="badge">main</span> : 'worker'}</span>
-              <span className="truncate">{agent.instructions || '-'}</span>
+              <span className="truncate">{agent.summary || agent.tags || agent.instructions || '-'}</span>
             </Link>
           ))}
         </div>

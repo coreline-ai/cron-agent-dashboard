@@ -91,7 +91,7 @@ func serve(cfg config.Config, st *store.Store) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_process_groups_terminated=%d orphan_process_groups_skipped=%d orphan_runs_recovered=%d",
+	log.Printf("startup self-check ok: integrity=%s journal_mode=%s foreign_keys=%t busy_timeout_ms=%d workspaces=%d foreign_key_violations=%d orphan_process_groups_terminated=%d orphan_process_groups_skipped=%d orphan_runs_recovered=%d migration_failures=%d",
 		report.IntegrityCheck,
 		report.JournalMode,
 		report.ForeignKeysEnabled,
@@ -101,6 +101,7 @@ func serve(cfg config.Config, st *store.Store) error {
 		report.OrphanProcessGroupsTerminated,
 		report.OrphanProcessGroupsSkipped,
 		report.OrphanRunsRecovered,
+		report.MigrationFailureCount,
 	)
 
 	workerStore := app.NewWorkerStore(st, app.WithDefaultWorkDir(filepath.Join(cfg.DataDir, "workdirs")))
@@ -121,6 +122,16 @@ func serve(cfg config.Config, st *store.Store) error {
 	if err := autopilot.Reload(runCtx); err != nil {
 		return err
 	}
+
+	maintenance := app.NewMaintenanceRunner(st.DB(), app.MaintenanceConfig{
+		DataDir:            cfg.DataDir,
+		DBPath:             cfg.DBPath,
+		AutoBackup:         cfg.AutoBackup,
+		AutoBackupKeep:     cfg.AutoBackupKeep,
+		AutoCleanupLogDays: cfg.AutoCleanupLogDays,
+		Interval:           cfg.MaintenanceInterval,
+	})
+	maintenance.Start(runCtx)
 
 	srv := &http.Server{
 		Addr:              cfg.Bind,
@@ -145,6 +156,7 @@ func serve(cfg config.Config, st *store.Store) error {
 			return err
 		}
 	}
+	stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -152,6 +164,9 @@ func serve(cfg config.Config, st *store.Store) error {
 		return err
 	}
 	if err := autopilot.Stop(shutdownCtx); err != nil {
+		return err
+	}
+	if err := maintenance.Stop(shutdownCtx); err != nil {
 		return err
 	}
 	if err := pool.Shutdown(shutdownCtx); err != nil {

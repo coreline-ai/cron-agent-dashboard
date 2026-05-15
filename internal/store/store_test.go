@@ -21,6 +21,8 @@ func newTestStore(t *testing.T) *Store {
 	return New(database)
 }
 
+func intPtr(v int) *int { return &v }
+
 func TestStoreIssueRunAndWorkspaceSerialClaim(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
@@ -183,6 +185,75 @@ func TestAgentModelIsUserSelectable(t *testing.T) {
 	}
 	if updated.Model != "custom-model-id" {
 		t.Fatalf("updated agent model=%q, want custom-model-id", updated.Model)
+	}
+}
+
+func TestWorkspaceAndAgentResourceControlsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	mainTimeout := 45
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:                  "Controls",
+		Slug:                  "controls",
+		IdentifierPrefix:      "CTL",
+		DefaultTimeoutSeconds: 120,
+		MainAgent:             CreateAgentInput{Name: "Main", Runtime: "codex", Instructions: "lead", TimeoutSecondsOverride: &mainTimeout, RetryPolicyJSON: `{"max_attempts":2}`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.DefaultTimeoutSeconds != 120 {
+		t.Fatalf("workspace timeout=%d, want 120", ws.DefaultTimeoutSeconds)
+	}
+	if !main.TimeoutSecondsOverride.Valid || main.TimeoutSecondsOverride.Int64 != 45 || main.RetryPolicyJSON != `{"max_attempts":2}` {
+		t.Fatalf("main controls not persisted: %#v", main)
+	}
+
+	ws, err = st.UpdateWorkspace(ctx, ws.ID, UpdateWorkspaceInput{Name: ws.Name, Description: "updated", DefaultTimeoutSeconds: intPtr(300)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.DefaultTimeoutSeconds != 300 {
+		t.Fatalf("updated workspace timeout=%d, want 300", ws.DefaultTimeoutSeconds)
+	}
+
+	agentTimeout := 90
+	agent, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "Worker", Runtime: "codex", Instructions: "work", TimeoutSecondsOverride: &agentTimeout, RetryPolicyJSON: `{"max_attempts":3}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !agent.TimeoutSecondsOverride.Valid || agent.TimeoutSecondsOverride.Int64 != 90 || agent.RetryPolicyJSON != `{"max_attempts":3}` {
+		t.Fatalf("agent controls not persisted: %#v", agent)
+	}
+
+	updatedTimeout := 0
+	updated, err := st.UpdateAgent(ctx, agent.ID, CreateAgentInput{Name: "Worker", Runtime: "codex", Instructions: "work", TimeoutSecondsOverride: &updatedTimeout, RetryPolicyJSON: `{"max_attempts":1}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.TimeoutSecondsOverride.Valid || updated.RetryPolicyJSON != `{"max_attempts":1}` {
+		t.Fatalf("agent controls after update: %#v", updated)
+	}
+}
+
+func TestAgentRetryPolicyValidation(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{Name: "Retry Validation", Slug: "retry-validation", IdentifierPrefix: "RTY", MainAgent: CreateAgentInput{Name: "Main", Runtime: "codex", Instructions: "lead"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "BadJSON", Runtime: "codex", Instructions: "bad", RetryPolicyJSON: `{bad}`}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("bad retry policy err=%v, want ErrValidation", err)
+	}
+	if _, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "TooMany", Runtime: "codex", Instructions: "bad", RetryPolicyJSON: `{"max_attempts":99}`}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("too many attempts err=%v, want ErrValidation", err)
+	}
+	if _, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "BadBackoff", Runtime: "codex", Instructions: "bad", RetryPolicyJSON: `{"max_attempts":2,"backoff_seconds":[0]}`}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("bad backoff err=%v, want ErrValidation", err)
+	}
+	if _, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "BadKind", Runtime: "codex", Instructions: "bad", RetryPolicyJSON: `{"max_attempts":2,"retry_on":["worker_panic"]}`}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("bad retry_on err=%v, want ErrValidation", err)
 	}
 }
 
@@ -645,5 +716,87 @@ func TestAddCommentDispatchesUnicodeMention(t *testing.T) {
 	}
 	if result.DispatchedRun == nil || result.DispatchedRun.AgentID != agent.ID {
 		t.Fatalf("unicode mention did not dispatch to agent: %#v", result.DispatchedRun)
+	}
+}
+
+func TestSubIssueAndAutoChainOptIn(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, main, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{Name: "Chain", Slug: "chain", IdentifierPrefix: "CHN", AutoChainEnabled: true, MainAgent: CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, parentRun, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, subRun, err := st.CreateSubIssue(ctx, parent.ID, CreateIssueInput{Title: "child", AssigneeAgentID: writer.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.ParentIssueID != parent.ID || subRun.AgentID != writer.ID {
+		t.Fatalf("bad subissue=%#v run=%#v", sub, subRun)
+	}
+	subs, err := st.ListSubIssues(ctx, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 1 || subs[0].ID != sub.ID {
+		t.Fatalf("subs=%#v", subs)
+	}
+
+	claimed, ok, err := st.ClaimNextRun(ctx, "worker")
+	if err != nil || !ok {
+		t.Fatalf("claim parent ok=%v err=%v", ok, err)
+	}
+	if claimed.AgentID != main.ID || claimed.ID != parentRun.ID {
+		t.Fatalf("unexpected claim=%#v", claimed)
+	}
+	if _, err := st.CompleteRun(ctx, parentRun.ID, 0, "", "@Writer draft this", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := st.ListRuns(ctx, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs=%#v", runs)
+	}
+	chained := runs[1]
+	if chained.AgentID != writer.ID || chained.ParentRunID != parentRun.ID || chained.ChainID != parentRun.ID || chained.ChainDepth != 1 {
+		t.Fatalf("bad chained run=%#v", chained)
+	}
+}
+
+func TestAutoChainDisabledByDefault(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{Name: "No Chain", Slug: "no-chain", IdentifierPrefix: "NCH", MainAgent: CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write"}); err != nil {
+		t.Fatal(err)
+	}
+	issue, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRun(ctx, run.ID, 0, "", "@Writer draft this", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := st.ListRuns(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("auto-chain should be disabled by default, runs=%#v", runs)
 	}
 }

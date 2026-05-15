@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -109,6 +110,24 @@ func (e *RuntimeExecutor) Execute(ctx context.Context, run worker.ExecutionConte
 		result.Metrics = parser.ParseMetrics(stdout, result.StderrTail)
 	}
 	return result
+}
+
+func (e *RuntimeExecutor) linkRunLog(ctx context.Context, run worker.ExecutionContext, stdoutPath string) error {
+	_ = ctx
+	if run.WorkspaceWorkingDir == "" || run.RunID == "" || stdoutPath == "" {
+		return nil
+	}
+	dir := filepath.Join(run.WorkspaceWorkingDir, ".corn-runs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	linkPath := filepath.Join(dir, run.RunID+".log")
+	_ = os.Remove(linkPath)
+	if err := os.Symlink(stdoutPath, linkPath); err != nil {
+		// Some filesystems disallow symlinks; write a small pointer file instead.
+		return os.WriteFile(linkPath, []byte(stdoutPath+"\n"), 0o600)
+	}
+	return nil
 }
 
 func (e *RuntimeExecutor) recordProcessStart(ctx context.Context, run worker.ExecutionContext, info worker.ProcessInfo) error {

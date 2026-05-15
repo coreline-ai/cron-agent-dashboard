@@ -550,3 +550,18 @@ func do(t *testing.T, h http.Handler, method, path, body string) *httptest.Respo
 	h.ServeHTTP(res, req)
 	return res
 }
+
+func TestRuntimeCompatibilityWarning(t *testing.T) {
+	if runtimeVersionSupported("") {
+		t.Fatal("empty version should be marked unsupported")
+	}
+	if runtimeCompatibilityWarning("") == "" {
+		t.Fatal("empty version should return a user-facing warning")
+	}
+	if !runtimeVersionSupported("codex 1.2.3") {
+		t.Fatal("non-empty version should be supported by best-effort sanity check")
+	}
+	if runtimeCompatibilityWarning("codex 1.2.3") != "" {
+		t.Fatal("non-empty version should not warn without a known minimum version")
+	}
+}

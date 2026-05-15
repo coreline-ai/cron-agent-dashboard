@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
@@ -50,5 +52,21 @@ func TestRuntimeExecutorProcessMarkerFailureIsBestEffort(t *testing.T) {
 	}
 	if marker.calls != 2 {
 		t.Fatalf("marker calls=%d, want 2", marker.calls)
+	}
+}
+
+func TestRuntimeExecutorLinksRunLogIntoWorkspace(t *testing.T) {
+	workspaceDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "run.log")
+	if err := os.WriteFile(logPath, []byte("stdout"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executor := &RuntimeExecutor{}
+	if err := executor.linkRunLog(context.Background(), worker.ExecutionContext{RunID: "run-1", WorkspaceWorkingDir: workspaceDir}, logPath); err != nil {
+		t.Fatalf("linkRunLog: %v", err)
+	}
+	linkPath := filepath.Join(workspaceDir, ".corn-runs", "run-1.log")
+	if _, err := os.Stat(linkPath); err != nil {
+		t.Fatalf("expected log link or pointer file: %v", err)
 	}
 }

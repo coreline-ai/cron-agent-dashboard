@@ -7,6 +7,10 @@ export type WorkspaceSummary = {
   name: string;
   description: string;
   identifier_prefix: string;
+  working_dir?: string;
+  output_dir?: string;
+  default_timeout_seconds?: number;
+  auto_chain_enabled?: boolean;
   agent_count?: number;
   open_issue_count?: number;
 };
@@ -22,7 +26,11 @@ export type Agent = {
   runtime: string;
   model?: string;
   instructions: string;
+  summary?: string;
+  tags?: string;
   is_main: boolean;
+  timeout_seconds_override?: number | null;
+  retry_policy_json?: string;
 };
 
 export type Issue = {
@@ -35,6 +43,7 @@ export type Issue = {
   execution_status: ExecutionStatus;
   assignee_agent_id?: string;
   assignee_agent_name?: string;
+  parent_issue_id?: string;
   created_by?: string;
   autopilot_rule_id?: string;
   last_run_agent_id?: string;
@@ -64,6 +73,9 @@ export type Run = {
   trigger_type: string;
   trigger_comment_id?: string;
   trigger_content_snapshot?: string;
+  parent_run_id?: string;
+  chain_id?: string;
+  chain_depth?: number;
   log_url?: string;
   error_message?: string;
   exit_code?: number | null;
@@ -153,6 +165,20 @@ export type SettingsResponse = {
     total_cost_micros: number;
     measured_run_count: number;
   };
+  migration_fail_count?: number;
+  migration_failures?: Array<{
+    id: number;
+    version: number;
+    name: string;
+    error: string;
+    failed_at: string;
+  }>;
+  maintenance?: {
+    auto_backup: boolean;
+    auto_backup_keep: number;
+    auto_cleanup_log_days: number;
+    interval_seconds: number;
+  };
   run_lifecycle?: {
     heartbeat_interval_seconds: number;
     stale_after_seconds: number;
@@ -162,6 +188,8 @@ export type SettingsResponse = {
     name: string;
     version: string;
     path: string;
+    supported?: boolean;
+    warning?: string;
   }>;
 };
 
@@ -246,6 +274,15 @@ export function useWorkspaceIssueQuery(slug: string | undefined, identifier: str
     },
     queryFn: async () =>
       (await apiClient.get<{ issue: Issue }>(`/workspaces/${slug}/issues/${identifier}`)).issue
+  });
+}
+
+
+export function useSubIssuesQuery(issueId: string | undefined) {
+  return useQuery({
+    queryKey: ['subissues', issueId],
+    enabled: Boolean(issueId),
+    queryFn: async () => (await apiClient.get<{ issues: Issue[] | null }>(`/issues/${issueId}/subissues`)).issues ?? []
   });
 }
 

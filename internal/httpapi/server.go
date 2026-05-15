@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -16,8 +15,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/coreline-ai/corn-agent-dashboard/internal/app"
 	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
+	dbmeta "github.com/coreline-ai/corn-agent-dashboard/internal/db"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
 	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
 )
@@ -97,6 +98,8 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 		api.Post("/api/issues/{id}/rerun", s.rerunIssue)
 		api.Post("/api/issues/{id}/cancel", s.cancelIssueRun)
 		api.Delete("/api/issues/{id}", s.deleteIssue)
+		api.Get("/api/issues/{id}/subissues", s.listSubIssues)
+		api.Post("/api/issues/{id}/subissues", s.createSubIssue)
 		api.Get("/api/issues/{id}/comments", s.listComments)
 		api.Post("/api/issues/{id}/comments", s.addComment)
 		api.Get("/api/issues/{id}/runs", s.listRuns)
@@ -169,14 +172,23 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	usage, _ := s.store.RunUsageSummary(r.Context(), time.Now().Add(-7*24*time.Hour).UTC().Format(time.RFC3339Nano))
+	migrationFailures, _ := dbmeta.RecentMigrationFailures(r.Context(), s.store.DB(), 5)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":            Version,
-		"data_dir":           s.cfg.DataDir,
-		"available_runtimes": availableRuntimes(),
-		"worker_pool_size":   s.cfg.Workers,
-		"auth_mode":          s.cfg.AuthMode(),
-		"timezone":           s.cfg.Timezone,
-		"usage_7d":           usage,
+		"version":              Version,
+		"data_dir":             s.cfg.DataDir,
+		"available_runtimes":   availableRuntimes(),
+		"worker_pool_size":     s.cfg.Workers,
+		"auth_mode":            s.cfg.AuthMode(),
+		"timezone":             s.cfg.Timezone,
+		"usage_7d":             usage,
+		"migration_failures":   migrationFailures,
+		"migration_fail_count": len(migrationFailures),
+		"maintenance": map[string]any{
+			"auto_backup":           s.cfg.AutoBackup,
+			"auto_backup_keep":      s.cfg.AutoBackupKeep,
+			"auto_cleanup_log_days": s.cfg.AutoCleanupLogDays,
+			"interval_seconds":      int64(s.cfg.MaintenanceInterval / time.Second),
+		},
 		"run_lifecycle": map[string]any{
 			"heartbeat_interval_seconds":  int(worker.DefaultHeartbeatInterval / time.Second),
 			"stale_after_seconds":         int(worker.DefaultStaleAfter / time.Second),
@@ -192,18 +204,20 @@ func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name             string                 `json:"name"`
-		Slug             string                 `json:"slug"`
-		Description      string                 `json:"description"`
-		IdentifierPrefix string                 `json:"identifier_prefix"`
-		WorkingDir       string                 `json:"working_dir"`
-		OutputDir        string                 `json:"output_dir"`
-		MainAgent        store.CreateAgentInput `json:"main_agent"`
+		Name                  string                 `json:"name"`
+		Slug                  string                 `json:"slug"`
+		Description           string                 `json:"description"`
+		IdentifierPrefix      string                 `json:"identifier_prefix"`
+		WorkingDir            string                 `json:"working_dir"`
+		OutputDir             string                 `json:"output_dir"`
+		DefaultTimeoutSeconds int                    `json:"default_timeout_seconds"`
+		AutoChainEnabled      bool                   `json:"auto_chain_enabled"`
+		MainAgent             store.CreateAgentInput `json:"main_agent"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: req.WorkingDir, OutputDir: req.OutputDir, MainAgent: req.MainAgent})
+	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: req.WorkingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, MainAgent: req.MainAgent})
 	respond(w, map[string]any{"workspace": ws, "main_agent": agent}, err, http.StatusCreated)
 }
 
@@ -213,16 +227,11 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		WorkingDir  string `json:"working_dir"`
-		OutputDir   string `json:"output_dir"`
-	}
+	var req store.UpdateWorkspaceInput
 	if !decode(w, r, &req) {
 		return
 	}
-	ws, err := s.store.UpdateWorkspace(r.Context(), chi.URLParam(r, "workspace"), req.Name, req.Description, req.WorkingDir, req.OutputDir)
+	ws, err := s.store.UpdateWorkspace(r.Context(), chi.URLParam(r, "workspace"), req)
 	respond(w, map[string]any{"workspace": ws}, err, http.StatusOK)
 }
 
@@ -397,6 +406,24 @@ func (s *Server) deleteIssue(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]any{"deleted": true, "id": id}, err, http.StatusOK)
 }
 
+func (s *Server) listSubIssues(w http.ResponseWriter, r *http.Request) {
+	xs, err := s.store.ListSubIssues(r.Context(), chi.URLParam(r, "id"))
+	respond(w, map[string]any{"issues": xs}, err, http.StatusOK)
+}
+
+func (s *Server) createSubIssue(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title           string `json:"title"`
+		Body            string `json:"body"`
+		AssigneeAgentID string `json:"assignee_agent_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	issue, run, err := s.store.CreateSubIssue(r.Context(), chi.URLParam(r, "id"), store.CreateIssueInput{Title: req.Title, Body: req.Body, AssigneeAgentID: req.AssigneeAgentID})
+	respond(w, map[string]any{"issue": issue, "run": run}, err, http.StatusCreated)
+}
+
 func (s *Server) listComments(w http.ResponseWriter, r *http.Request) {
 	xs, err := s.store.ListComments(r.Context(), chi.URLParam(r, "id"))
 	respond(w, map[string]any{"comments": xs}, err, http.StatusOK)
@@ -546,18 +573,8 @@ func (s *Server) cleanupLogs(w http.ResponseWriter, r *http.Request) {
 		req.Days = 30
 	}
 	cutoff := time.Now().Add(-time.Duration(req.Days) * 24 * time.Hour)
-	var deleted int
-	var freed int64
-	filepath.Walk(filepath.Join(s.cfg.DataDir, "runs"), func(p string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && info.ModTime().Before(cutoff) {
-			freed += info.Size()
-			if os.Remove(p) == nil {
-				deleted++
-			}
-		}
-		return nil
-	})
-	writeJSON(w, http.StatusOK, map[string]any{"deleted_files": deleted, "freed_bytes": freed})
+	report, err := app.CleanupRunLogs(s.cfg.DataDir, cutoff)
+	respond(w, map[string]any{"deleted_files": report.DeletedFiles, "freed_bytes": report.FreedBytes}, err, http.StatusOK)
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -621,9 +638,11 @@ func (s *Server) reloadAutopilot(ctx context.Context) {
 }
 
 type RuntimeInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Path    string `json:"path"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Path      string `json:"path"`
+	Supported bool   `json:"supported"`
+	Warning   string `json:"warning,omitempty"`
 }
 
 func availableRuntimeNames() []string {
@@ -655,7 +674,8 @@ func availableRuntimes() []RuntimeInfo {
 	out := []RuntimeInfo{}
 	for _, n := range names {
 		if p, err := exec.LookPath(n); err == nil {
-			out = append(out, RuntimeInfo{Name: n, Path: p, Version: runtimeVersion(context.Background(), p)})
+			version := runtimeVersion(context.Background(), p)
+			out = append(out, RuntimeInfo{Name: n, Path: p, Version: version, Supported: runtimeVersionSupported(version), Warning: runtimeCompatibilityWarning(version)})
 		}
 	}
 
@@ -664,6 +684,17 @@ func availableRuntimes() []RuntimeInfo {
 	runtimeInfoCache.expiresAt = now.Add(5 * time.Second)
 	runtimeInfoCache.Unlock()
 	return out
+}
+
+func runtimeVersionSupported(version string) bool {
+	return strings.TrimSpace(version) != ""
+}
+
+func runtimeCompatibilityWarning(version string) string {
+	if strings.TrimSpace(version) == "" {
+		return "--version 확인 실패: CLI 설치와 비대화형 실행 인자 호환성을 확인하세요."
+	}
+	return ""
 }
 
 func cloneRuntimeInfos(in []RuntimeInfo) []RuntimeInfo {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -16,15 +17,19 @@ const (
 )
 
 type Config struct {
-	DataDir     string   `json:"data_dir"`
-	DBPath      string   `json:"db_path"`
-	Bind        string   `json:"bind"`
-	Token       string   `json:"-"`
-	CORS        []string `json:"cors"`
-	Workers     int      `json:"workers"`
-	Timezone    string   `json:"timezone"`
-	BackupTo    string   `json:"-"`
-	RestoreFrom string   `json:"-"`
+	DataDir             string        `json:"data_dir"`
+	DBPath              string        `json:"db_path"`
+	Bind                string        `json:"bind"`
+	Token               string        `json:"-"`
+	CORS                []string      `json:"cors"`
+	Workers             int           `json:"workers"`
+	Timezone            string        `json:"timezone"`
+	BackupTo            string        `json:"-"`
+	RestoreFrom         string        `json:"-"`
+	AutoBackup          bool          `json:"auto_backup"`
+	AutoBackupKeep      int           `json:"auto_backup_keep"`
+	AutoCleanupLogDays  int           `json:"auto_cleanup_log_days"`
+	MaintenanceInterval time.Duration `json:"-"`
 }
 
 func Default() (Config, error) {
@@ -34,12 +39,16 @@ func Default() (Config, error) {
 	}
 	dataDir := filepath.Join(home, ".corn-agent-dashboard")
 	return Config{
-		DataDir:  dataDir,
-		DBPath:   filepath.Join(dataDir, "data.db"),
-		Bind:     DefaultBind,
-		CORS:     []string{"http://127.0.0.1:5173", "http://localhost:5173"},
-		Workers:  DefaultWorkers,
-		Timezone: DefaultTimezone,
+		DataDir:             dataDir,
+		DBPath:              filepath.Join(dataDir, "data.db"),
+		Bind:                DefaultBind,
+		CORS:                []string{"http://127.0.0.1:5173", "http://localhost:5173"},
+		Workers:             DefaultWorkers,
+		Timezone:            DefaultTimezone,
+		AutoBackup:          true,
+		AutoBackupKeep:      7,
+		AutoCleanupLogDays:  90,
+		MaintenanceInterval: 24 * time.Hour,
 	}, nil
 }
 
@@ -61,6 +70,10 @@ func Load(args []string) (Config, []string, error) {
 	fs.StringVar(&cfg.Timezone, "timezone", cfg.Timezone, "system timezone")
 	fs.StringVar(&cfg.BackupTo, "to", cfg.BackupTo, "backup destination path")
 	fs.StringVar(&cfg.RestoreFrom, "from", cfg.RestoreFrom, "restore source path")
+	fs.BoolVar(&cfg.AutoBackup, "auto-backup", cfg.AutoBackup, "enable automatic daily SQLite backups")
+	fs.IntVar(&cfg.AutoBackupKeep, "auto-backup-keep", cfg.AutoBackupKeep, "number of automatic backups to keep")
+	fs.IntVar(&cfg.AutoCleanupLogDays, "auto-cleanup-log-days", cfg.AutoCleanupLogDays, "delete run logs older than this many days; 0 disables")
+	fs.DurationVar(&cfg.MaintenanceInterval, "maintenance-interval", cfg.MaintenanceInterval, "automatic maintenance interval")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, nil, err
 	}
@@ -78,6 +91,15 @@ func Load(args []string) (Config, []string, error) {
 	}
 	if cfg.Timezone == "" {
 		cfg.Timezone = DefaultTimezone
+	}
+	if cfg.AutoBackupKeep <= 0 {
+		cfg.AutoBackupKeep = 7
+	}
+	if cfg.AutoCleanupLogDays < 0 {
+		cfg.AutoCleanupLogDays = 0
+	}
+	if cfg.MaintenanceInterval <= 0 {
+		cfg.MaintenanceInterval = 24 * time.Hour
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, nil, err
@@ -133,6 +155,26 @@ func applyEnv(c *Config) {
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Workers = n
+		}
+	}
+	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.AutoBackup = b
+		}
+	}
+	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.AutoBackupKeep = n
+		}
+	}
+	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.AutoCleanupLogDays = n
+		}
+	}
+	if v := os.Getenv("CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			c.MaintenanceInterval = d
 		}
 	}
 }

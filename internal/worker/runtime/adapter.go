@@ -68,6 +68,14 @@ type RunContext struct {
 
 // PromptText returns the pre-rendered prompt when available, otherwise a small
 // fallback prompt suitable for adapter smoke tests.
+
+func (r RunContext) RelativeRunLogPath() string {
+	if r.RunID == "" || r.WorkspaceWorkingDir == "" {
+		return ""
+	}
+	return ".corn-runs/" + r.RunID + ".log"
+}
+
 func (r RunContext) PromptText() string {
 	if strings.TrimSpace(r.Prompt) != "" {
 		return r.Prompt
