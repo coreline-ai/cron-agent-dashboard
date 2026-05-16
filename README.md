@@ -1,5 +1,7 @@
 <div align="center">
 
+<img width="2752" height="1536" alt="AI 에이전트 대시보드 주요 기능" src="https://github.com/user-attachments/assets/766d6a63-31fa-473a-8544-bc308460c07b" />
+
 # 🧭 Corn Agent Dashboard
 
 **혼자 쓰는 AI 에이전트 작업 트래커**
