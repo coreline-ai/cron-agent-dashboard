@@ -5,7 +5,7 @@
 **혼자 쓰는 AI 에이전트 작업 트래커**
 CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 결과를 댓글로 추적하고, 정기 작업은 Autopilot으로 자동화한다.
 
-[![Status](https://img.shields.io/badge/status-local%20MVP%20integrated-brightgreen?style=for-the-badge)](docs/ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-v0.1%20stabilized-brightgreen?style=for-the-badge)](docs/ROADMAP.md)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](#-라이선스)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=for-the-badge)](#requirements)
 [![Single Binary](https://img.shields.io/badge/deploy-single%20binary-blueviolet?style=for-the-badge)](#)
@@ -49,7 +49,10 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 ```
 
 > [!IMPORTANT]
-> **이 프로젝트는 현재 로컬 MVP 통합 완료 단계입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow까지 구현되었고 `make check` / `make e2e-smoke` / `make release-build`로 자체 검증합니다.
+> **이 프로젝트는 현재 v0.1 안정화 단계입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 13 파일 / httpapi 9 파일), sentinel 에러 6종, panic cooldown, heartbeat 기반 stale 회수, gopsutil 기반 process 검증, react-error-boundary, @xyflow/react 흐름 그래프, workspace opt-in auto-chain (5중 가드)까지 적용된 상태로 `make check`와 `go test -race ./...`를 통과했습니다. e2e/release 검증은 아래 명령으로 재현합니다.
+
+> [!TIP]
+> **품질 지표 (2026-05-16 기준)** — Go src **~7,709 LOC** · TS/TSX **~4,872 LOC** · 테스트 **25 파일 / 4,397 LOC** · `go test -race ./...` clean (9 packages) · TypeScript strict + 0 `any` · sentinel 에러 6종 · single-direction migration 14개.
 
 ---
 
@@ -86,8 +89,10 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 | Realtime | WebSocket Hub | **HTTP polling** (3s) |
 | 인증 | OAuth + PAT + Daemon Token | **무인증** (옵션: 단일 토큰) |
 | 멤버 / 권한 | RBAC + invite | **단일 사용자** |
-| Go 코드 규모 | ~25,000 LOC | **목표 ≤ 1,500 LOC** |
-| Frontend 규모 | 40+ 페이지 | **7 페이지** |
+| Go 코드 규모 | ~25,000 LOC | **~7,700 LOC + 4,400 LOC tests** |
+| Frontend 규모 | 40+ 페이지 | **7 페이지 (~4,900 LOC TS/TSX)** |
+| 테스트 | 통합/E2E 분리 | **25 test 파일 · `go test -race` clean** |
+| 마이그레이션 | Atlas/Goose | **14 single-direction SQL** (0001~0014) |
 
 ---
 
@@ -197,7 +202,7 @@ shadcn/ui · Tailwind v4 · 다크모드.
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │              HTTP Server (chi router)                    │  │
-│  │  /api/*  →  REST API (33 endpoints)                      │  │
+│  │  /api/*  →  REST API (39 endpoints)                      │  │
 │  │  /*      →  embed.FS (Vite SPA + index.html fallback)    │  │
 │  └────────────────────┬─────────────────────┬───────────────┘  │
 │                       │                     │                  │
@@ -299,6 +304,21 @@ shadcn/ui · Tailwind v4 · 다크모드.
 <td>Markdown</td>
 <td><img src="https://img.shields.io/badge/react--markdown%20%2B%20GFM-safe-9C27B0?style=flat"/></td>
 <td>`react-markdown` + `remark-gfm` 렌더링. raw HTML/script 실행 금지</td>
+</tr>
+<tr>
+<td>Lineage Graph</td>
+<td><img src="https://img.shields.io/badge/%40xyflow%2Freact-12-FF4081?style=flat"/></td>
+<td>parent issue → sub-issue/run → chained run 흐름 시각화</td>
+</tr>
+<tr>
+<td>UI Safety</td>
+<td><img src="https://img.shields.io/badge/react--error--boundary-6.1.1-FF5722?style=flat"/></td>
+<td>단일 페이지 렌더 오류가 white screen으로 번지지 않게 fallback</td>
+</tr>
+<tr>
+<td>Process Probe</td>
+<td><img src="https://img.shields.io/badge/gopsutil-v4-1A73E8?style=flat"/></td>
+<td>orphan PID/PGID 검증 후 process group kill (재기동 시 죽은 PID 제외)</td>
 </tr>
 <tr>
 <td>Storage</td>
@@ -513,9 +533,9 @@ corn-agent-dashboard serve   # 마이그레이션 자동 적용
 | [⚙️ TRD](docs/TRD.md) | 기술 요구사항 — 스택 · Runtime adapter · durable queue · 워크스페이스 직렬화 |
 | [🧱 ARCHITECTURE](docs/ARCHITECTURE.md) | 컴포넌트 · 데이터 흐름 · 상태머신 (`issue.status` vs `run.status` 분리) |
 | [🗃️ DATA MODEL](docs/DATA_MODEL.md) | 6 도메인 + 1 메타 테이블 DDL · claim 쿼리 · 트랜잭션 패턴 |
-| [🔌 API](docs/API.md) | 33 REST 엔드포인트 · 멘션 규칙 · identifier resolve |
+| [🔌 API](docs/API.md) | 39 REST 엔드포인트 · 멘션 규칙 · identifier resolve |
 | [🎨 UX FLOW](docs/UX_FLOW.md) | 7 페이지 화면 · 배지 · 사이드바 · empty state |
-| [🔗 CHAINING](docs/CHAINING.md) | explicit-only 현재 정책 · auto-chain opt-in 후보 설계(미구현) |
+| [🔗 CHAINING](docs/CHAINING.md) | explicit-only 기본 + workspace opt-in auto-chain (depth·run·cost·dry-run 5중 가드) |
 | [🗺️ ROADMAP](docs/ROADMAP.md) | Phase 0~7 · 의존성 · 리스크 |
 | [📝 CHANGELOG](CHANGELOG.md) | v0.1.0 변경 이력 · 릴리스별 추가/변경/운영 주의사항 |
 | [🚀 RELEASE NOTES v0.1.0](docs/RELEASE_NOTES_v0.1.0.md) | GitHub Release body로 사용할 수 있는 사용자 관점 릴리스 노트 |
@@ -596,6 +616,17 @@ MIT License © 2026 Coreline AI
 [⬆ 맨 위로](#-corn-agent-dashboard)
 
 </div>
+
+### 2026-05-16 안정화 리팩터
+
+- `internal/store/store.go` 1,200 LOC monolith를 13 파일로 분할 (workspace · agents · issues · runs · comments · autopilot · auto_chain · cancellation · reasons · resource_controls · run_events · models · store).
+- `internal/httpapi/server.go` 738 LOC를 9 파일로 분할(`handlers_workspace/agent/issue/run/comment/autopilot/system.go` + `server.go` + `response.go`).
+- `comments_autopilot.go` 564 LOC monolith를 `comments.go` + `autopilot.go`로 분리.
+- `enqueueAutoChainMention` 94 LOC monolith를 20 LOC + 8 헬퍼로 재구성하여 chain 가드 분기를 명확화.
+- 6개의 silent fail 패턴(`_, _ = tx.ExecContext`)을 `errors.Join` 기반 에러 전파로 교체.
+- 12건의 `fmt.Errorf` (`%w` 누락)을 sentinel 6종(`ErrStartupSelfCheckFailed`, `ErrUnknownTemplateVariable`, `ErrInvalidMigrationName`, `ErrRestoreDestinationMissing`, `ErrValidation`, `ErrRuntimeNotConfigured`)으로 통일.
+- cancel-after-claim race를 `WHERE id=? AND status='running'` 가드 + `pendingCancels` map 으로 봉쇄.
+- `classifyCancelReason`의 fragile 문자열 매칭을 lifecycle 필드 우선 정규화로 교체.
 
 ### 2026-05-15 OSS 도입 안정화
 
