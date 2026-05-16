@@ -213,6 +213,9 @@ func PruneBackups(dir string, keep int) (int, error) {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
 	deleted := 0
+	if len(files) <= keep {
+		return deleted, errors.Join(errs...)
+	}
 	for _, file := range files[keep:] {
 		if err := os.Remove(file.path); err == nil {
 			deleted++

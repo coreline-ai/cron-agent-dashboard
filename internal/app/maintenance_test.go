@@ -72,6 +72,24 @@ func TestRunMaintenanceOnceBacksUpPrunesAndCleansLogs(t *testing.T) {
 	}
 }
 
+func TestPruneBackupsKeepGreaterThanFileCount(t *testing.T) {
+	dir := t.TempDir()
+	backup := filepath.Join(dir, "data-20260516T000000Z.db")
+	if err := os.WriteFile(backup, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := PruneBackups(dir, 7)
+	if err != nil {
+		t.Fatalf("prune should not fail when keep exceeds file count: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted=%d, want 0", deleted)
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Fatalf("backup should remain: %v", err)
+	}
+}
+
 func TestRunMaintenanceOnceReportsPartialCleanupOnError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission-mode cleanup error test is Unix-oriented")
