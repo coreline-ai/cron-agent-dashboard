@@ -1,4 +1,4 @@
-# ROADMAP — corn-agent-dashboard
+# ROADMAP — cron-agent-dashboard
 
 > 페이즈별 개발 계획
 > Version: 0.1
@@ -40,19 +40,19 @@
 
 ### 의사결정 (Phase 1 시작 전 필수)
 - [x] **Frontend 스택 = Vite + React Router SPA (확정)**
-  - 근거: SSR/RSC 미사용, static export 동적 라우트 우회 비용 없음, Corn Design Reference 컴포넌트는 client-only로 추출
-  - Phase 0 액션: Corn Design Reference 프론트에서 재사용할 컴포넌트들의 RSC/`'use server'` 사용 여부 스캔 → client 변형 추출 계획 수립
-- [x] **시스템 timezone 정책**: 환경변수 `CORN_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
+  - 근거: SSR/RSC 미사용, static export 동적 라우트 우회 비용 없음, Cron Design Reference 컴포넌트는 client-only로 추출
+  - Phase 0 액션: Cron Design Reference 프론트에서 재사용할 컴포넌트들의 RSC/`'use server'` 사용 여부 스캔 → client 변형 추출 계획 수립
+- [x] **시스템 timezone 정책**: 환경변수 `CRON_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
 - [x] **꺼져 있는 동안의 cron**: 누락된 시각은 실행 안 함 (robfig 기본 동작)
 - [x] **stdout cap**: 단일 run 최대 10MB (초과 시 truncation + 경고)
 - [x] **Worker 병렬 처리 기준**: workspace 직렬화. worker pool 3은 다른 workspace 병렬 실행용
 
 ### Tasks
-- [x] `go.mod` 생성: `github.com/coreline-ai/corn-agent-dashboard`
+- [x] `go.mod` 생성: `github.com/coreline-ai/cron-agent-dashboard`
 - [x] 디렉토리 구조 생성 (`cmd/`, `internal/`, `web/`, `docs/`)
 - [x] `web/` Vite + React + TS skeleton init (Tailwind/shadcn은 후속)
 - [x] `.gitignore`, `.editorconfig`, `Makefile` 추가
-- [x] `cmd/corn-agent-dashboard/main.go` — `init`/`serve` skeleton
+- [x] `cmd/cron-agent-dashboard/main.go` — `init`/`serve` skeleton
 - [x] GitHub Actions: `make check` skeleton
 
 ### 완료 기준
@@ -208,12 +208,12 @@ cron 기반 자동 이슈 생성.
 ## Phase 4 — Frontend (5~7일)
 
 ### 목표
-7개 페이지 구현. Corn Design Reference의 스타일 토큰/컴포넌트 추출.
+7개 페이지 구현. Cron Design Reference의 스타일 토큰/컴포넌트 추출.
 
 ### Sub-phases
 
 #### P4.0 셋업 (0.5일)
-- [ ] Tailwind config (Corn Design Reference에서 복사)
+- [ ] Tailwind config (Cron Design Reference에서 복사)
 - [ ] shadcn 컴포넌트 초기 셋업 (button/dialog/input/textarea/select/badge)
 - [ ] 다크모드 (class 기반 토글, next-themes 미사용)
 - [x] API client (`web/src/api/client.ts`) — fetch wrapper + 에러 처리
@@ -280,7 +280,7 @@ cron 기반 자동 이슈 생성.
 - [x] **static routing smoke test**: `/w/foo/issues/NEWS-1` 직접 접근(=새로고침) 시 index.html fallback → client routing 작동 검증
 
 ### 완료 기준
-- `./corn-agent-dashboard serve` 한 줄로 UI + API 가능
+- `./cron-agent-dashboard serve` 한 줄로 UI + API 가능
 - 바이너리 크기 50MB 이하
 - 새로고침/직접 URL 입력으로 모든 페이지 진입 가능
 
@@ -297,8 +297,8 @@ cron 기반 자동 이슈 생성.
   - [x] orphan run 정리
   - [x] DB pragma / integrity / foreign key check 확인
 - [ ] **백업/복구**
-  - [x] `corn-agent-dashboard backup --to <path>` 명령
-  - [x] `corn-agent-dashboard restore --from <path>` 명령
+  - [x] `cron-agent-dashboard backup --to <path>` 명령
+  - [x] `cron-agent-dashboard restore --from <path>` 명령
 - [ ] **로그 관리**
   - [ ] `--log-retention-days N` 옵션
   - [ ] 부팅 시 N일 이상 된 stdout 파일 삭제
@@ -372,14 +372,14 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P5 ─▶ P6 ─▶ P7
 | stdout 캡처 race condition | 댓글 깨짐 | P2에서 종료 후 1번 INSERT (단순화) |
 | stdout 폭주 (수 GB) | 디스크 / 메모리 고갈 | 단일 run 10MB cap, 초과 시 truncation + 경고 |
 | Vite SPA 라우팅 (직접 URL 접근) | 404 | Go fallback handler가 비-API 경로를 index.html로 |
-| cron timezone | 한국 시간 vs UTC | 시스템 전역 `CORN_AGENT_DASHBOARD_TIMEZONE` (기본 Asia/Seoul) |
+| cron timezone | 한국 시간 vs UTC | 시스템 전역 `CRON_AGENT_DASHBOARD_TIMEZONE` (기본 Asia/Seoul) |
 | 꺼져 있던 동안의 cron 누락 | 사용자가 기대한 시각에 실행 안 됨 | 명시: "꺼져 있는 동안의 시각은 실행 안 함". UI에 안내. |
 | SQLite write 동시성 | lock 에러 | WAL + 짧은 트랜잭션 + busy_timeout 5초 |
 | Worker가 같은 run을 두 번 claim | 중복 실행 | BEGIN IMMEDIATE + UPDATE에 status='queued' AND id 조건 |
 | 진행 중 프로세스가 부팅 후 살아있음 | 좀비 프로세스 | `process_pgid` + `process_recorded_at` 기반 startup cleanup 후 orphan recovery |
 | CLI 미설치 환경 | UI에서 실행 불가 | 부팅 시 PATH 스캔 + 설정 페이지 안내 |
 | 단일 사용자 가정 깨짐 (외부 노출) | 보안 사고 | --bind 0.0.0.0 + 토큰 필수 강제 |
-| Corn Design Reference 컴포넌트 RSC 의존 발견 | Phase 4 작업 폭증 | Phase 0에서 사전 스캔 후 결정 |
+| Cron Design Reference 컴포넌트 RSC 의존 발견 | Phase 4 작업 폭증 | Phase 0에서 사전 스캔 후 결정 |
 
 ---
 

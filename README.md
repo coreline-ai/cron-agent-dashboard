@@ -2,7 +2,7 @@
 
 <img width="2752" height="1536" alt="AI 에이전트 대시보드 주요 기능" src="https://github.com/user-attachments/assets/766d6a63-31fa-473a-8544-bc308460c07b" />
 
-# 🧭 Corn Agent Dashboard
+# 🧭 Cron Agent Dashboard
 
 **혼자 쓰는 AI 에이전트 작업 트래커**
 CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 결과를 댓글로 추적하고, 정기 작업은 Autopilot으로 자동화한다.
@@ -169,11 +169,11 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 
 ## 🎯 왜 만드는가
 
-기존 **Corn Design Reference**는 팀/조직을 가정한 풀스택 시스템(Postgres + Daemon + Frontend + Desktop)이라 **단일 사용자에게는 토큰 낭비 + 운영 복잡도**가 발생한다.
+기존 **Cron Design Reference**는 팀/조직을 가정한 풀스택 시스템(Postgres + Daemon + Frontend + Desktop)이라 **단일 사용자에게는 토큰 낭비 + 운영 복잡도**가 발생한다.
 
-**Corn Agent Dashboard**는 Corn Design Reference의 검증된 UX(보드 / 댓글 / 멘션 위임)는 보존하면서 단일 사용자에게 불필요한 모든 기능을 제거한 **경량 단일 바이너리** 버전이다.
+**Cron Agent Dashboard**는 Cron Design Reference의 검증된 UX(보드 / 댓글 / 멘션 위임)는 보존하면서 단일 사용자에게 불필요한 모든 기능을 제거한 **경량 단일 바이너리** 버전이다.
 
-| 항목 | Corn Design Reference | Corn Agent Dashboard |
+| 항목 | Cron Design Reference | Cron Agent Dashboard |
 |---|---|---|
 | 프로세스 | Postgres + Daemon + Frontend + Desktop = **5** | **1** (단일 Go 바이너리) |
 | DB | PostgreSQL 17 + pgvector | **SQLite 1 파일** |
@@ -222,7 +222,7 @@ Run별 token/cost/model metrics는 CLI가 usage 정보를 출력하는 경우 be
 <td width="33%" valign="top">
 
 ### 🚀 단일 바이너리
-`./corn-agent-dashboard serve` 한 줄.
+`./cron-agent-dashboard serve` 한 줄.
 SQLite 파일 옆에 둠. 외부 의존 0.
 
 </td>
@@ -235,7 +235,7 @@ DB-backed 큐. 프로세스 재시작에도 작업 손실 없음.
 <td width="33%" valign="top">
 
 ### 🎨 한국어 다크모드
-Corn Design Reference의 검증된 디자인 토큰 그대로.
+Cron Design Reference의 검증된 디자인 토큰 그대로.
 shadcn/ui · Tailwind v4 · 다크모드.
 
 </td>
@@ -258,14 +258,14 @@ shadcn/ui · Tailwind v4 · 다크모드.
 - [x] 🔀 `@AgentName` 멘션 위임 — **assignee는 바꾸지 않음**, 같은 이슈에 새 run 추가
 - [x] 🧭 체이닝 정책 — 기본은 explicit-only, workspace opt-in 시 agent 결과 댓글의 첫 `@AgentName` 자동 체이닝
 - [x] 🌿 Sub-issue — 이슈 상세에서 하위 이슈 생성/조회, 부모-자식 관계 보존
-- [x] 🧷 Run context sharing — workspace `.corn-runs/<run-id>.log` 경로로 run stdout 참조
+- [x] 🧷 Run context sharing — workspace `.cron-runs/<run-id>.log` 경로로 run stdout 참조
 - [x] 🏷️ Agent metadata — summary/tags와 retry backoff 정책 관리
 - [x] 🧾 Agent instructions version history — instructions 변경 이력 + run snapshot
 - [x] ⏰ Autopilot (robfig/cron, 시스템 timezone `Asia/Seoul` 기본)
 - [x] 🔁 [재실행] — 마지막 run의 agent로 자동 dispatch
 - [x] 🛑 [취소] — process group SIGTERM → 30초 후 SIGKILL
 - [x] 💾 Durable queue (`run.status='queued'` row 기반 DB claim)
-- [x] 🔐 옵션 토큰 인증 (`CORN_AGENT_DASHBOARD_TOKEN`)
+- [x] 🔐 옵션 토큰 인증 (`CRON_AGENT_DASHBOARD_TOKEN`)
 - [x] 📦 단일 바이너리 (Go embed.FS로 Vite SPA 포함)
 
 ### Phase 2+
@@ -291,7 +291,7 @@ shadcn/ui · Tailwind v4 · 다크모드.
                              │ HTTP
                              ▼
 ┌────────────────────────────────────────────────────────────────┐
-│        corn-agent-dashboard binary (single process)            │
+│        cron-agent-dashboard binary (single process)            │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │              HTTP Server (chi router)                    │  │
@@ -356,7 +356,7 @@ shadcn/ui · Tailwind v4 · 다크모드.
 <tr>
 <td>HTTP 라우터</td>
 <td><img src="https://img.shields.io/badge/chi-v5-007ACC?style=flat"/></td>
-<td>Corn Design Reference에서 검증, 미들웨어 친화</td>
+<td>Cron Design Reference에서 검증, 미들웨어 친화</td>
 </tr>
 <tr>
 <td>DB 드라이버</td>
@@ -381,7 +381,7 @@ shadcn/ui · Tailwind v4 · 다크모드.
 <tr>
 <td>UI 라이브러리</td>
 <td><img src="https://img.shields.io/badge/Plain%20CSS-skeleton-64748B?style=flat"/> <img src="https://img.shields.io/badge/Tailwind%2Fshadcn-planned-38B2AC?style=flat"/></td>
-<td>초기 UI는 다크모드 CSS skeleton, 후속 Phase에서 Corn Design Reference 디자인 토큰 이식</td>
+<td>초기 UI는 다크모드 CSS skeleton, 후속 Phase에서 Cron Design Reference 디자인 토큰 이식</td>
 </tr>
 <tr>
 <td>상태 관리</td>
@@ -436,12 +436,12 @@ shadcn/ui · Tailwind v4 · 다크모드.
 
 ```bash
 # Homebrew (예정)
-brew install coreline-ai/tap/corn-agent-dashboard
+brew install coreline-ai/tap/cron-agent-dashboard
 
 # 또는 직접 다운로드
-curl -L https://github.com/coreline-ai/corn-agent-dashboard/releases/latest/download/corn-agent-dashboard-$(uname -s)-$(uname -m) \
-  -o /usr/local/bin/corn-agent-dashboard
-chmod +x /usr/local/bin/corn-agent-dashboard
+curl -L https://github.com/coreline-ai/cron-agent-dashboard/releases/latest/download/cron-agent-dashboard-$(uname -s)-$(uname -m) \
+  -o /usr/local/bin/cron-agent-dashboard
+chmod +x /usr/local/bin/cron-agent-dashboard
 ```
 
 ### 초기화 + 실행
@@ -450,18 +450,21 @@ chmod +x /usr/local/bin/corn-agent-dashboard
 # 의존성 설치
 pnpm install --frozen-lockfile --ignore-scripts
 
-# 데이터 디렉토리 초기화 (~/.corn-agent-dashboard/)
-go run ./cmd/corn-agent-dashboard init
+# 데이터 디렉토리 초기화 (~/.cron-agent-dashboard/)
+go run ./cmd/cron-agent-dashboard init
 
 # 단일 바이너리 빌드 (web/dist embed 포함)
 make build
 
 # 백엔드 + 내장 UI 서버 시작
-./corn-agent-dashboard serve
+./cron-agent-dashboard serve
 
 # → http://127.0.0.1:8080 접속
 # 부팅 시 DB pragma / foreign key / main agent invariant / orphan process cleanup / orphan run recovery self-check가 실행됩니다.
 ```
+
+> [!CAUTION]
+> 기본 운영은 `127.0.0.1` 로컬 접속을 권장합니다. tunnel, reverse proxy, `0.0.0.0` bind처럼 외부에서 접근 가능한 형태로 열 때는 반드시 강한 `--token` / `CRON_AGENT_DASHBOARD_TOKEN`을 설정하세요. 이 앱은 agent CLI 실행, workspace 파일 접근, run log 저장을 수행하므로 workspace와 로그에 민감정보가 남을 수 있습니다.
 
 
 ### 검증 명령
@@ -497,7 +500,7 @@ binary 이름이 길어서 alias 권장:
 
 ```bash
 # ~/.zshrc 또는 ~/.bashrc
-alias cad='corn-agent-dashboard'
+alias cad='cron-agent-dashboard'
 
 # 이후
 cad serve --workers 3 --timezone Asia/Seoul
@@ -574,18 +577,18 @@ NewsLead 결과 아래 댓글:
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |---|---|---|---|
-| `--db` | `CORN_AGENT_DASHBOARD_DB` | `~/.corn-agent-dashboard/data.db` | SQLite 파일 경로 |
-| `--bind` | `CORN_AGENT_DASHBOARD_BIND` | `127.0.0.1:8080` | HTTP 바인딩 |
-| `--workers` | `CORN_AGENT_DASHBOARD_WORKERS` | `3` | 전역 worker pool 크기 |
-| `--timezone` | `CORN_AGENT_DASHBOARD_TIMEZONE` | `Asia/Seoul` | Autopilot cron timezone |
-| `--token` | `CORN_AGENT_DASHBOARD_TOKEN` | (없음) | 단일 토큰 인증 (옵션) |
-| `--cors` | `CORN_AGENT_DASHBOARD_CORS` | (없음) | 추가 허용 origin (콤마 구분, 비어 있으면 same-origin only) |
-| `--auto-backup` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP` | `true` | 서버 실행 중 자동 DB 백업 활성화 |
-| `--auto-backup-keep` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP` | `7` | 자동 백업 보존 개수 |
-| `--auto-cleanup-log-days` | `CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS` | `90` | 지정 일수 초과 run 로그 자동 삭제 (`0`이면 비활성) |
-| `--maintenance-interval` | `CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL` | `24h` | 자동 백업/log cleanup 실행 주기 |
-| `--autopilot-failure-disable-threshold` | `CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD` | `5` | Autopilot trigger 연속 실패 후 자동 비활성화 기준 |
-| `--allow-arbitrary-backup-paths` | `CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS` | `false` | HTTP Backup API에서 `{data_dir}/backups` 밖 임의 경로를 명시 허용 |
+| `--db` | `CRON_AGENT_DASHBOARD_DB` | `~/.cron-agent-dashboard/data.db` | SQLite 파일 경로 |
+| `--bind` | `CRON_AGENT_DASHBOARD_BIND` | `127.0.0.1:8080` | HTTP 바인딩 |
+| `--workers` | `CRON_AGENT_DASHBOARD_WORKERS` | `3` | 전역 worker pool 크기. 안정성을 위해 같은 workspace 안에서는 기본적으로 run을 직렬 실행하며, 여러 workspace 간 작업은 병렬로 실행될 수 있음 |
+| `--timezone` | `CRON_AGENT_DASHBOARD_TIMEZONE` | `Asia/Seoul` | Autopilot cron timezone |
+| `--token` | `CRON_AGENT_DASHBOARD_TOKEN` | (없음) | 단일 토큰 인증 (옵션) |
+| `--cors` | `CRON_AGENT_DASHBOARD_CORS` | (없음) | 추가 허용 origin (콤마 구분, 비어 있으면 same-origin only) |
+| `--auto-backup` | `CRON_AGENT_DASHBOARD_AUTO_BACKUP` | `true` | 서버 실행 중 자동 DB 백업 활성화 |
+| `--auto-backup-keep` | `CRON_AGENT_DASHBOARD_AUTO_BACKUP_KEEP` | `7` | 자동 백업 보존 개수 |
+| `--auto-cleanup-log-days` | `CRON_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS` | `90` | 지정 일수 초과 run 로그 자동 삭제 (`0`이면 비활성) |
+| `--maintenance-interval` | `CRON_AGENT_DASHBOARD_MAINTENANCE_INTERVAL` | `24h` | 자동 백업/log cleanup 실행 주기 |
+| `--autopilot-failure-disable-threshold` | `CRON_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD` | `5` | Autopilot trigger 연속 실패 후 자동 비활성화 기준 |
+| `--allow-arbitrary-backup-paths` | `CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS` | `false` | HTTP Backup API에서 `{data_dir}/backups` 밖 임의 경로를 명시 허용 |
 | `--to` | — | 자동 `.bak` 경로 | `backup` 명령의 백업 파일 경로 |
 | `--from` | — | (필수) | `restore` 명령의 복구 원본 DB 경로 |
 
@@ -597,14 +600,15 @@ NewsLead 결과 아래 댓글:
 - **Strict env policy**: 운영 환경변수는 startup에서 fail-fast로 검증합니다. 잘못된 값을 기본값으로 조용히 대체하지 않으며, secret/token 값은 repo·로그·이슈 본문에 남기지 않습니다.
 - **Token storage**: token mode의 UI Bearer token은 서버가 아닌 브라우저에 저장됩니다. 기본은 `localStorage`이고, “이번 세션만 저장”을 선택하면 `sessionStorage`에 저장됩니다. 신뢰된 로컬 브라우저 프로필에서만 사용하고, 공유 장비에서는 작업 후 삭제하세요.
 - **Agent OS 권한**: Codex/Claude/Gemini CLI는 dashboard와 같은 OS 사용자 권한 및 workspace cwd에서 실행됩니다. 외부 입력을 Autopilot/auto-chain으로 자동 실행하기 전 비용·권한·prompt injection 리스크를 검토하세요.
+- **Prompt injection / secret exposure**: Prompt fence와 안전 규칙은 best-effort 방어입니다. workspace를 `$HOME` 전체, `.ssh`, `.config`, credential 저장소, 민감한 `.env`가 있는 경로로 지정하지 말고, 외부 입력 기반 이슈/댓글/Autopilot은 code-execution trigger로 취급하세요. 현재 run log는 secret masking을 보장하지 않으므로 stdout에 API key·token·credential을 출력하지 않는 agent 지시문을 사용하세요.
 - **Data / log permission**: SQLite DB, run log, backup은 prompt·stdout·파일 경로 등 민감 정보를 포함할 수 있습니다. 사용자 전용 로컬 경로에 두고 디렉터리 `0700`, 파일 `0600` 수준의 권한을 유지하세요.
-- **Backup API path policy**: HTTP `/api/system/backup`에서 `to`를 비우면 기존 기본 `.bak` 경로를 사용합니다. `to`를 지정하면 기본적으로 `{data_dir}/backups` 내부만 허용하고, 외부 경로는 `--allow-arbitrary-backup-paths` / `CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS=true`로 명시 opt-in해야 합니다. 로컬 shell에서 직접 실행하는 `corn-agent-dashboard backup --to ...`는 기존처럼 임의 사용자 경로를 사용할 수 있습니다.
-- **CORS**: 빈 CORS allowlist는 same-origin only가 기본 정책입니다. 개발 서버나 별도 UI origin이 필요할 때만 `--cors` / `CORN_AGENT_DASHBOARD_CORS`에 최소 origin을 명시하세요.
+- **Backup API path policy**: HTTP `/api/system/backup`에서 `to`를 비우면 기존 기본 `.bak` 경로를 사용합니다. `to`를 지정하면 기본적으로 `{data_dir}/backups` 내부만 허용하고, 외부 경로는 `--allow-arbitrary-backup-paths` / `CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS=true`로 명시 opt-in해야 합니다. 로컬 shell에서 직접 실행하는 `cron-agent-dashboard backup --to ...`는 기존처럼 임의 사용자 경로를 사용할 수 있습니다.
+- **CORS**: 빈 CORS allowlist는 same-origin only가 기본 정책입니다. 개발 서버나 별도 UI origin이 필요할 때만 `--cors` / `CRON_AGENT_DASHBOARD_CORS`에 최소 origin을 명시하세요.
 
 ### 데이터 디렉토리 구조
 
 ```
-~/.corn-agent-dashboard/
+~/.cron-agent-dashboard/
 ├── data.db                # SQLite (모든 메타데이터)
 ├── runs/
 │   ├── <run-id>.log       # 각 run의 stdout (최대 10MB)
@@ -620,14 +624,14 @@ NewsLead 결과 아래 댓글:
 
 ```bash
 # 수동 백업 (UI에서도 가능: /settings → [DB 백업])
-corn-agent-dashboard backup --to ~/backup/data.db.$(date +%Y%m%d)
+cron-agent-dashboard backup --to ~/backup/data.db.$(date +%Y%m%d)
 
-# HTTP API/UI에서 직접 경로를 지정할 때는 기본적으로 ~/.corn-agent-dashboard/backups 내부만 허용된다.
-# 서버 실행 중에는 기본적으로 24시간마다 ~/.corn-agent-dashboard/backups에 자동 백업한다.
+# HTTP API/UI에서 직접 경로를 지정할 때는 기본적으로 ~/.cron-agent-dashboard/backups 내부만 허용된다.
+# 서버 실행 중에는 기본적으로 24시간마다 ~/.cron-agent-dashboard/backups에 자동 백업한다.
 
 # 복구 전 기존 DB는 data.db.pre-restore-<timestamp>로 자동 보존
-corn-agent-dashboard restore --from ~/backup/data.db.20260512
-corn-agent-dashboard serve   # 마이그레이션 자동 적용
+cron-agent-dashboard restore --from ~/backup/data.db.20260512
+cron-agent-dashboard serve   # 마이그레이션 자동 적용
 ```
 
 ---
@@ -720,7 +724,7 @@ MIT License © 2026 Coreline AI
 
 **Built with focus on simplicity over scale.**
 
-[⬆ 맨 위로](#-corn-agent-dashboard)
+[⬆ 맨 위로](#-cron-agent-dashboard)
 
 </div>
 

@@ -1,5 +1,5 @@
 {
-  "name": "corn-agent-dashboard",
+  "name": "cron-agent-dashboard",
   "private": true,
   "scripts": {
     "web:dev": "pnpm --filter web dev",

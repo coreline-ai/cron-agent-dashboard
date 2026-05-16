@@ -1,10 +1,10 @@
-# corn-agent-dashboard v0.1.0
+# cron-agent-dashboard v0.1.0
 
 Release date: 2026-05-14
 
 ## Summary
 
-v0.1.0 is the first local MVP release of Corn Agent Dashboard: a single-binary, SQLite-backed dashboard for running and tracking personal AI agent work. It focuses on a dependable daily loop: create an issue, dispatch a CLI agent, review results in comments, delegate with explicit mentions, and schedule recurring work with Autopilot.
+v0.1.0 is the first local MVP release of Cron Agent Dashboard: a single-binary, SQLite-backed dashboard for running and tracking personal AI agent work. It focuses on a dependable daily loop: create an issue, dispatch a CLI agent, review results in comments, delegate with explicit mentions, and schedule recurring work with Autopilot.
 
 ## Install and run
 
@@ -14,8 +14,8 @@ v0.1.0 is the first local MVP release of Corn Agent Dashboard: a single-binary, 
 2. Make it executable and move it onto your PATH.
 
 ```bash
-chmod +x corn-agent-dashboard-<os>-<arch>
-sudo mv corn-agent-dashboard-<os>-<arch> /usr/local/bin/corn-agent-dashboard
+chmod +x cron-agent-dashboard-<os>-<arch>
+sudo mv cron-agent-dashboard-<os>-<arch> /usr/local/bin/cron-agent-dashboard
 ```
 
 ### Option B — Build from source
@@ -28,13 +28,13 @@ make build VERSION=v0.1.0
 ### First run
 
 ```bash
-corn-agent-dashboard init
-corn-agent-dashboard serve --workers 3 --timezone Asia/Seoul
+cron-agent-dashboard init
+cron-agent-dashboard serve --workers 3 --timezone Asia/Seoul
 ```
 
 Then open `http://127.0.0.1:8080`.
 
-Default data directory: `~/.corn-agent-dashboard/`
+Default data directory: `~/.cron-agent-dashboard/`
 
 ## Highlights
 
@@ -51,16 +51,16 @@ Default data directory: `~/.corn-agent-dashboard/`
 
 ## Operational notes
 
-- Back up `~/.corn-agent-dashboard/data.db` before replacing the binary or restoring data.
+- Back up `~/.cron-agent-dashboard/data.db` before replacing the binary or restoring data.
 - Use token mode when binding outside localhost:
 
 ```bash
-corn-agent-dashboard serve --bind 0.0.0.0:8080 --token '<strong-token>'
+cron-agent-dashboard serve --bind 0.0.0.0:8080 --token '<strong-token>'
 ```
 
 - Check Autopilot rules after missed schedules. A rule with repeated trigger failures can be disabled automatically after the fifth consecutive failure.
 - Use the issue detail run timeline to distinguish normal completion, CLI exit failures, user cancellation, stale recovery, and orphan recovery.
-- Run logs live under `~/.corn-agent-dashboard/runs/`; clean old files from Settings or `POST /api/system/cleanup-logs`.
+- Run logs live under `~/.cron-agent-dashboard/runs/`; clean old files from Settings or `POST /api/system/cleanup-logs`.
 
 ## Verification commands
 

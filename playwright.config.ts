@@ -26,7 +26,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `rm -rf .tmp/e2e-data && mkdir -p .tmp && ./corn-agent-dashboard serve --data-dir .tmp/e2e-data --bind 127.0.0.1:${port}`,
+        command: `rm -rf .tmp/e2e-data && mkdir -p .tmp && ./cron-agent-dashboard serve --data-dir .tmp/e2e-data --bind 127.0.0.1:${port}`,
         url: `${baseURL}/healthz`,
         timeout: 120_000,
         reuseExistingServer: false

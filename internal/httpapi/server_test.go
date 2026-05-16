@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/app"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/app"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 )
 
 func TestHTTPAPISmoke(t *testing.T) {

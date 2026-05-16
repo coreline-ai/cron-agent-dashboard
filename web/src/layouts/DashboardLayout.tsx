@@ -7,8 +7,8 @@ import { useWorkspacesQuery, type WorkspaceSummary } from '../api/queries';
 
 const productNav = [{ to: '/', label: '대시보드', hint: 'Overview' }];
 const systemNav = [{ to: '/settings', label: '설정', hint: 'Local' }];
-const themeStorageKey = 'corn-agent-dashboard-theme';
-const workspaceStorageKey = 'corn-agent-dashboard-last-workspace';
+const themeStorageKey = 'cron-agent-dashboard-theme';
+const workspaceStorageKey = 'cron-agent-dashboard-last-workspace';
 type Theme = 'light' | 'dark';
 type NavItem = { to: string; label: string; hint: string; disabled?: boolean };
 
@@ -118,7 +118,7 @@ export function DashboardLayout() {
             <BrandMark />
           </span>
           <div>
-            <strong>Corn Agent</strong>
+            <strong>Cron Agent</strong>
             <small>{currentWorkspace?.name ?? 'Local dashboard'}</small>
           </div>
         </div>

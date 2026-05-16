@@ -21,7 +21,7 @@ export class ApiError extends Error {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
-const TOKEN_STORAGE_KEY = 'corn_agent_dashboard_token';
+const TOKEN_STORAGE_KEY = 'cron_agent_dashboard_token';
 
 type TokenStorageMode = 'local' | 'session' | 'none';
 

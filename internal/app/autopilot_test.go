@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 )
 
 func TestAutopilotRunnerRendersTemplateAndCreatesRun(t *testing.T) {

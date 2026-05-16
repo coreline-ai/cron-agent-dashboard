@@ -21,7 +21,7 @@ func TestLoadDataDirUpdatesDefaultDBPath(t *testing.T) {
 
 func TestLoadEnvDataDirUpdatesDefaultDBPath(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CORN_AGENT_DASHBOARD_DATA_DIR", dir)
+	t.Setenv("CRON_AGENT_DASHBOARD_DATA_DIR", dir)
 
 	cfg, _, err := Load(nil)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestLoadRejectsExternalBindWithoutToken(t *testing.T) {
 }
 
 func TestLoadAutopilotFailureThresholdFromFlagAndEnv(t *testing.T) {
-	t.Setenv("CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD", "2")
+	t.Setenv("CRON_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD", "2")
 	cfg, _, err := Load(nil)
 	if err != nil {
 		t.Fatalf("Load env: %v", err)
@@ -98,7 +98,7 @@ func TestLoadAllowArbitraryBackupPathsDefaultsFalse(t *testing.T) {
 }
 
 func TestLoadAllowArbitraryBackupPathsFromFlagAndEnv(t *testing.T) {
-	t.Setenv("CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS", "true")
+	t.Setenv("CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS", "true")
 	cfg, _, err := Load(nil)
 	if err != nil {
 		t.Fatalf("Load env: %v", err)
@@ -107,7 +107,7 @@ func TestLoadAllowArbitraryBackupPathsFromFlagAndEnv(t *testing.T) {
 		t.Fatal("AllowArbitraryBackupPaths should be enabled by env")
 	}
 
-	t.Setenv("CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS", "false")
+	t.Setenv("CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS", "false")
 	cfg, _, err = Load([]string{"--allow-arbitrary-backup-paths"})
 	if err != nil {
 		t.Fatalf("Load flag: %v", err)
@@ -118,23 +118,23 @@ func TestLoadAllowArbitraryBackupPathsFromFlagAndEnv(t *testing.T) {
 }
 
 func TestLoadRejectsInvalidAllowArbitraryBackupPathsEnv(t *testing.T) {
-	t.Setenv("CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS", "sometimes")
+	t.Setenv("CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS", "sometimes")
 	_, _, err := Load(nil)
 	if err == nil {
 		t.Fatal("expected invalid env to fail")
 	}
-	if !strings.Contains(err.Error(), "CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS") {
+	if !strings.Contains(err.Error(), "CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS") {
 		t.Fatalf("error=%v, want env key in message", err)
 	}
 }
 
 func TestLoadRejectsInvalidNumericEnv(t *testing.T) {
-	t.Setenv("CORN_AGENT_DASHBOARD_WORKERS", "many")
+	t.Setenv("CRON_AGENT_DASHBOARD_WORKERS", "many")
 	_, _, err := Load(nil)
 	if err == nil {
 		t.Fatal("expected invalid env to fail")
 	}
-	if !strings.Contains(err.Error(), "CORN_AGENT_DASHBOARD_WORKERS") {
+	if !strings.Contains(err.Error(), "CRON_AGENT_DASHBOARD_WORKERS") {
 		t.Fatalf("error=%v, want env key in message", err)
 	}
 }

@@ -11,8 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 )
 
 var Version = "0.1.0"

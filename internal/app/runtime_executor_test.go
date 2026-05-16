@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
-	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/worker"
+	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
 )
 
 type flakyProcessMarker struct {
@@ -67,7 +67,7 @@ func TestRuntimeExecutorLinksRunLogIntoWorkspace(t *testing.T) {
 	if err := executor.linkRunLog(context.Background(), worker.ExecutionContext{RunID: "run-1", WorkspaceWorkingDir: workspaceDir}, logPath); err != nil {
 		t.Fatalf("linkRunLog: %v", err)
 	}
-	linkPath := filepath.Join(workspaceDir, ".corn-runs", "run-1.log")
+	linkPath := filepath.Join(workspaceDir, ".cron-runs", "run-1.log")
 	if _, err := os.Stat(linkPath); err != nil {
 		t.Fatalf("expected log link or pointer file: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRuntimeExecutorExecuteLinksRunLogAndIgnoresStdoutMetrics(t *testing.T) 
 		t.Fatalf("exit code=%d, stderr=%s", result.ExitCode, result.StderrTail)
 	}
 
-	linkPath := filepath.Join(workspaceDir, ".corn-runs", "run-metrics.log")
+	linkPath := filepath.Join(workspaceDir, ".cron-runs", "run-metrics.log")
 	if _, err := os.Stat(linkPath); err != nil {
 		t.Fatalf("expected Execute to create run log link or pointer file: %v", err)
 	}

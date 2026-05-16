@@ -34,7 +34,7 @@ export function HomePage() {
               ? `현재 선택된 워크스페이스입니다. 열린 이슈 ${currentWorkspace.open_issue_count ?? 0}개와 에이전트 ${
                   currentWorkspace.agent_count ?? 0
                 }개를 추적 중입니다.`
-              : 'Corn Agent Dashboard는 개인용 AI 작업 보드입니다. 워크스페이스를 만들면 이슈, 에이전트, 오토파일럿이 연결됩니다.'}
+              : 'Cron Agent Dashboard는 개인용 AI 작업 보드입니다. 워크스페이스를 만들면 이슈, 에이전트, 오토파일럿이 연결됩니다.'}
           </p>
         </div>
         <div className="button-row">

@@ -1,4 +1,4 @@
-# DATA MODEL — corn-agent-dashboard
+# DATA MODEL — cron-agent-dashboard
 
 > SQLite 스키마 상세
 > Version: 0.1
@@ -8,7 +8,7 @@
 
 ## 1. 개요
 
-- 단일 SQLite 파일 (`~/.corn-agent-dashboard/data.db`)
+- 단일 SQLite 파일 (`~/.cron-agent-dashboard/data.db`)
 - PRAGMA: `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`
 - 모든 PK: UUID v4 (TEXT)
 - 시간: **Go 레벨에서 `time.Now().UTC().Format(time.RFC3339Nano)`로 생성** — SQLite의 `datetime('now')`는 사용하지 않음 (RFC3339 호환 안 됨)
@@ -40,7 +40,7 @@ CREATE TABLE workspace (
   slug        TEXT NOT NULL UNIQUE,                -- "ai-news" (URL용)
   description TEXT NOT NULL DEFAULT '',
   output_dir  TEXT NOT NULL DEFAULT '',            -- 결과물 저장 디렉토리 (에이전트가 글 쓰는 위치)
-  working_dir TEXT NOT NULL DEFAULT '',            -- 에이전트 실행 cwd (빈값='~/.corn-agent-dashboard/workdirs/<slug>' 자동)
+  working_dir TEXT NOT NULL DEFAULT '',            -- 에이전트 실행 cwd (빈값='~/.cron-agent-dashboard/workdirs/<slug>' 자동)
   identifier_prefix TEXT NOT NULL,                 -- "NEWS" (이슈 ID prefix)
   next_issue_seq INTEGER NOT NULL DEFAULT 1,       -- 다음 발급 번호 (트랜잭션 내 UPDATE...RETURNING)
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -339,7 +339,7 @@ CREATE INDEX idx_autopilot_enabled_next
 - `enabled` 또는 `snooze_until` 변경 시 scheduler 전체 reload (단순함 우선).
 - 룰 실행이 issue 생성 실패하면 `consecutive_failures`가 증가하고 5회 연속 실패 시 자동 OFF.
 - **시간대**:
-  - 시스템 전역: 환경변수 `CORN_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
+  - 시스템 전역: 환경변수 `CRON_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
   - 룰별 timezone 컬럼은 두지 않음 — 시스템 전역으로 단순화
   - 부팅 시 robfig/cron을 `cron.WithLocation(loc)`로 생성
 - **꺼져 있는 동안의 누락**: 실행하지 않음. 부팅 시 `next_run_at`을 `cron.Next(now)`로 재계산.
@@ -579,7 +579,7 @@ execution_status 도메인: `running | queued | done | failed | cancelled | idle
 
 ## 7. 초기 데이터 (seed)
 
-`corn-agent-dashboard init` 실행 시:
+`cron-agent-dashboard init` 실행 시:
 - 빈 DB + 마이그레이션 적용만. 워크스페이스/에이전트는 사용자가 UI에서 생성.
 
 선택적 `--seed example`:
@@ -630,17 +630,17 @@ internal/db/migrations/
 ### 9.1 백업
 ```bash
 # 1. data.db 백업 (SQLite online backup)
-corn-agent-dashboard backup --to ~/backup/data.db
+cron-agent-dashboard backup --to ~/backup/data.db
 
 # 2. runs/ 디렉토리 복사
-cp -r ~/.corn-agent-dashboard/runs ~/backup/runs
+cp -r ~/.cron-agent-dashboard/runs ~/backup/runs
 
 # 3. config.toml (있다면)
-cp ~/.corn-agent-dashboard/config.toml ~/backup/
+cp ~/.cron-agent-dashboard/config.toml ~/backup/
 ```
 
 ### 9.2 복구
-- `corn-agent-dashboard restore --from ~/backup/data.db` 실행 후 재시작
+- `cron-agent-dashboard restore --from ~/backup/data.db` 실행 후 재시작
 - 마이그레이션 자동 적용으로 스키마 호환
 
 ---

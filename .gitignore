@@ -6,7 +6,7 @@ web/tsconfig.tsbuildinfo
 .pnpm-store/
 
 # Go build/test artifacts
-/corn-agent-dashboard
+/cron-agent-dashboard
 dist/
 *.test
 coverage.out
@@ -15,7 +15,7 @@ playwright-report/
 .tmp/
 
 # Local runtime data
-.corn-agent-dashboard/
+.cron-agent-dashboard/
 data.db
 data.db-*
 runs/

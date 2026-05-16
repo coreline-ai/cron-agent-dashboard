@@ -40,7 +40,7 @@ test.describe('Phase 1 — Shell & Layout', () => {
 
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-    const stored = await page.evaluate(() => window.localStorage.getItem('corn-agent-dashboard-theme'));
+    const stored = await page.evaluate(() => window.localStorage.getItem('cron-agent-dashboard-theme'));
     expect(stored).toBe('light');
   });
 

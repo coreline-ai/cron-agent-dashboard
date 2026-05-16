@@ -1,5 +1,5 @@
 {
-  "source": "corn-design-reference/packages/ui/styles/tokens.css",
+  "source": "cron-design-reference/packages/ui/styles/tokens.css",
   "target": "core-agent-dashboard/web/src/styles/global.css",
   "mode": "dark-console",
   "tokens": {

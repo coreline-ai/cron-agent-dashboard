@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/scheduler"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 	cron "github.com/robfig/cron/v3"
 )
 

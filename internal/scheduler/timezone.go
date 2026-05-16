@@ -7,7 +7,7 @@ import (
 
 const (
 	DefaultTimezone = "Asia/Seoul"
-	TimezoneEnv     = "CORN_AGENT_DASHBOARD_TIMEZONE"
+	TimezoneEnv     = "CRON_AGENT_DASHBOARD_TIMEZONE"
 )
 
 func LoadLocation(name string) (*time.Location, error) {

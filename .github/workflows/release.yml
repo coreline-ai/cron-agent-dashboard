@@ -60,15 +60,15 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum corn-agent-dashboard-* > SHA256SUMS
+          sha256sum cron-agent-dashboard-* > SHA256SUMS
 
       - name: Upload GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.value }}
           target_commitish: ${{ github.sha }}
-          name: corn-agent-dashboard ${{ steps.version.outputs.value }}
+          name: cron-agent-dashboard ${{ steps.version.outputs.value }}
           generate_release_notes: true
           files: |
-            dist/corn-agent-dashboard-*
+            dist/cron-agent-dashboard-*
             dist/SHA256SUMS

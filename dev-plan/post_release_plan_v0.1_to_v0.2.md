@@ -52,7 +52,7 @@ v0.1 릴리스 시점(2026-05-14)에 10차 리뷰를 마쳤다. 리뷰 사이클
 
 - `run_event` 테이블 + `terminal_reason` / `failure_kind` / `cancel_reason` 분류 — 이미 v0.1 포함
 - slog JSON handler — 이미 `main.go` 적용
-- **추가 권장 (1시간)**: 로그 회전 + 외부 수집 위치 결정 (단일 사용자라면 `~/Library/Logs/corn-agent-dashboard.log` 로 redirect)
+- **추가 권장 (1시간)**: 로그 회전 + 외부 수집 위치 결정 (단일 사용자라면 `~/Library/Logs/cron-agent-dashboard.log` 로 redirect)
 
 ### 2.2 측정 지표 (§7 카탈로그 사용)
 
@@ -68,7 +68,7 @@ v0.1 릴리스 시점(2026-05-14)에 10차 리뷰를 마쳤다. 리뷰 사이클
 ### 2.3 사용자 피드백 채널
 
 - 단일 사용자 환경이므로 본인이 직접 기록
-- `~/.corn-agent-dashboard/feedback.md` 또는 macOS Notes에 일자별 기록
+- `~/.cron-agent-dashboard/feedback.md` 또는 macOS Notes에 일자별 기록
 - 권장 양식:
   ```
   ## 2026-05-15

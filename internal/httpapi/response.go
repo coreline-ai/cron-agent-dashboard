@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 )
 
 const maxJSONBodyBytes = 2 << 20

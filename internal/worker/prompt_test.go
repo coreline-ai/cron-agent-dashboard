@@ -150,9 +150,9 @@ func TestRenderPromptIncludesRunLogPath(t *testing.T) {
 	prompt := RenderPrompt(PromptInput{
 		IssueTitle: "artifact task",
 		IssueBody:  "body",
-		RunLogPath: ".corn-runs/run-1.log",
+		RunLogPath: ".cron-runs/run-1.log",
 	})
-	if !strings.Contains(prompt, "# Run artifact") || !strings.Contains(prompt, ".corn-runs/run-1.log") {
+	if !strings.Contains(prompt, "# Run artifact") || !strings.Contains(prompt, ".cron-runs/run-1.log") {
 		t.Fatalf("prompt missing run log path: %q", prompt)
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
 )
 
 func TestAutopilotFailurePolicyDisablesAfterFiveFailures(t *testing.T) {

@@ -23,7 +23,7 @@ export function AuthTokenPanel({ error }: AuthTokenPanelProps) {
   return (
     <article className="panel form-grid auth-panel">
       <h2>API 토큰 필요</h2>
-      <p>서버가 token mode로 실행 중입니다. `--token` 값 또는 `CORN_AGENT_DASHBOARD_TOKEN` 값을 입력하면 UI 요청에 자동으로 Bearer 토큰을 붙입니다.</p>
+      <p>서버가 token mode로 실행 중입니다. `--token` 값 또는 `CRON_AGENT_DASHBOARD_TOKEN` 값을 입력하면 UI 요청에 자동으로 Bearer 토큰을 붙입니다.</p>
       <p>기본값은 브라우저 localStorage 저장이며, “이번 세션만 저장”을 선택하면 sessionStorage에만 저장됩니다.</p>
       <input
         aria-label="API token"

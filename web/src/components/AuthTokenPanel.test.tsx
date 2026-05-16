@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { apiAuth } from '../api/client';
 import { AuthTokenPanel } from './AuthTokenPanel';
 
-const tokenStorageKey = 'corn_agent_dashboard_token';
+const tokenStorageKey = 'cron_agent_dashboard_token';
 
 function renderAuthTokenPanel() {
   const queryClient = new QueryClient({

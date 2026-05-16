@@ -13,15 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/app"
-	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/config"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/httpapi"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
-	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/app"
+	backupops "github.com/coreline-ai/cron-agent-dashboard/internal/backup"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/httpapi"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/scheduler"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/worker"
+	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
 )
 
 func main() {
@@ -151,7 +151,7 @@ func serve(cfg config.Config, st *store.Store) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("corn-agent-dashboard listening on http://%s", cfg.Bind)
+		log.Printf("cron-agent-dashboard listening on http://%s", cfg.Bind)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 			return

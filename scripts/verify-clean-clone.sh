@@ -31,7 +31,7 @@ rsync -a --delete \
   --exclude '.tmp' \
   --exclude 'test-results' \
   --exclude 'playwright-report' \
-  --exclude '/corn-agent-dashboard' \
+  --exclude '/cron-agent-dashboard' \
   "${ROOT}/" "${WORK}/"
 
 cd "${WORK}"
@@ -40,8 +40,8 @@ make check
 make build
 
 DATA_DIR="${TMP}/data"
-./corn-agent-dashboard init --data-dir "${DATA_DIR}"
-./corn-agent-dashboard serve --data-dir "${DATA_DIR}" --bind "127.0.0.1:${PORT}" >"${TMP}/server.log" 2>&1 &
+./cron-agent-dashboard init --data-dir "${DATA_DIR}"
+./cron-agent-dashboard serve --data-dir "${DATA_DIR}" --bind "127.0.0.1:${PORT}" >"${TMP}/server.log" 2>&1 &
 SERVER_PID="$!"
 
 for _ in $(seq 1 100); do
@@ -52,8 +52,8 @@ for _ in $(seq 1 100); do
 done
 
 curl -fsS "http://127.0.0.1:${PORT}/healthz" | grep '"status":"ok"' >/dev/null
-curl -fsS "http://127.0.0.1:${PORT}/" | grep 'Corn Agent Dashboard' >/dev/null
-curl -fsS "http://127.0.0.1:${PORT}/w/foo/issues/NEWS-1" | grep 'Corn Agent Dashboard' >/dev/null
+curl -fsS "http://127.0.0.1:${PORT}/" | grep 'Cron Agent Dashboard' >/dev/null
+curl -fsS "http://127.0.0.1:${PORT}/w/foo/issues/NEWS-1" | grep 'Cron Agent Dashboard' >/dev/null
 curl -fsS "http://127.0.0.1:${PORT}/api/settings" | grep '"version"' >/dev/null
 
 echo "clean clone quick start verified"

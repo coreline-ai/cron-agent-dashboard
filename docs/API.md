@@ -1,4 +1,4 @@
-# API — corn-agent-dashboard
+# API — cron-agent-dashboard
 
 > REST API 명세
 > Version: 0.1
@@ -14,8 +14,8 @@
 
 ### 0.2 인증
 - 기본: 인증 없음 (localhost)
-- 토큰 모드: 환경변수 `CORN_AGENT_DASHBOARD_TOKEN` 또는 `--token` 플래그
-  - 요청 헤더: `Authorization: Bearer <CORN_AGENT_DASHBOARD_TOKEN>`
+- 토큰 모드: 환경변수 `CRON_AGENT_DASHBOARD_TOKEN` 또는 `--token` 플래그
+  - 요청 헤더: `Authorization: Bearer <CRON_AGENT_DASHBOARD_TOKEN>`
 - 누락 시 401 (토큰 모드일 때만)
 - `--bind 0.0.0.0` 으로 외부 노출 시 토큰 필수 강제 (미설정이면 부팅 거부)
 
@@ -603,7 +603,7 @@ run의 stdout 전체 파일.
 ```json
 {
   "version": "0.1.0",
-  "data_dir": "/Users/.../.corn-agent-dashboard",
+  "data_dir": "/Users/.../.cron-agent-dashboard",
   "available_runtimes": [
     { "name": "codex", "version": "1.2.3", "path": "/usr/local/bin/codex", "supported": true },
     { "name": "claude", "version": "", "path": "...", "supported": false, "warning": "--version 확인 실패: CLI 설치와 비대화형 실행 인자 호환성을 확인하세요." }
@@ -627,7 +627,7 @@ run의 stdout 전체 파일.
 ### 7.3 `POST /api/system/backup`
 SQLite DB 백업. 현재 구현은 `PRAGMA wal_checkpoint(FULL)` 후 0600 권한 파일 copy를 수행한다. 서버 실행 중에는 설정값에 따라 `data_dir/backups/data-<timestamp>.db` 자동 백업도 수행한다.
 
-**Request**: `{ "to": "/path/to/backup.db" }` (선택, 미지정 시 `~/.corn-agent-dashboard/data.db.<timestamp>`)
+**Request**: `{ "to": "/path/to/backup.db" }` (선택, 미지정 시 `~/.cron-agent-dashboard/data.db.<timestamp>`)
 
 **Response 200**: `{ "backup_path": "/...", "size_bytes": 1234567 }`
 

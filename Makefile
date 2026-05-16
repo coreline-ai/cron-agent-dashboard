@@ -1,7 +1,7 @@
-BINARY ?= corn-agent-dashboard
+BINARY ?= cron-agent-dashboard
 PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 VERSION ?= 0.1.0
-LDFLAGS ?= -s -w -X github.com/coreline-ai/corn-agent-dashboard/internal/httpapi.Version=$(VERSION)
+LDFLAGS ?= -s -w -X github.com/coreline-ai/cron-agent-dashboard/internal/httpapi.Version=$(VERSION)
 
 .PHONY: install test build web-build prepare-static release-build e2e-smoke e2e-full screenshots verify-clean-clone check run tidy clean
 
@@ -12,7 +12,7 @@ test:
 	go test ./...
 
 build: web-build prepare-static
-	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/corn-agent-dashboard
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/cron-agent-dashboard
 
 web-build: install
 	pnpm --filter web build
@@ -25,7 +25,7 @@ prepare-static: web-build
 release-build: web-build prepare-static
 	mkdir -p dist
 	for target in $(PLATFORMS); do \
-		GOOS=$${target%/*} GOARCH=$${target#*/} go build -trimpath -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-$${target%/*}-$${target#*/} ./cmd/corn-agent-dashboard; \
+		GOOS=$${target%/*} GOARCH=$${target#*/} go build -trimpath -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-$${target%/*}-$${target#*/} ./cmd/cron-agent-dashboard; \
 	done
 
 e2e-smoke: build
@@ -44,7 +44,7 @@ check: test web-build prepare-static
 	go build ./...
 
 run:
-	go run ./cmd/corn-agent-dashboard serve
+	go run ./cmd/cron-agent-dashboard serve
 
 tidy:
 	go mod tidy

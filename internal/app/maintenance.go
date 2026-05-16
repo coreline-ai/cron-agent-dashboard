@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
+	backupops "github.com/coreline-ai/cron-agent-dashboard/internal/backup"
 )
 
 type MaintenanceConfig struct {

@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
 )
 
 var (

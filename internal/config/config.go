@@ -42,7 +42,7 @@ func Default() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	dataDir := filepath.Join(home, ".corn-agent-dashboard")
+	dataDir := filepath.Join(home, ".cron-agent-dashboard")
 	return Config{
 		DataDir:                          dataDir,
 		DBPath:                           filepath.Join(dataDir, "data.db"),
@@ -66,9 +66,9 @@ func Load(args []string) (Config, []string, error) {
 	if err := applyEnv(&cfg); err != nil {
 		return Config{}, nil, err
 	}
-	explicitDBPath := os.Getenv("CORN_AGENT_DASHBOARD_DB") != ""
+	explicitDBPath := os.Getenv("CRON_AGENT_DASHBOARD_DB") != ""
 
-	fs := flag.NewFlagSet("corn-agent-dashboard", flag.ContinueOnError)
+	fs := flag.NewFlagSet("cron-agent-dashboard", flag.ContinueOnError)
 	fs.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "data directory")
 	fs.StringVar(&cfg.DBPath, "db", cfg.DBPath, "SQLite database path")
 	fs.StringVar(&cfg.Bind, "bind", cfg.Bind, "HTTP bind address")
@@ -175,60 +175,60 @@ func ensurePrivateDir(dir string) error {
 }
 
 func applyEnv(c *Config) error {
-	setString(&c.DataDir, "CORN_AGENT_DASHBOARD_DATA_DIR")
-	setString(&c.DBPath, "CORN_AGENT_DASHBOARD_DB")
-	setString(&c.Bind, "CORN_AGENT_DASHBOARD_BIND")
-	setString(&c.Token, "CORN_AGENT_DASHBOARD_TOKEN")
-	setString(&c.Timezone, "CORN_AGENT_DASHBOARD_TIMEZONE")
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_CORS"); v != "" {
+	setString(&c.DataDir, "CRON_AGENT_DASHBOARD_DATA_DIR")
+	setString(&c.DBPath, "CRON_AGENT_DASHBOARD_DB")
+	setString(&c.Bind, "CRON_AGENT_DASHBOARD_BIND")
+	setString(&c.Token, "CRON_AGENT_DASHBOARD_TOKEN")
+	setString(&c.Timezone, "CRON_AGENT_DASHBOARD_TIMEZONE")
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_CORS"); v != "" {
 		c.CORS = splitCSV(v)
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_WORKERS"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_WORKERS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_WORKERS %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_WORKERS %q: %w", v, err)
 		}
 		c.Workers = n
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_AUTO_BACKUP"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_BACKUP %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_AUTO_BACKUP %q: %w", v, err)
 		}
 		c.AutoBackup = b
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS %q: %w", v, err)
 		}
 		c.AllowArbitraryBackupPaths = b
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_AUTO_BACKUP_KEEP"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_AUTO_BACKUP_KEEP %q: %w", v, err)
 		}
 		c.AutoBackupKeep = n
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS %q: %w", v, err)
 		}
 		c.AutoCleanupLogDays = n
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_MAINTENANCE_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_MAINTENANCE_INTERVAL %q: %w", v, err)
 		}
 		c.MaintenanceInterval = d
 	}
-	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD"); v != "" {
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD %q: %w", v, err)
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD %q: %w", v, err)
 		}
 		c.AutopilotFailureDisableThreshold = n
 	}

@@ -73,7 +73,7 @@ test.describe('Phase 7 — Settings', () => {
     await page.locator('input[placeholder="Bearer token"]').fill('demo-token');
     await page.getByRole('button', { name: '토큰 저장' }).click();
 
-    const stored = await page.evaluate(() => window.localStorage.getItem('corn_agent_dashboard_token'));
+    const stored = await page.evaluate(() => window.localStorage.getItem('cron_agent_dashboard_token'));
     expect(stored).toBe('demo-token');
 
     // cleanup so subsequent tests don't carry auth header

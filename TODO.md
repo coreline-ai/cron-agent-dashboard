@@ -1,10 +1,10 @@
 # TODO
 
-Corn Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 추적한다.
+Cron Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 추적한다.
 
 ## P0 — MVP 동작 Blocking
 
-- [x] Worker pool을 `cmd/corn-agent-dashboard serve` lifecycle에 연결
+- [x] Worker pool을 `cmd/cron-agent-dashboard serve` lifecycle에 연결
 - [x] Store ↔ Worker adapter 구현
 - [x] queued run claim → executor 실행 → run/comment/issue 상태 반영
 - [x] active run cancel API와 process cancel 연결
@@ -44,7 +44,7 @@ Corn Agent Dashboard 초기 scaffold 이후 남은 항목을 우선순위별로 
 ## Completed
 
 - [x] Initial design documentation committed
-- [x] Foundation scaffold pushed to `main` — `97ba94f feat: scaffold corn agent dashboard`
+- [x] Foundation scaffold pushed to `main` — `97ba94f feat: scaffold cron agent dashboard`
 - [x] Go/SQLite/API skeleton added
 - [x] Worker/scheduler primitives added
 - [x] Worker/store/main runtime wiring added

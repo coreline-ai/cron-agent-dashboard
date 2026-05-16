@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	appscheduler "github.com/coreline-ai/corn-agent-dashboard/internal/scheduler"
+	appscheduler "github.com/coreline-ai/cron-agent-dashboard/internal/scheduler"
 	"github.com/robfig/cron/v3"
 	"strings"
 	"time"

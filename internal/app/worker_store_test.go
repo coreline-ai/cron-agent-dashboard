@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/worker"
 )
 
 type fakeExecutor struct {

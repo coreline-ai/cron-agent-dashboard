@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
-	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/worker"
+	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
 )
 
 const defaultProcessMarkerAttemptTimeout = 2 * time.Second
@@ -131,7 +131,7 @@ func (e *RuntimeExecutor) linkRunLog(ctx context.Context, run worker.ExecutionCo
 	if run.WorkspaceWorkingDir == "" || run.RunID == "" || stdoutPath == "" {
 		return nil
 	}
-	dir := filepath.Join(run.WorkspaceWorkingDir, ".corn-runs")
+	dir := filepath.Join(run.WorkspaceWorkingDir, ".cron-runs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

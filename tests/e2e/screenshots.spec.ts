@@ -184,7 +184,7 @@ test.describe('Generate README screenshots', () => {
     await capture(page, '08-settings.png');
 
     // 9. Light theme variant (home)
-    await page.evaluate(() => window.localStorage.setItem('corn-agent-dashboard-theme', 'light'));
+    await page.evaluate(() => window.localStorage.setItem('cron-agent-dashboard-theme', 'light'));
     await page.goto('/');
     await page.waitForSelector('text=운영 현황');
     await capture(page, '09-home-light.png');

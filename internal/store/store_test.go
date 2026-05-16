@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
 )
 
 func newTestStore(t *testing.T) *Store {

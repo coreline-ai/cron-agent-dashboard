@@ -3,7 +3,7 @@ type BrandMarkProps = {
   title?: string;
 };
 
-export function BrandMark({ size = 20, title = 'Corn Agent' }: BrandMarkProps) {
+export function BrandMark({ size = 20, title = 'Cron Agent' }: BrandMarkProps) {
   return (
     <svg
       width={size}

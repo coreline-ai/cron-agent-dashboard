@@ -1,4 +1,4 @@
-# TRD — corn-agent-dashboard
+# TRD — cron-agent-dashboard
 
 > Technical Requirements Document
 > Version: 0.1
@@ -11,7 +11,7 @@
 
 ### 1.1 Backend
 - **언어**: Go 1.24+
-- **HTTP 라우터**: `chi/v5` (Corn Design Reference와 동일, 검증됨)
+- **HTTP 라우터**: `chi/v5` (Cron Design Reference와 동일, 검증됨)
 - **DB 드라이버**: `modernc.org/sqlite` (pure Go, CGo 없음 → 크로스 컴파일 용이)
 - **SQL 빌더**: `sqlx` (가벼움, sqlc는 단일 프로젝트엔 과함)
 - **Cron**: `github.com/robfig/cron/v3`
@@ -25,7 +25,7 @@
     - Next의 SSR/RSC 기능 미사용 (단일 사용자, API 전부 client fetch)
     - `output: 'export'` + 동적 라우트 `[id]`는 `generateStaticParams` 필요 → 모든 issue id를 빌드 시 알 수 없으므로 우회 필요
     - SPA + Go fallback handler (모든 비-API 경로 → index.html)가 단순하고 안정적
-  - Corn Design Reference 컴포넌트는 client-only로 추출 가능한 것만 가져온다 (RSC/`'use server'` 의존 컴포넌트는 client 변형 작성)
+  - Cron Design Reference 컴포넌트는 client-only로 추출 가능한 것만 가져온다 (RSC/`'use server'` 의존 컴포넌트는 client 변형 작성)
 - **라우팅**: `react-router-dom` v6+
 - **UI 라이브러리**: shadcn/ui (Base UI는 선택)
 - **스타일**: Tailwind CSS v4 (PostCSS plugin)
@@ -36,12 +36,12 @@
 - **다크모드**: `class` 기반 직접 토글 (next-themes 대체)
 
 ### 1.3 Storage
-- **DB**: SQLite 파일 1개 (`~/.corn-agent-dashboard/data.db`)
-- **Run logs**: `~/.corn-agent-dashboard/runs/<run-id>.log` (stdout 전체)
-- **설정**: `~/.corn-agent-dashboard/config.toml` (선택)
+- **DB**: SQLite 파일 1개 (`~/.cron-agent-dashboard/data.db`)
+- **Run logs**: `~/.cron-agent-dashboard/runs/<run-id>.log` (stdout 전체)
+- **설정**: `~/.cron-agent-dashboard/config.toml` (선택)
 
 ### 1.4 Agent Runtime
-- **방식**: `exec.Command` spawn (Corn Design Reference와 동일)
+- **방식**: `exec.Command` spawn (Cron Design Reference와 동일)
 - **지원 CLI**: `codex`, `claude`, `gemini` (Phase 1)
 - **Runtime adapter 인터페이스** — CLI마다 인자/stdin 방식이 달라 추상화 필요
   ```go
@@ -64,14 +64,14 @@
   - 근거: 같은 `workspace.working_dir`에서 두 에이전트 동시 실행 시 파일 충돌. MVP 안전 우선.
 - **타임아웃**: 600초 (설정 가능). 타임아웃 시 → run.status='failed', error_message='timeout'
 - **취소**: `cmd.Process` SIGTERM → 30초 후 SIGKILL. **프로세스 그룹 단위 kill** (`setpgid` + `kill(-pgid)`) — 자식의 자식까지 정리
-- **Working directory**: `workspace.working_dir` (빈값이면 `~/.corn-agent-dashboard/workdirs/<workspace-slug>` 자동 생성)
+- **Working directory**: `workspace.working_dir` (빈값이면 `~/.cron-agent-dashboard/workdirs/<workspace-slug>` 자동 생성)
 - **환경변수 정책**:
   - 기본 상속: `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TZ`, `TMPDIR`
   - 추가 상속 (CLI별 API 키 등): adapter가 화이트리스트로 명시 (예: codex adapter는 `OPENAI_API_KEY` 추가)
   - 기타 모든 env는 자식에 전달 안 함 (안전)
 - **stdout/stderr 캡처**:
-  - stdout → `~/.corn-agent-dashboard/runs/<run-id>.log` (append, **단일 run 최대 10MB**)
-  - 10MB 도달 시 파일 append 중단 + 마지막에 `\n[truncated by corn-agent-dashboard at 10MB]\n` 추가
+  - stdout → `~/.cron-agent-dashboard/runs/<run-id>.log` (append, **단일 run 최대 10MB**)
+  - 10MB 도달 시 파일 append 중단 + 마지막에 `\n[truncated by cron-agent-dashboard at 10MB]\n` 추가
   - **단, stdout pipe는 io.Discard로 계속 drain** — child process가 pipe buffer 가득 차서 blocking되지 않도록
   - stderr → 메모리 ring buffer (마지막 4KB) → 종료 시 run.error_message에 기록
   - **결과 댓글 INSERT 시 추가 cap**: comment.content는 64KB 한도. 초과 시 앞 60KB + "전체 로그는 [로그 보기](/api/runs/<id>/log)" 링크 append
@@ -97,7 +97,7 @@
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  corn-agent-dashboard (single Go binary)                  │
+│  cron-agent-dashboard (single Go binary)                  │
 │                                                  │
 │  ┌─────────────────────────────────────────┐    │
 │  │  HTTP Server (:8080)                    │    │
@@ -128,9 +128,9 @@
 ### 2.2 모듈 구성 (Go 패키지)
 
 ```
-corn-agent-dashboard/
+cron-agent-dashboard/
 ├─ cmd/
-│  └─ corn-agent-dashboard/
+│  └─ cron-agent-dashboard/
 │     └─ main.go            # 진입점, flag 파싱
 ├─ internal/
 │  ├─ config/               # 설정 로딩
@@ -164,7 +164,7 @@ corn-agent-dashboard/
 │  │  ├─ mention.go         # @AgentName 파싱 (첫 매칭, lower 비교)
 │  │  └─ prompt.go          # truncation 기반 prompt 렌더링
 │  └─ scheduler/
-│     └─ cron.go            # robfig/cron, CORN_AGENT_DASHBOARD_TIMEZONE 적용
+│     └─ cron.go            # robfig/cron, CRON_AGENT_DASHBOARD_TIMEZONE 적용
 ├─ web/                     # Vite + React + React Router
 │  ├─ src/
 │  │  ├─ pages/
@@ -243,7 +243,7 @@ corn-agent-dashboard/
 - 토큰 없이 API 호출 가능
 
 ### 4.2 옵션 모드: 단일 토큰
-- `--token <SECRET>` 또는 `CORN_AGENT_DASHBOARD_TOKEN=...` 환경변수
+- `--token <SECRET>` 또는 `CRON_AGENT_DASHBOARD_TOKEN=...` 환경변수
 - 모든 `/api/*` 요청에 `Authorization: Bearer <SECRET>` 필수
 - 외부 노출(`--bind 0.0.0.0`) 시 토큰 미설정 → 부팅 거부
 
@@ -251,7 +251,7 @@ corn-agent-dashboard/
 - 같은 origin이면 통과
 - 무인증 모드라도 다른 origin의 fetch는 기본 거부 (CSRF 방어):
   - `Origin` 헤더 검사 → `http://127.0.0.1:8080` 또는 `--cors <origin>` 화이트리스트만 허용
-- 다른 origin은 `--cors <origin>` 또는 `CORN_AGENT_DASHBOARD_CORS=<origin1>,<origin2>` 환경변수로 명시
+- 다른 origin은 `--cors <origin>` 또는 `CRON_AGENT_DASHBOARD_CORS=<origin1>,<origin2>` 환경변수로 명시
 
 ---
 
@@ -279,7 +279,7 @@ corn-agent-dashboard/
 
 ### 6.1 영속화 위치
 ```
-~/.corn-agent-dashboard/
+~/.cron-agent-dashboard/
 ├─ data.db           # SQLite (모든 메타데이터)
 ├─ runs/
 │  ├─ <run-id>.log   # stdout 전체
@@ -446,7 +446,7 @@ store 흐름:
 - 등록 방식: `cron.AddFunc(spec, callback)` (DB scan 폴링 대신)
 
 ### 9.2 Timezone
-- 시스템 전역: 환경변수 `CORN_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
+- 시스템 전역: 환경변수 `CRON_AGENT_DASHBOARD_TIMEZONE` (기본 `Asia/Seoul`)
 - 부팅 시 `cron.New(cron.WithLocation(loc))` 생성
 - 룰별 timezone 컬럼은 두지 않음 — 단일 사용자 가정
 
@@ -488,8 +488,8 @@ store 흐름:
   - 그 외 모든 경로 → `index.html` (SPA fallback, React Router가 client routing)
 - 데이터는 클라이언트에서 `/api/*` 호출
 
-### 10.2 Corn Design Reference에서 재사용할 컴포넌트
-- 사전 작업 (Phase 0): Corn Design Reference `web/`에서 RSC/`'use server'` 사용 여부 스캔
+### 10.2 Cron Design Reference에서 재사용할 컴포넌트
+- 사전 작업 (Phase 0): Cron Design Reference `web/`에서 RSC/`'use server'` 사용 여부 스캔
 - 재사용 후보: `IssueBoard`, `IssueDetail`, `CommentThread`, `AgentEditor`의 client-only 추출
 - 테마/스타일 토큰 그대로 (Tailwind config 복사)
 - 한국어 namespace에서 필요한 string만 inline화 (i18next 의존 제거)
@@ -524,24 +524,24 @@ store 흐름:
 ## 11. Deployment (배포)
 
 ### 11.1 배포 단위
-- 단일 정적 바이너리 (`corn-agent-dashboard` ~30MB 예상)
+- 단일 정적 바이너리 (`cron-agent-dashboard` ~30MB 예상)
 - macOS arm64/amd64, Linux amd64/arm64 4개 빌드
 
 ### 11.2 실행
 ```bash
-corn-agent-dashboard serve \
-  --db ~/.corn-agent-dashboard/data.db \
+cron-agent-dashboard serve \
+  --db ~/.cron-agent-dashboard/data.db \
   --bind 127.0.0.1:8080 \
   --workers 3 \
   --timezone Asia/Seoul
 ```
 
 환경변수 대체 가능:
-- `CORN_AGENT_DASHBOARD_DB`, `CORN_AGENT_DASHBOARD_BIND`, `CORN_AGENT_DASHBOARD_WORKERS`, `CORN_AGENT_DASHBOARD_TIMEZONE`, `CORN_AGENT_DASHBOARD_TOKEN`, `CORN_AGENT_DASHBOARD_CORS`
+- `CRON_AGENT_DASHBOARD_DB`, `CRON_AGENT_DASHBOARD_BIND`, `CRON_AGENT_DASHBOARD_WORKERS`, `CRON_AGENT_DASHBOARD_TIMEZONE`, `CRON_AGENT_DASHBOARD_TOKEN`, `CRON_AGENT_DASHBOARD_CORS`
 
 ### 11.3 init
 ```bash
-corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
+cron-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 ```
 
 ### 11.4 업그레이드
@@ -566,7 +566,7 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 | Cancel status | **`cancelled` 별도** (확정) | Phase 0 |
 | Sub-issue 트리 | **Phase 2로 이동** (확정, MVP는 멘션 = 같은 issue 새 run) | Phase 0 |
 | 멘션 정책 | **첫 멘션만 dispatch** (확정) | Phase 0 |
-| Timezone | **시스템 전역 `CORN_AGENT_DASHBOARD_TIMEZONE`** (기본 `Asia/Seoul`) | Phase 0 |
+| Timezone | **시스템 전역 `CRON_AGENT_DASHBOARD_TIMEZONE`** (기본 `Asia/Seoul`) | Phase 0 |
 | Stdout cap | **단일 run 10MB** (확정) | Phase 0 |
 | Prompt 컨텍스트 | **truncation 4000자, 요약 없음** | Phase 0 |
 | 체이닝 정책 | **explicit-first + workspace opt-in auto-chain**. 기본 off, workspace guard(depth/run/cost/dry-run) 통과 시 agent 결과 첫 멘션 dispatch | Phase 2 |
@@ -582,7 +582,7 @@ corn-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 
 1. **Run Lifecycle Hardening**: heartbeat, structured terminal reason, stale/orphan/panic/shutdown recovery.
 2. **Run Event / Audit Trail**: `run_event` 테이블과 `GET /api/runs/:id/events`.
-3. **Autopilot Failure Visibility**: `last_error`, `consecutive_failures`, `last_triggered_issue_id`, trigger 결과 응답. 기본 5회 연속 실패 시 자동 disable 하며 `--autopilot-failure-disable-threshold` / `CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD`와 store option으로 threshold 조정 가능.
+3. **Autopilot Failure Visibility**: `last_error`, `consecutive_failures`, `last_triggered_issue_id`, trigger 결과 응답. 기본 5회 연속 실패 시 자동 disable 하며 `--autopilot-failure-disable-threshold` / `CRON_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD`와 store option으로 threshold 조정 가능.
 4. **Frontend Feedback Foundation**: `StatusPill`, `ConfirmDialog`, `ToastProvider`, `MutationErrorAlert`, `DateTimeText`.
 5. **Issue Operations Console + Board Filters**: Board URL 기반 status/execution/agent/search 필터, Issue Detail 우측 운영 레일, run event timeline.
 

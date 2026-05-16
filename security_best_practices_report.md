@@ -1,4 +1,4 @@
-# Security Best Practices Review — Corn Agent Dashboard
+# Security Best Practices Review — Cron Agent Dashboard
 
 - 대상: `/Users/hwanchoi/projects/core-agent-dashboard/`
 - 일자: 2026-05-16
@@ -45,7 +45,7 @@
 
 ### H-1. Go 표준 라이브러리 취약점 감지: GO-2026-4971 — 해결됨
 
-- 위치: `cmd/corn-agent-dashboard/main.go:151` → `http.Server.ListenAndServe` → `net.Listen`
+- 위치: `cmd/cron-agent-dashboard/main.go:151` → `http.Server.ListenAndServe` → `net.Listen`
 - 최초 점검 결과: `govulncheck`가 `net@go1.26.2`의 취약 호출 경로를 감지했습니다.
 - 취약점: `GO-2026-4971`, Windows의 `net` 패키지 NUL byte 처리 panic. Fixed in `go1.26.3`.
 - 영향: 릴리스 빌드가 취약 Go toolchain으로 수행되면 표준 라이브러리 취약점을 포함할 수 있습니다. 실제 영향은 OS/입력면에 따라 제한적이지만, 공개 취약점이므로 릴리스 전 조치가 안전합니다.
@@ -58,8 +58,8 @@
 
 ### M-1. HTTP 서버 timeout이 부족함 — 해결됨
 
-- 이전 위치: `cmd/corn-agent-dashboard/main.go:142-146`
-- 현재 작업트리: `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `MaxHeaderBytes`가 설정됨 (`cmd/corn-agent-dashboard/main.go:142-150`).
+- 이전 위치: `cmd/cron-agent-dashboard/main.go:142-146`
+- 현재 작업트리: `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `MaxHeaderBytes`가 설정됨 (`cmd/cron-agent-dashboard/main.go:142-150`).
 - 남은 조치: timeout 값이 실제 장시간 agent/API 응답 흐름과 충돌하지 않는지 smoke 검증합니다.
 
 ### M-2. JSON request body size 제한 없음 — 해결됨
@@ -115,7 +115,7 @@
 
 - 이전 위치: `internal/httpapi/handlers_system.go:77-87`
 - 현재 작업트리: HTTP `/api/system/backup`은 `to`가 비어 있으면 기존 기본 `.bak` 경로를 유지하고, `to`가 지정되면 기본적으로 `{data_dir}/backups` 내부로만 제한합니다.
-- Power-user opt-in: `--allow-arbitrary-backup-paths` 또는 `CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS=true`를 명시하면 HTTP API 임의 경로를 허용합니다. 로컬 shell `corn-agent-dashboard backup --to ...`는 기존 임의 경로 동작을 유지합니다.
+- Power-user opt-in: `--allow-arbitrary-backup-paths` 또는 `CRON_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS=true`를 명시하면 HTTP API 임의 경로를 허용합니다. 로컬 shell `cron-agent-dashboard backup --to ...`는 기존 임의 경로 동작을 유지합니다.
 
 ### L-4. CI dependency install scripts 정책이 job별로 다름 — 해결됨
 

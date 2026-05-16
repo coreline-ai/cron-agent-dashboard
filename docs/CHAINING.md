@@ -1,4 +1,4 @@
-# CHAINING — corn-agent-dashboard
+# CHAINING — cron-agent-dashboard
 
 > Status: 구현됨 — workspace opt-in 자동 체이닝
 > Date: 2026-05-15

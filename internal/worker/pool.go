@@ -27,7 +27,7 @@ func (r ClaimedRun) RelativeRunLogPath() string {
 	if r.RunID == "" || r.WorkspaceWorkingDir == "" {
 		return ""
 	}
-	return ".corn-runs/" + r.RunID + ".log"
+	return ".cron-runs/" + r.RunID + ".log"
 }
 
 type ClaimStore interface {

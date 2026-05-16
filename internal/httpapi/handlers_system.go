@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreline-ai/corn-agent-dashboard/internal/app"
-	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
-	dbmeta "github.com/coreline-ai/corn-agent-dashboard/internal/db"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/worker"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/app"
+	backupops "github.com/coreline-ai/cron-agent-dashboard/internal/backup"
+	dbmeta "github.com/coreline-ai/cron-agent-dashboard/internal/db"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
+	"github.com/coreline-ai/cron-agent-dashboard/internal/worker"
 	"github.com/go-chi/chi/v5"
 )
 

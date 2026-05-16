@@ -1,8 +1,8 @@
-# Corn Agent Dashboard 디자인 적용 가이드
+# Cron Agent Dashboard 디자인 적용 가이드
 
 작성 일시: `2026-05-13 19:39 KST`
 
-이 문서는 Corn Design Reference 디자인 시스템을 Corn Agent Dashboard에 적용할 때의 구현 기준이다.
+이 문서는 Cron Design Reference 디자인 시스템을 Cron Agent Dashboard에 적용할 때의 구현 기준이다.
 
 ## 1. UX Intent
 
@@ -62,7 +62,7 @@
 
 | 파일 | 변경 방향 |
 |---|---|
-| `web/src/styles/global.css` | Corn Design Reference token + component style 전면 적용 |
+| `web/src/styles/global.css` | Cron Design Reference token + component style 전면 적용 |
 | `web/src/layouts/DashboardLayout.tsx` | grouped sidebar, brand mark, local status footer |
 | `web/src/components/PageHeader.tsx` | compact header class 유지 |
 | `web/src/pages/*.tsx` | 대부분 기존 class 유지, status metadata만 보강 가능 |

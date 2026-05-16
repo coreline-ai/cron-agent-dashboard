@@ -1,8 +1,8 @@
-# Web App Test Plan: Corn Agent Dashboard
+# Web App Test Plan: Cron Agent Dashboard
 
 > Vite SPA 메뉴에서 도달 가능한 **모든 페이지/기능**을 단계별로 검증하기 위한 통합 테스트 계획서.
 > Generated: 2026-05-16
-> Project: corn-agent-dashboard (v0.1 stabilized)
+> Project: cron-agent-dashboard (v0.1 stabilized)
 
 ---
 
@@ -168,8 +168,8 @@ pnpm exec playwright test tests/e2e/smoke.spec.ts
 - [ ] `tests/e2e/shell.spec.ts` 작성 — 다음 시나리오 한 파일에 묶음
 - [ ] 사이드바 nav `대시보드` / `이슈 보드` / `에이전트` / `오토파일럿` / `설정` 클릭 시 URL 전환 검증
 - [ ] WorkspaceSwitcher 드롭다운 열기 / 워크스페이스 변경 / 새 워크스페이스 모달 트리거
-- [ ] `Light` ↔ `Dark` 테마 토글 후 `<html data-theme>` 속성과 `localStorage` 키 (`corn-agent-dashboard-theme`) 확인
-- [ ] 마지막 워크스페이스 기억: `localStorage` 키 `corn-agent-dashboard-last-workspace` 확인
+- [ ] `Light` ↔ `Dark` 테마 토글 후 `<html data-theme>` 속성과 `localStorage` 키 (`cron-agent-dashboard-theme`) 확인
+- [ ] 마지막 워크스페이스 기억: `localStorage` 키 `cron-agent-dashboard-last-workspace` 확인
 - [ ] 워크스페이스 없을 때 nav에서 `이슈 보드 / 에이전트 / 오토파일럿`이 `nav-disabled`로 비활성화
 
 #### Success Criteria
@@ -486,7 +486,7 @@ pnpm exec playwright test
 - [ ] 회귀 가드: 새 PR마다 최소 `smoke + integration` spec 통과 의무
 
 ### 5.2 Manual Verification Steps (수동 검증)
-1. `make build && ./corn-agent-dashboard serve --data-dir /tmp/cad-manual`
+1. `make build && ./cron-agent-dashboard serve --data-dir /tmp/cad-manual`
 2. 브라우저에서 `http://127.0.0.1:8080` 진입 → 워크스페이스 생성
 3. Board에서 새 이슈 생성 → IssueDetail에서 댓글/멘션/sub-issue 추가
 4. Agents 페이지에서 보조 에이전트 생성 → 메인으로 승격 후 원복

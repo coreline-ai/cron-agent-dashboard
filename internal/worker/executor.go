@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	workerruntime "github.com/coreline-ai/corn-agent-dashboard/internal/worker/runtime"
+	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 	DefaultCommentCapBytes        = 64 * 1024
 	DefaultCommentHeadBytes       = 60 * 1024
 	DefaultKillGrace              = 30 * time.Second
-	stdoutTruncatedMarker         = "\n[truncated by corn-agent-dashboard at 10MB]\n"
+	stdoutTruncatedMarker         = "\n[truncated by cron-agent-dashboard at 10MB]\n"
 	privateDirMode                = 0o700
 	privateFileMode               = 0o600
 )
@@ -240,7 +240,7 @@ func ignoreClosedPipeReadError(err error) error {
 func (e *Executor) createLogFile(runID string) (string, *os.File, error) {
 	logDir := e.LogDir
 	if logDir == "" {
-		logDir = filepath.Join(os.TempDir(), "corn-agent-dashboard-runs")
+		logDir = filepath.Join(os.TempDir(), "cron-agent-dashboard-runs")
 	}
 	if err := os.MkdirAll(logDir, privateDirMode); err != nil {
 		return "", nil, err
