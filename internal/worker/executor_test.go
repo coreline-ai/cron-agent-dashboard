@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -80,5 +82,48 @@ func TestExecutorProcessStartCallbackIsBestEffort(t *testing.T) {
 	}
 	if result.ProcessPID != callbackInfo.PID || result.ProcessPGID != callbackInfo.PGID {
 		t.Fatalf("result process info=%d/%d callback=%#v", result.ProcessPID, result.ProcessPGID, callbackInfo)
+	}
+}
+
+func TestCreateLogFileUsesPrivatePermissions(t *testing.T) {
+	logDir := filepath.Join(t.TempDir(), "runs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preexisting := filepath.Join(logDir, "secure-run.log")
+	if err := os.WriteFile(preexisting, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	executor := Executor{LogDir: logDir}
+	path, file, err := executor.createLogFile("secure-run")
+	if err != nil {
+		t.Fatalf("createLogFile: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if path != preexisting {
+		t.Fatalf("path=%q, want %q", path, preexisting)
+	}
+
+	assertModeOnDarwinLinux(t, logDir, 0o700)
+	assertModeOnDarwinLinux(t, path, 0o600)
+}
+
+func assertModeOnDarwinLinux(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode=%#o, want %#o", path, got, want)
 	}
 }

@@ -7,6 +7,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60_000,
   retries: process.env.CI ? 2 : 1,
+  // E2E tests share one local server and SQLite data-dir. Keep the suite
+  // serial by default so global setup/cleanup scenarios do not race each other.
+  workers: Number(process.env.E2E_WORKERS ?? 1),
   expect: {
     timeout: 10_000
   },

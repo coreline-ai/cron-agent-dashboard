@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,7 +81,9 @@ func (s *Server) rerunIssue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AgentID string `json:"agent_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptional(w, r, &req) {
+		return
+	}
 	run, err := s.store.RerunIssue(r.Context(), chi.URLParam(r, "id"), req.AgentID)
 	respond(w, map[string]any{"run": run}, err, http.StatusCreated)
 }

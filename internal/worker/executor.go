@@ -24,6 +24,8 @@ const (
 	DefaultCommentHeadBytes       = 60 * 1024
 	DefaultKillGrace              = 30 * time.Second
 	stdoutTruncatedMarker         = "\n[truncated by corn-agent-dashboard at 10MB]\n"
+	privateDirMode                = 0o700
+	privateFileMode               = 0o600
 )
 
 // ExecutionContext is the runtime-facing execution payload. It aliases the
@@ -240,15 +242,28 @@ func (e *Executor) createLogFile(runID string) (string, *os.File, error) {
 	if logDir == "" {
 		logDir = filepath.Join(os.TempDir(), "corn-agent-dashboard-runs")
 	}
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	if err := os.MkdirAll(logDir, privateDirMode); err != nil {
 		return "", nil, err
+	}
+	cleanLogDir := filepath.Clean(logDir)
+	if cleanLogDir != "." && cleanLogDir != string(os.PathSeparator) {
+		if err := os.Chmod(cleanLogDir, privateDirMode); err != nil {
+			return "", nil, err
+		}
 	}
 	if runID == "" {
 		runID = fmt.Sprintf("run-%d", e.now().UnixNano())
 	}
 	path := filepath.Join(logDir, runID+".log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	return path, file, err
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, privateFileMode)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := file.Chmod(privateFileMode); err != nil {
+		_ = file.Close()
+		return "", nil, err
+	}
+	return path, file, nil
 }
 
 func (e *Executor) stdoutCap() int64 {

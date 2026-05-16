@@ -162,6 +162,7 @@ func CleanupRunLogs(dataDir string, cutoff time.Time) (LogCleanupReport, error) 
 	if _, err := os.Stat(runsDir); errors.Is(err, os.ErrNotExist) {
 		return report, nil
 	}
+	_ = os.Chmod(runsDir, 0o700)
 	var errs []error
 	err := filepath.Walk(runsDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {

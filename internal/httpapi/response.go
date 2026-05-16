@@ -3,16 +3,43 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
+	"io"
+	"log/slog"
 	"net/http"
+
+	"github.com/coreline-ai/corn-agent-dashboard/internal/store"
 )
 
+const maxJSONBodyBytes = 2 << 20
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid json", nil)
+		writeDecodeError(w, err)
 		return false
 	}
 	return true
+}
+
+func decodeOptional(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		writeDecodeError(w, err)
+		return false
+	}
+	return true
+}
+
+func writeDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "request body too large", nil)
+		return
+	}
+	writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid json", nil)
 }
 
 func respond(w http.ResponseWriter, payload any, err error, success int) {
@@ -43,7 +70,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrState):
 		writeError(w, 409, "STATE_ERROR", err.Error(), nil)
 	default:
-		writeError(w, 500, "INTERNAL_ERROR", err.Error(), nil)
+		slog.Error("internal store error", "err", err)
+		writeError(w, 500, "INTERNAL_ERROR", "internal server error", nil)
 	}
 }
 

@@ -16,6 +16,7 @@ const (
 	DefaultTimezone                         = "Asia/Seoul"
 	DefaultWorkers                          = 3
 	DefaultAutopilotFailureDisableThreshold = 5
+	privateDirMode                          = 0o700
 )
 
 type Config struct {
@@ -28,6 +29,7 @@ type Config struct {
 	Timezone                         string        `json:"timezone"`
 	BackupTo                         string        `json:"-"`
 	RestoreFrom                      string        `json:"-"`
+	AllowArbitraryBackupPaths        bool          `json:"allow_arbitrary_backup_paths"`
 	AutoBackup                       bool          `json:"auto_backup"`
 	AutoBackupKeep                   int           `json:"auto_backup_keep"`
 	AutoCleanupLogDays               int           `json:"auto_cleanup_log_days"`
@@ -76,6 +78,7 @@ func Load(args []string) (Config, []string, error) {
 	fs.StringVar(&cfg.Timezone, "timezone", cfg.Timezone, "system timezone")
 	fs.StringVar(&cfg.BackupTo, "to", cfg.BackupTo, "backup destination path")
 	fs.StringVar(&cfg.RestoreFrom, "from", cfg.RestoreFrom, "restore source path")
+	fs.BoolVar(&cfg.AllowArbitraryBackupPaths, "allow-arbitrary-backup-paths", cfg.AllowArbitraryBackupPaths, "allow HTTP backup API destinations outside data-dir/backups")
 	fs.BoolVar(&cfg.AutoBackup, "auto-backup", cfg.AutoBackup, "enable automatic daily SQLite backups")
 	fs.IntVar(&cfg.AutoBackupKeep, "auto-backup-keep", cfg.AutoBackupKeep, "number of automatic backups to keep")
 	fs.IntVar(&cfg.AutoCleanupLogDays, "auto-cleanup-log-days", cfg.AutoCleanupLogDays, "delete run logs older than this many days; 0 disables")
@@ -144,13 +147,31 @@ func (c Config) AuthMode() string {
 }
 
 func EnsureDirs(c Config) error {
-	if err := os.MkdirAll(c.DataDir, 0o755); err != nil {
+	for _, dir := range []string{
+		c.DataDir,
+		filepath.Dir(c.DBPath),
+		filepath.Join(c.DataDir, "runs"),
+	} {
+		if err := ensurePrivateDir(dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, privateDirMode); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(c.DBPath), 0o755); err != nil {
-		return err
+	clean := filepath.Clean(dir)
+	if clean == "." || clean == string(os.PathSeparator) {
+		return nil
 	}
-	return os.MkdirAll(filepath.Join(c.DataDir, "runs"), 0o755)
+	// Existing directories keep their previous mode after MkdirAll. Tighten
+	// them on a best-effort basis without failing startup on filesystems where
+	// chmod is unsupported or denied.
+	_ = os.Chmod(clean, privateDirMode)
+	return nil
 }
 
 func applyEnv(c *Config) error {
@@ -175,6 +196,13 @@ func applyEnv(c *Config) error {
 			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_BACKUP %q: %w", v, err)
 		}
 		c.AutoBackup = b
+	}
+	if v := os.Getenv("CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS %q: %w", v, err)
+		}
+		c.AllowArbitraryBackupPaths = b
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP"); v != "" {
 		n, err := strconv.Atoi(v)

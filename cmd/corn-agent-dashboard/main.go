@@ -143,6 +143,10 @@ func serve(cfg config.Config, st *store.Store) error {
 		Addr:              cfg.Bind,
 		Handler:           httpapi.New(st, cfg, httpapi.WithRunCanceller(pool), httpapi.WithAutopilotReloader(autopilot)),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	errCh := make(chan error, 1)

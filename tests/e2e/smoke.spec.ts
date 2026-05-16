@@ -3,6 +3,24 @@ import { expect, test } from '@playwright/test';
 test('local MVP browser smoke: workspace, issue, detail, comment', async ({ page, request }) => {
   const suffix = Date.now().toString(36);
   const slug = `smoke-${suffix}`;
+  const cspViolations: string[] = [];
+
+  page.on('console', (message) => {
+    const text = message.text();
+    if (/content security policy|violates.*directive/i.test(text)) {
+      cspViolations.push(text);
+    }
+  });
+  page.on('pageerror', (error) => {
+    const text = error.message;
+    if (/content security policy|violates.*directive/i.test(text)) {
+      cspViolations.push(text);
+    }
+  });
+
+  const home = await request.get('/');
+  expect(home.ok()).toBeTruthy();
+  expect(home.headers()['content-security-policy']).toContain("default-src 'self'");
 
   const created = await request.post('/api/workspaces', {
     data: {
@@ -47,4 +65,5 @@ test('local MVP browser smoke: workspace, issue, detail, comment', async ({ page
   await page.getByRole('button', { name: '댓글 등록' }).click();
   await commentResp;
   await expect(page.locator('.comment-block').filter({ hasText: 'hello from e2e smoke' })).toBeVisible({ timeout: 15_000 });
+  expect(cspViolations).toEqual([]);
 });

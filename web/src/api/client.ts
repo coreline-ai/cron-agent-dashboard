@@ -23,11 +23,56 @@ export class ApiError extends Error {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 const TOKEN_STORAGE_KEY = 'corn_agent_dashboard_token';
 
+type TokenStorageMode = 'local' | 'session' | 'none';
+
+type SetTokenOptions = {
+  sessionOnly?: boolean;
+};
+
 function readToken() {
   if (typeof window === 'undefined') {
     return '';
   }
+  const sessionToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  if (sessionToken !== null) {
+    return sessionToken;
+  }
   return window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
+}
+
+function readTokenStorageMode(): TokenStorageMode {
+  if (typeof window === 'undefined') {
+    return 'none';
+  }
+  if (window.sessionStorage.getItem(TOKEN_STORAGE_KEY) !== null) {
+    return 'session';
+  }
+  if (window.localStorage.getItem(TOKEN_STORAGE_KEY) !== null) {
+    return 'local';
+  }
+  return 'none';
+}
+
+function setToken(token: string, options: SetTokenOptions = {}) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const normalizedToken = token.trim();
+  if (options.sessionOnly) {
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, normalizedToken);
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(TOKEN_STORAGE_KEY, normalizedToken);
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+function clearToken() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -83,10 +128,8 @@ export const apiClient = {
 
 export const apiAuth = {
   getToken: readToken,
-  setToken(token: string) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
-  },
-  clearToken() {
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  }
+  getTokenStorageMode: readTokenStorageMode,
+  setToken,
+  setSessionToken: (token: string) => setToken(token, { sessionOnly: true }),
+  clearToken
 };

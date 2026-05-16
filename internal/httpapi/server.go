@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +16,8 @@ import (
 )
 
 var Version = "0.1.0"
+
+const contentSecurityPolicy = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'"
 
 type Server struct {
 	store            *store.Store
@@ -58,6 +62,7 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 		opt(s)
 	}
 	r := chi.NewRouter()
+	r.Use(securityHeaders)
 	r.Use(s.cors)
 	r.Get("/healthz", s.healthz)
 	r.Group(func(api chi.Router) {
@@ -82,11 +87,12 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		sameOrigin := isSameOrigin(r, origin)
-		if origin != "" && len(allowed) > 0 && !allowed[origin] && !sameOrigin {
+		originAllowed := origin != "" && (allowed[origin] || sameOrigin)
+		if origin != "" && !originAllowed {
 			writeError(w, http.StatusForbidden, "FORBIDDEN", "origin not allowed", nil)
 			return
 		}
-		if origin != "" && (allowed[origin] || len(allowed) == 0 || sameOrigin) {
+		if originAllowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
@@ -96,6 +102,19 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("Content-Security-Policy-Report-Only", contentSecurityPolicy)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -114,12 +133,19 @@ func isSameOrigin(r *http.Request, origin string) bool {
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Token != "" {
-			want := "Bearer " + s.cfg.Token
-			if r.Header.Get("Authorization") != want {
+			if !constantTimeEqual(r.Header.Get("Authorization"), "Bearer "+s.cfg.Token) {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing or invalid token", nil)
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func constantTimeEqual(got, want string) bool {
+	gotHash := sha256.Sum256([]byte(got))
+	wantHash := sha256.Sum256([]byte(want))
+	hashesEqual := subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) == 1
+	lengthsEqual := subtle.ConstantTimeEq(int32(len(got)), int32(len(want))) == 1
+	return hashesEqual && lengthsEqual
 }

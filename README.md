@@ -156,7 +156,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 - **사용량 대시보드**: 최근 7일 / 30일 input·output·total token + cost, 측정 run 수(`run_count` 대비 `measured_run_count`)
 - **워크스페이스 실행 기본값**: workspace별 `default_timeout_seconds` + auto-chain 5중 가드(ON/OFF · 최대 chain depth · 24시간 run 제한 · 24시간 비용 제한 · dry-run)
 - **운영 작업**: `DB 백업 (경로 옵션)` / `Vacuum` / `Run 로그 정리 (보존 일수)` — 결과는 하단 메시지 영역에 표시
-- **API 토큰**: 서버가 token mode일 때 사용할 Bearer token을 브라우저 `localStorage`에 저장/삭제(서버에 저장되지 않음)
+- **API 토큰**: 서버가 token mode일 때 사용할 Bearer token을 브라우저 `localStorage`(기본) 또는 `sessionStorage`(이번 세션만)에 저장/삭제(서버에 저장되지 않음)
 
 ### 7. 라이트 테마
 
@@ -448,7 +448,7 @@ chmod +x /usr/local/bin/corn-agent-dashboard
 
 ```bash
 # 의존성 설치
-pnpm install
+pnpm install --frozen-lockfile --ignore-scripts
 
 # 데이터 디렉토리 초기화 (~/.corn-agent-dashboard/)
 go run ./cmd/corn-agent-dashboard init
@@ -579,17 +579,27 @@ NewsLead 결과 아래 댓글:
 | `--workers` | `CORN_AGENT_DASHBOARD_WORKERS` | `3` | 전역 worker pool 크기 |
 | `--timezone` | `CORN_AGENT_DASHBOARD_TIMEZONE` | `Asia/Seoul` | Autopilot cron timezone |
 | `--token` | `CORN_AGENT_DASHBOARD_TOKEN` | (없음) | 단일 토큰 인증 (옵션) |
-| `--cors` | `CORN_AGENT_DASHBOARD_CORS` | (없음) | 추가 허용 origin (콤마 구분) |
+| `--cors` | `CORN_AGENT_DASHBOARD_CORS` | (없음) | 추가 허용 origin (콤마 구분, 비어 있으면 same-origin only) |
 | `--auto-backup` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP` | `true` | 서버 실행 중 자동 DB 백업 활성화 |
 | `--auto-backup-keep` | `CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP` | `7` | 자동 백업 보존 개수 |
 | `--auto-cleanup-log-days` | `CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS` | `90` | 지정 일수 초과 run 로그 자동 삭제 (`0`이면 비활성) |
 | `--maintenance-interval` | `CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL` | `24h` | 자동 백업/log cleanup 실행 주기 |
 | `--autopilot-failure-disable-threshold` | `CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD` | `5` | Autopilot trigger 연속 실패 후 자동 비활성화 기준 |
+| `--allow-arbitrary-backup-paths` | `CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS` | `false` | HTTP Backup API에서 `{data_dir}/backups` 밖 임의 경로를 명시 허용 |
 | `--to` | — | 자동 `.bak` 경로 | `backup` 명령의 백업 파일 경로 |
 | `--from` | — | (필수) | `restore` 명령의 복구 원본 DB 경로 |
 
 > [!IMPORTANT]
 > 환경변수 파싱은 의도적으로 엄격합니다. 숫자/boolean/duration 환경변수 값이 잘못되면 서버는 기본값으로 조용히 대체하지 않고 startup 단계에서 실패합니다. 환경변수는 CLI flag 파싱보다 먼저 적용되므로, 잘못된 환경변수가 설정되어 있으면 같은 항목을 CLI flag로 올바르게 넘겨도 먼저 실패합니다.
+
+### 보안 운영 원칙
+
+- **Strict env policy**: 운영 환경변수는 startup에서 fail-fast로 검증합니다. 잘못된 값을 기본값으로 조용히 대체하지 않으며, secret/token 값은 repo·로그·이슈 본문에 남기지 않습니다.
+- **Token storage**: token mode의 UI Bearer token은 서버가 아닌 브라우저에 저장됩니다. 기본은 `localStorage`이고, “이번 세션만 저장”을 선택하면 `sessionStorage`에 저장됩니다. 신뢰된 로컬 브라우저 프로필에서만 사용하고, 공유 장비에서는 작업 후 삭제하세요.
+- **Agent OS 권한**: Codex/Claude/Gemini CLI는 dashboard와 같은 OS 사용자 권한 및 workspace cwd에서 실행됩니다. 외부 입력을 Autopilot/auto-chain으로 자동 실행하기 전 비용·권한·prompt injection 리스크를 검토하세요.
+- **Data / log permission**: SQLite DB, run log, backup은 prompt·stdout·파일 경로 등 민감 정보를 포함할 수 있습니다. 사용자 전용 로컬 경로에 두고 디렉터리 `0700`, 파일 `0600` 수준의 권한을 유지하세요.
+- **Backup API path policy**: HTTP `/api/system/backup`에서 `to`를 비우면 기존 기본 `.bak` 경로를 사용합니다. `to`를 지정하면 기본적으로 `{data_dir}/backups` 내부만 허용하고, 외부 경로는 `--allow-arbitrary-backup-paths` / `CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS=true`로 명시 opt-in해야 합니다. 로컬 shell에서 직접 실행하는 `corn-agent-dashboard backup --to ...`는 기존처럼 임의 사용자 경로를 사용할 수 있습니다.
+- **CORS**: 빈 CORS allowlist는 same-origin only가 기본 정책입니다. 개발 서버나 별도 UI origin이 필요할 때만 `--cors` / `CORN_AGENT_DASHBOARD_CORS`에 최소 origin을 명시하세요.
 
 ### 데이터 디렉토리 구조
 
@@ -612,6 +622,7 @@ NewsLead 결과 아래 댓글:
 # 수동 백업 (UI에서도 가능: /settings → [DB 백업])
 corn-agent-dashboard backup --to ~/backup/data.db.$(date +%Y%m%d)
 
+# HTTP API/UI에서 직접 경로를 지정할 때는 기본적으로 ~/.corn-agent-dashboard/backups 내부만 허용된다.
 # 서버 실행 중에는 기본적으로 24시간마다 ~/.corn-agent-dashboard/backups에 자동 백업한다.
 
 # 복구 전 기존 DB는 data.db.pre-restore-<timestamp>로 자동 보존

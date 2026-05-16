@@ -2,9 +2,10 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+var errBackupDestinationOutsideDataDir = errors.New("backup destination must be a file inside data-dir/backups unless allow-arbitrary-backup-paths is enabled")
+
 func (s *Server) registerSystemRoutes(api chi.Router) {
 	api.Get("/api/settings", s.settings)
 	api.Get("/api/usage/summary", s.usageSummary)
@@ -28,7 +31,7 @@ func (s *Server) registerSystemRoutes(api chi.Router) {
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	dbOK := s.store.DB().PingContext(r.Context()) == nil
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version, "uptime_seconds": int64(time.Since(s.startedAt).Seconds()), "db_ok": dbOK, "available_runtimes": availableRuntimeNames()})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version, "uptime_seconds": int64(time.Since(s.startedAt).Seconds()), "db_ok": dbOK})
 }
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
@@ -78,13 +81,50 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		To string `json:"to"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	result, err := backupops.Database(r.Context(), s.store.DB(), s.cfg.DBPath, req.To, time.Now().UTC())
+	if !decodeOptional(w, r, &req) {
+		return
+	}
+	destPath := strings.TrimSpace(req.To)
+	if destPath != "" && !s.cfg.AllowArbitraryBackupPaths {
+		var err error
+		destPath, err = constrainedBackupDestination(s.cfg.DataDir, destPath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), nil)
+			return
+		}
+	}
+	result, err := backupops.Database(r.Context(), s.store.DB(), s.cfg.DBPath, destPath, time.Now().UTC())
 	if err != nil {
 		respond(w, nil, err, 0)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backup_path": result.Path, "size_bytes": result.SizeBytes})
+}
+
+func constrainedBackupDestination(dataDir, requested string) (string, error) {
+	backupDir := filepath.Join(dataDir, "backups")
+	if !filepath.IsAbs(requested) {
+		requested = filepath.Join(backupDir, requested)
+	}
+	baseAbs, err := filepath.Abs(filepath.Clean(backupDir))
+	if err != nil {
+		return "", err
+	}
+	destAbs, err := filepath.Abs(filepath.Clean(requested))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(baseAbs, destAbs)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return "", errBackupDestinationOutsideDataDir
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", errBackupDestinationOutsideDataDir
+	}
+	return destAbs, nil
 }
 
 func (s *Server) vacuum(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +153,9 @@ func (s *Server) cleanupLogs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Days int `json:"days"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptional(w, r, &req) {
+		return
+	}
 	if req.Days <= 0 {
 		req.Days = 30
 	}
@@ -128,15 +170,6 @@ type RuntimeInfo struct {
 	Path      string `json:"path"`
 	Supported bool   `json:"supported"`
 	Warning   string `json:"warning,omitempty"`
-}
-
-func availableRuntimeNames() []string {
-	infos := availableRuntimes()
-	out := make([]string, 0, len(infos))
-	for _, i := range infos {
-		out = append(out, i.Name)
-	}
-	return out
 }
 
 var runtimeInfoCache = struct {

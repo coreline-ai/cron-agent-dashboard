@@ -109,6 +109,7 @@ export function SettingsPage() {
   const data = settings.data;
   const [message, setMessage] = useState('');
   const [token, setToken] = useState(() => apiAuth.getToken());
+  const [tokenSessionOnly, setTokenSessionOnly] = useState(() => apiAuth.getTokenStorageMode() === 'session');
   const [backupPath, setBackupPath] = useState('');
   const [cleanupDays, setCleanupDays] = useState('30');
   const backup = useMutation({
@@ -270,25 +271,29 @@ export function SettingsPage() {
         <article className="panel settings-card form-grid">
           <div>
             <h2>API 토큰</h2>
-            <p>서버가 token mode로 실행 중일 때 사용하는 브라우저 로컬 설정입니다. 토큰은 서버가 아니라 이 브라우저의 localStorage에 저장됩니다.</p>
+            <p>서버가 token mode로 실행 중일 때 사용하는 브라우저 로컬 설정입니다. 토큰은 서버가 아니라 이 브라우저의 localStorage 또는 sessionStorage에 저장됩니다.</p>
           </div>
           <label className="field-label">
             Bearer token
             <input placeholder="Bearer token" type="password" value={token} onChange={(e) => setToken(e.target.value)} />
           </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={tokenSessionOnly} onChange={(e) => setTokenSessionOnly(e.target.checked)} />
+            이번 세션만 저장(sessionStorage)
+          </label>
           <div className="settings-grid two">
             <section className="setting-action compact-action">
               <div className="setting-copy">
                 <strong>토큰 저장</strong>
-                <p>이후 UI API 요청에 Authorization Bearer 헤더를 자동으로 붙입니다.</p>
+                <p>저장 위치를 선택하면 이후 UI API 요청에 Authorization Bearer 헤더를 자동으로 붙입니다.</p>
               </div>
               <button
                 className="button"
                 type="button"
                 onClick={() => {
-                  apiAuth.setToken(token);
+                  apiAuth.setToken(token, { sessionOnly: tokenSessionOnly });
                   queryClient.invalidateQueries();
-                  setMessage('토큰을 브라우저 localStorage에 저장했습니다.');
+                  setMessage(tokenSessionOnly ? '토큰을 이번 브라우저 세션(sessionStorage)에 저장했습니다.' : '토큰을 브라우저 localStorage에 저장했습니다.');
                 }}
               >
                 토큰 저장
@@ -305,6 +310,7 @@ export function SettingsPage() {
                 onClick={() => {
                   apiAuth.clearToken();
                   setToken('');
+                  setTokenSessionOnly(false);
                   queryClient.invalidateQueries();
                   setMessage('토큰을 삭제했습니다.');
                 }}

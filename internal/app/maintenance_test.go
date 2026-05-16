@@ -58,6 +58,8 @@ func TestRunMaintenanceOnceBacksUpPrunesAndCleansLogs(t *testing.T) {
 	if report.BackupPath == "" || report.BackupSizeBytes != 2 || report.PrunedBackups != 1 {
 		t.Fatalf("backup report=%#v", report)
 	}
+	assertModeOnDarwinLinux(t, backupDir, 0o700)
+	assertModeOnDarwinLinux(t, runsDir, 0o700)
 	if _, err := os.Stat(oldBackup); !os.IsNotExist(err) {
 		t.Fatalf("old backup should be pruned, stat err=%v", err)
 	}
@@ -155,5 +157,19 @@ func TestMaintenanceRunnerStartStopIsIdempotent(t *testing.T) {
 	}
 	if err := runner.Stop(t.Context()); err != nil {
 		t.Fatalf("second stop: %v", err)
+	}
+}
+
+func assertModeOnDarwinLinux(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode=%#o, want %#o", path, got, want)
 	}
 }

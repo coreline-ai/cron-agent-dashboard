@@ -3,10 +3,12 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -390,6 +392,9 @@ func TestHTTPAPIAuthCORSAndStaticFallback(t *testing.T) {
 	if ct := res.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
 		t.Fatalf("content-type=%q", ct)
 	}
+	if got := res.Header().Get("Content-Security-Policy"); got != contentSecurityPolicy {
+		t.Fatalf("static enforced CSP header=%q, want %q", got, contentSecurityPolicy)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/assets/index.js", nil)
 	req.Header.Set("Origin", "http://example.com")
@@ -408,6 +413,117 @@ func TestHTTPAPIAuthCORSAndStaticFallback(t *testing.T) {
 	}
 	if !bytes.Contains(res.Body.Bytes(), []byte(`"code":"NOT_FOUND"`)) {
 		t.Fatalf("unknown api did not return JSON error: %s", res.Body.String())
+	}
+}
+
+func TestHTTPAPICORSEmptyAllowlistAllowsOnlySameOrigin(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", CORS: nil, Workers: 1, Timezone: "Asia/Seoul"})
+
+	req := httptest.NewRequest(http.MethodGet, "http://app.local/api/settings", nil)
+	req.Header.Set("Origin", "http://evil.local")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("empty CORS allowlist should reject cross-origin request, status=%d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("rejected origin should not get Access-Control-Allow-Origin, got %q", got)
+	}
+
+	req = httptest.NewRequest(http.MethodOptions, "http://app.local/api/settings", nil)
+	req.Header.Set("Origin", "http://evil.local")
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	res = httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("empty CORS allowlist should reject cross-origin preflight, status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodOptions, "http://app.local/api/settings", nil)
+	req.Header.Set("Origin", "http://app.local")
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	res = httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("same-origin preflight status=%d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "http://app.local" {
+		t.Fatalf("same-origin Access-Control-Allow-Origin=%q", got)
+	}
+	if got := res.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("missing security header X-Content-Type-Options=%q", got)
+	}
+	if got := res.Header().Get("Content-Security-Policy"); got != contentSecurityPolicy {
+		t.Fatalf("enforced CSP header=%q, want %q", got, contentSecurityPolicy)
+	}
+	if got := res.Header().Get("Content-Security-Policy-Report-Only"); got != contentSecurityPolicy {
+		t.Fatalf("report-only CSP header=%q, want %q", got, contentSecurityPolicy)
+	}
+}
+
+func TestHTTPAPIBodyTooLarge(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	body := `{"name":"` + strings.Repeat("a", maxJSONBodyBytes) + `"}`
+	res := do(t, h, http.MethodPost, "/api/workspaces", body)
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("large body status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !bytes.Contains(res.Body.Bytes(), []byte(`"code":"REQUEST_TOO_LARGE"`)) {
+		t.Fatalf("large body response missing code: %s", res.Body.String())
+	}
+}
+
+func TestWriteStoreErrorHidesInternalDetails(t *testing.T) {
+	res := httptest.NewRecorder()
+	writeStoreError(res, errors.New("sqlite failed at /secret/path/data.db"))
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !bytes.Contains(res.Body.Bytes(), []byte(`"message":"internal server error"`)) {
+		t.Fatalf("generic message missing: %s", res.Body.String())
+	}
+	if bytes.Contains(res.Body.Bytes(), []byte("secret")) || bytes.Contains(res.Body.Bytes(), []byte("sqlite")) {
+		t.Fatalf("internal detail leaked: %s", res.Body.String())
+	}
+}
+
+func TestHTTPAPIHealthzDoesNotExposeRuntimeProbe(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	res := do(t, h, http.MethodGet, "/healthz", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("healthz status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"status", "version", "uptime_seconds", "db_ok"} {
+		if _, ok := payload[field]; !ok {
+			t.Fatalf("healthz missing %q: %#v", field, payload)
+		}
+	}
+	if _, ok := payload["available_runtimes"]; ok {
+		t.Fatalf("healthz should not expose runtime probe field: %#v", payload)
 	}
 }
 
@@ -506,8 +622,8 @@ func TestHTTPAPIBackupCreatesSQLiteCopy(t *testing.T) {
 	defer database.Close()
 	h := New(store.New(database), config.Config{DataDir: dir, DBPath: dbPath, Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
 
-	backupPath := filepath.Join(dir, "nested", "backup.db")
-	res := do(t, h, http.MethodPost, "/api/system/backup", `{"to":"`+backupPath+`"}`)
+	backupPath := filepath.Join(dir, "backups", "nested", "backup.db")
+	res := do(t, h, http.MethodPost, "/api/system/backup", jsonBody(t, map[string]string{"to": backupPath}))
 	if res.Code != http.StatusOK {
 		t.Fatalf("backup status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -520,6 +636,100 @@ func TestHTTPAPIBackupCreatesSQLiteCopy(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Fatal("backup file is empty")
+	}
+}
+
+func TestHTTPAPIBackupWithoutDestinationKeepsDefaultBackupPath(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+	database, err := db.OpenAndMigrate(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: dbPath, Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	res := do(t, h, http.MethodPost, "/api/system/backup", `{}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("backup status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		BackupPath string `json:"backup_path"`
+		SizeBytes  int64  `json:"size_bytes"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(payload.BackupPath, dbPath+".") || !strings.HasSuffix(payload.BackupPath, ".bak") {
+		t.Fatalf("backup path=%q, want default path based on %q", payload.BackupPath, dbPath)
+	}
+	if payload.SizeBytes <= 0 {
+		t.Fatalf("size_bytes=%d, want positive", payload.SizeBytes)
+	}
+	if _, err := os.Stat(payload.BackupPath); err != nil {
+		t.Fatalf("default backup file not created: %v", err)
+	}
+}
+
+func TestHTTPAPIBackupRejectsDestinationOutsideBackupDir(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+	database, err := db.OpenAndMigrate(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: dbPath, Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	outsidePath := filepath.Join(dir, "outside.db")
+	res := do(t, h, http.MethodPost, "/api/system/backup", jsonBody(t, map[string]string{"to": outsidePath}))
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("outside backup status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !bytes.Contains(res.Body.Bytes(), []byte(`"code":"VALIDATION_ERROR"`)) {
+		t.Fatalf("outside backup response missing validation code: %s", res.Body.String())
+	}
+	if _, err := os.Stat(outsidePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside backup path should not be created, stat err=%v", err)
+	}
+
+	traversalPath := filepath.Join("..", "traversal.db")
+	res = do(t, h, http.MethodPost, "/api/system/backup", jsonBody(t, map[string]string{"to": traversalPath}))
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("traversal backup status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !bytes.Contains(res.Body.Bytes(), []byte(`"code":"VALIDATION_ERROR"`)) {
+		t.Fatalf("traversal backup response missing validation code: %s", res.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "traversal.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("traversal target should not be created, stat err=%v", err)
+	}
+}
+
+func TestHTTPAPIBackupAllowsArbitraryDestinationWhenOptedIn(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+	database, err := db.OpenAndMigrate(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{
+		DataDir:                   dir,
+		DBPath:                    dbPath,
+		Bind:                      "127.0.0.1:0",
+		Workers:                   1,
+		Timezone:                  "Asia/Seoul",
+		AllowArbitraryBackupPaths: true,
+	})
+
+	backupPath := filepath.Join(dir, "power-user", "backup.db")
+	res := do(t, h, http.MethodPost, "/api/system/backup", jsonBody(t, map[string]string{"to": backupPath}))
+	if res.Code != http.StatusOK {
+		t.Fatalf("backup status=%d body=%s", res.Code, res.Body.String())
+	}
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Fatalf("backup file not created: %v", err)
 	}
 }
 
@@ -549,6 +759,15 @@ func do(t *testing.T, h http.Handler, method, path, body string) *httptest.Respo
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
 	return res
+}
+
+func jsonBody(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestRuntimeCompatibilityWarning(t *testing.T) {

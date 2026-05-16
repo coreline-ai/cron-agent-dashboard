@@ -18,6 +18,11 @@ var (
 	ErrCopyPathRequired          = errors.New("copy source and destination are required")
 )
 
+const (
+	privateDirMode  = 0o700
+	privateFileMode = 0o600
+)
+
 type Checkpointer interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
@@ -77,7 +82,7 @@ func CopyFile(from, to string) (int64, error) {
 	if from == "" || to == "" {
 		return 0, fmt.Errorf("%w", ErrCopyPathRequired)
 	}
-	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+	if err := ensureBackupOutputDir(filepath.Dir(to)); err != nil {
 		return 0, err
 	}
 	in, err := os.Open(from)
@@ -85,8 +90,12 @@ func CopyFile(from, to string) (int64, error) {
 		return 0, err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	out, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, privateFileMode)
 	if err != nil {
+		return 0, err
+	}
+	if err := out.Chmod(privateFileMode); err != nil {
+		_ = out.Close()
 		return 0, err
 	}
 	n, copyErr := io.Copy(out, in)
@@ -99,4 +108,27 @@ func CopyFile(from, to string) (int64, error) {
 		return n, syncErr
 	}
 	return n, closeErr
+}
+
+func ensureBackupOutputDir(dir string) error {
+	clean := filepath.Clean(dir)
+	if clean == "." || clean == string(os.PathSeparator) {
+		return nil
+	}
+	existed := true
+	if _, err := os.Stat(clean); errors.Is(err, os.ErrNotExist) {
+		existed = false
+	} else if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(clean, privateDirMode); err != nil {
+		return err
+	}
+	// Newly created backup directories use 0700. Also tighten the standard
+	// automatic "backups" directory when upgrading from older wider defaults,
+	// without chmodding arbitrary existing parents such as /tmp.
+	if !existed || filepath.Base(clean) == "backups" {
+		_ = os.Chmod(clean, privateDirMode)
+	}
+	return nil
 }

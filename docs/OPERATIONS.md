@@ -43,6 +43,16 @@ Examples that fail fast:
 
 Environment variables are parsed before CLI flags. If an invalid environment variable is present, startup fails before a CLI flag for the same setting can override it. Clear or correct the environment variable first.
 
+## Security operating policy
+
+- **Strict env**: keep startup fail-fast behavior for numeric, boolean, and duration env values. Do not rely on CLI flags to override invalid env; clear the env first.
+- **Token storage**: token-mode UI stores the Bearer token in the current browser, not on the server. The default is `localStorage`; choose "session only" in the UI to store it in `sessionStorage` for the current browser session. Use only trusted local browser profiles and clear the token on shared machines.
+- **Agent OS permissions**: Codex/Claude/Gemini child processes run with the same OS user permissions as `corn-agent-dashboard` and the configured workspace cwd. Treat external issue/comment input, Autopilot, and auto-chain as code-execution triggers.
+- **Data/log permissions**: DBs, run logs, backups, and exported snapshots can contain prompts, stdout, paths, and operational metadata. Keep them in user-owned local directories; target `0700` for directories and `0600` for files.
+- **Backup API paths**: HTTP `/api/system/backup` keeps the legacy default `.bak` path when `to` is empty. If `to` is set, it must resolve inside `{data_dir}/backups` unless the server is explicitly started with `--allow-arbitrary-backup-paths` or `CORN_AGENT_DASHBOARD_ALLOW_ARBITRARY_BACKUP_PATHS=true`. Local shell `corn-agent-dashboard backup --to ...` remains a power-user command and can target arbitrary user-writable paths.
+- **CORS**: an empty CORS allowlist means same-origin only. Add explicit origins only for trusted dev/proxy UIs; avoid wildcard origins, especially with token mode.
+- **CSP**: backend-served production UI responses include an enforced `Content-Security-Policy` plus the same Report-Only header. The policy is same-origin only for scripts/connects, permits inline styles for the SPA UI, blocks object embedding, and denies framing.
+
 ## Daily stop
 
 Preferred stop path:
@@ -57,6 +67,8 @@ If the server is supervised by another process, send `SIGTERM` through that supe
 ## Backup checklist
 
 Back up the DB at least before upgrades and after important work sessions.
+
+CLI backups are local shell operations and may write to any user-writable destination. For UI/API-triggered backups, prefer paths under `$DATA_DIR/backups`; outside paths require the explicit arbitrary-path opt-in described in the security policy.
 
 ```bash
 DATA_DIR="${CORN_AGENT_DASHBOARD_DATA_DIR:-$HOME/.corn-agent-dashboard}"
@@ -171,6 +183,8 @@ make e2e-smoke
 make release-build VERSION=v0.1.0
 ls -lh dist/corn-agent-dashboard-*
 ```
+
+CI additionally runs `govulncheck ./...` on the pinned Go toolchain. The browser smoke test verifies the enforced CSP response header and fails if the browser emits a CSP violation console message during the core workspace → issue → comment flow.
 
 Checksum verification for downloaded GitHub Release assets:
 
