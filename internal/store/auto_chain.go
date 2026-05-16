@@ -3,73 +3,89 @@ package store
 import (
 	"context"
 	"fmt"
-	"github.com/jmoiron/sqlx"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
+type autoChainConfig struct {
+	WorkspaceID     string `db:"id"`
+	Enabled         bool   `db:"auto_chain_enabled"`
+	MaxDepth        int    `db:"auto_chain_max_depth"`
+	DailyRunLimit   int    `db:"auto_chain_daily_run_limit"`
+	DailyCostMicros int64  `db:"auto_chain_daily_cost_micros"`
+	DryRun          bool   `db:"auto_chain_dry_run"`
+}
+
 func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Run, commentID, content, at string) (bool, error) {
-	match := mentionRE.FindStringSubmatch(content)
-	if len(match) < 2 {
+	mention := firstAutoChainMention(content)
+	if mention == "" {
 		return false, nil
 	}
-	var workspace struct {
-		ID                       string `db:"id"`
-		AutoChainEnabled         bool   `db:"auto_chain_enabled"`
-		AutoChainMaxDepth        int    `db:"auto_chain_max_depth"`
-		AutoChainDailyRunLimit   int    `db:"auto_chain_daily_run_limit"`
-		AutoChainDailyCostMicros int64  `db:"auto_chain_daily_cost_micros"`
-		AutoChainDryRun          bool   `db:"auto_chain_dry_run"`
+	cfg, err := s.fetchAutoChainConfig(ctx, tx, run.IssueID)
+	if err != nil || !cfg.Enabled {
+		return false, err
 	}
-	if err := tx.GetContext(ctx, &workspace, `SELECT w.id, COALESCE(w.auto_chain_enabled, 0) AS auto_chain_enabled, COALESCE(w.auto_chain_max_depth, 5) AS auto_chain_max_depth, COALESCE(w.auto_chain_daily_run_limit, 20) AS auto_chain_daily_run_limit, COALESCE(w.auto_chain_daily_cost_micros, 0) AS auto_chain_daily_cost_micros, COALESCE(w.auto_chain_dry_run, 0) AS auto_chain_dry_run FROM issue i JOIN workspace w ON w.id=i.workspace_id WHERE i.id=?`, run.IssueID); err != nil {
-		return false, normalizeErr(err)
-	}
-	if !workspace.AutoChainEnabled {
-		return false, nil
-	}
-	maxDepth := normalizeAutoChainMaxDepth(workspace.AutoChainMaxDepth)
-	if run.ChainDepth >= maxDepth {
-		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, fmt.Sprintf("자동 체이닝 깊이 제한(%d)에 도달해 추가 실행을 등록하지 않았습니다.", maxDepth), at)
-		return false, normalizeErr(err)
-	}
-	if workspace.AutoChainDryRun {
-		name := match[1]
-		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝 dry-run: @"+name+" 실행을 큐에 등록하지 않았습니다.", at)
-		return false, normalizeErr(err)
-	}
-	if ok, message, err := s.autoChainWithinDailyGuards(ctx, tx, workspace.ID, workspace.AutoChainDailyRunLimit, workspace.AutoChainDailyCostMicros); err != nil {
+	if ok, message, err := s.checkAutoChainGuards(ctx, tx, cfg, run, mention); err != nil {
 		return false, err
 	} else if !ok {
-		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, message, at)
-		return false, normalizeErr(err)
+		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, message, at)
 	}
-	name := match[1]
+	agent, err := s.resolveAutoChainAgent(ctx, tx, cfg.WorkspaceID, mention)
+	if err != nil {
+		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, "자동 체이닝 대상 @"+mention+"을 찾을 수 없습니다.", at)
+	}
+	return s.dispatchAutoChainRun(ctx, tx, run, agent, commentID, content, at)
+}
+
+func firstAutoChainMention(content string) string {
+	match := mentionRE.FindStringSubmatch(content)
+	if len(match) < 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func (s *Store) fetchAutoChainConfig(ctx context.Context, tx *sqlx.Tx, issueID string) (autoChainConfig, error) {
+	var cfg autoChainConfig
+	err := tx.GetContext(ctx, &cfg, `SELECT w.id,
+       COALESCE(w.auto_chain_enabled, 0) AS auto_chain_enabled,
+       COALESCE(w.auto_chain_max_depth, 5) AS auto_chain_max_depth,
+       COALESCE(w.auto_chain_daily_run_limit, 20) AS auto_chain_daily_run_limit,
+       COALESCE(w.auto_chain_daily_cost_micros, 0) AS auto_chain_daily_cost_micros,
+       COALESCE(w.auto_chain_dry_run, 0) AS auto_chain_dry_run
+FROM issue i JOIN workspace w ON w.id=i.workspace_id WHERE i.id=?`, issueID)
+	return cfg, normalizeErr(err)
+}
+
+func (s *Store) checkAutoChainGuards(ctx context.Context, tx *sqlx.Tx, cfg autoChainConfig, run Run, mention string) (bool, string, error) {
+	maxDepth := normalizeAutoChainMaxDepth(cfg.MaxDepth)
+	if run.ChainDepth >= maxDepth {
+		return false, fmt.Sprintf("자동 체이닝 깊이 제한(%d)에 도달해 추가 실행을 등록하지 않았습니다.", maxDepth), nil
+	}
+	if cfg.DryRun {
+		return false, "자동 체이닝 dry-run: @" + mention + " 실행을 큐에 등록하지 않았습니다.", nil
+	}
+	return s.autoChainWithinDailyGuards(ctx, tx, cfg.WorkspaceID, cfg.DailyRunLimit, cfg.DailyCostMicros)
+}
+
+func (s *Store) resolveAutoChainAgent(ctx context.Context, tx *sqlx.Tx, workspaceID, name string) (Agent, error) {
 	var agent Agent
-	if err := tx.GetContext(ctx, &agent, agentSelectBase+` WHERE workspace_id=? AND lower(name)=lower(?)`, workspace.ID, name); err != nil {
-		_, insertErr := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝 대상 @"+name+"을 찾을 수 없습니다.", at)
-		return false, normalizeErr(insertErr)
-	}
+	err := tx.GetContext(ctx, &agent, agentSelectBase+` WHERE workspace_id=? AND lower(name)=lower(?)`, workspaceID, name)
+	return agent, normalizeErr(err)
+}
+
+func (s *Store) dispatchAutoChainRun(ctx context.Context, tx *sqlx.Tx, run Run, agent Agent, commentID, content, at string) (bool, error) {
 	chainID := run.ChainID
 	if chainID == "" {
 		chainID = run.ID
 	}
-
-	var existingQueued int
-	if err := tx.GetContext(ctx, &existingQueued, `SELECT COUNT(*) FROM run WHERE issue_id=? AND agent_id=? AND status='queued'`, run.IssueID, agent.ID); err != nil {
-		return false, normalizeErr(err)
-	}
-	if existingQueued > 0 {
-		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "이미 @"+agent.Name+" queued run이 있어 자동 체이닝을 건너뛰었습니다.", at)
-		return false, normalizeErr(err)
+	if ok, message, err := s.checkAutoChainDispatchDuplicates(ctx, tx, run, agent, chainID); err != nil {
+		return false, err
+	} else if !ok {
+		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, message, at)
 	}
 
-	var duplicate int
-	if err := tx.GetContext(ctx, &duplicate, `SELECT COUNT(*) FROM run WHERE issue_id=? AND agent_id=? AND (chain_id=? OR id=?)`, run.IssueID, agent.ID, chainID, chainID); err != nil {
-		return false, normalizeErr(err)
-	}
-	if duplicate > 0 {
-		_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝 중복 방지를 위해 @"+agent.Name+" 실행을 건너뛰었습니다.", at)
-		return false, normalizeErr(err)
-	}
 	maxAttempts, err := retryMaxAttemptsForAgent(ctx, tx, agent.ID)
 	if err != nil {
 		return false, err
@@ -99,8 +115,30 @@ func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Ru
 	}); err != nil {
 		return false, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), run.IssueID, "자동 체이닝으로 @"+agent.Name+" 실행을 큐에 등록했습니다.", at)
-	return err == nil, normalizeErr(err)
+	return true, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, "자동 체이닝으로 @"+agent.Name+" 실행을 큐에 등록했습니다.", at)
+}
+
+func (s *Store) checkAutoChainDispatchDuplicates(ctx context.Context, tx *sqlx.Tx, run Run, agent Agent, chainID string) (bool, string, error) {
+	var existingQueued int
+	if err := tx.GetContext(ctx, &existingQueued, `SELECT COUNT(*) FROM run WHERE issue_id=? AND agent_id=? AND status='queued'`, run.IssueID, agent.ID); err != nil {
+		return false, "", normalizeErr(err)
+	}
+	if existingQueued > 0 {
+		return false, "이미 @" + agent.Name + " queued run이 있어 자동 체이닝을 건너뛰었습니다.", nil
+	}
+	var duplicate int
+	if err := tx.GetContext(ctx, &duplicate, `SELECT COUNT(*) FROM run WHERE issue_id=? AND agent_id=? AND (chain_id=? OR id=?)`, run.IssueID, agent.ID, chainID, chainID); err != nil {
+		return false, "", normalizeErr(err)
+	}
+	if duplicate > 0 {
+		return false, "자동 체이닝 중복 방지를 위해 @" + agent.Name + " 실행을 건너뛰었습니다.", nil
+	}
+	return true, "", nil
+}
+
+func (s *Store) insertAutoChainSystemComment(ctx context.Context, tx *sqlx.Tx, issueID, message, at string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system',?,?)`, newID(), issueID, message, at)
+	return normalizeErr(err)
 }
 
 func (s *Store) autoChainWithinDailyGuards(ctx context.Context, tx *sqlx.Tx, workspaceID string, runLimit int, costLimitMicros int64) (bool, string, error) {

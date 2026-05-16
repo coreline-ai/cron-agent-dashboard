@@ -129,6 +129,14 @@ func (s *Store) CompleteRun(ctx context.Context, runID string, exitCode int, std
 	})
 }
 
+func (s *Store) recoverRunStdoutPath(ctx context.Context, runID, stdoutPath string) {
+	stdoutPath = strings.TrimSpace(stdoutPath)
+	if stdoutPath == "" {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE run SET stdout_path=? WHERE id=? AND (stdout_path IS NULL OR stdout_path='')`, stdoutPath, runID)
+}
+
 func (s *Store) CompleteRunWithReason(ctx context.Context, runID string, in FinishRunInput) (Run, error) {
 	status, in := normalizeFinishRunInput(in)
 	run, err := s.GetRun(ctx, runID)

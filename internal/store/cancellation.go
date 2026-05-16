@@ -7,14 +7,6 @@ import (
 	"time"
 )
 
-func (s *Store) recoverRunStdoutPath(ctx context.Context, runID, stdoutPath string) {
-	stdoutPath = strings.TrimSpace(stdoutPath)
-	if stdoutPath == "" {
-		return
-	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE run SET stdout_path=? WHERE id=? AND (stdout_path IS NULL OR stdout_path='')`, stdoutPath, runID)
-}
-
 func (s *Store) CancelRunningRun(ctx context.Context, issueID string) (Run, error) {
 	r, err := s.GetRunningRunByIssue(ctx, issueID)
 	if err != nil {

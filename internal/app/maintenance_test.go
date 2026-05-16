@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -67,5 +69,73 @@ func TestRunMaintenanceOnceBacksUpPrunesAndCleansLogs(t *testing.T) {
 	}
 	if _, err := os.Stat(newLog); err != nil {
 		t.Fatalf("new log should remain: %v", err)
+	}
+}
+
+func TestRunMaintenanceOnceReportsPartialCleanupOnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-mode cleanup error test is Unix-oriented")
+	}
+	dir := t.TempDir()
+	runsDir := filepath.Join(dir, "runs")
+	blockedDir := filepath.Join(runsDir, "blocked")
+	if err := os.MkdirAll(blockedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(blockedDir, 0o755) }()
+	oldLog := filepath.Join(runsDir, "old.log")
+	if err := os.WriteFile(oldLog, []byte("old-log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blockedLog := filepath.Join(blockedDir, "blocked.log")
+	if err := os.WriteFile(blockedLog, []byte("blocked-log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 5, 15, 6, 0, 0, 0, time.UTC)
+	oldTime := now.Add(-10 * 24 * time.Hour)
+	if err := os.Chtimes(oldLog, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(blockedLog, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blockedDir, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunMaintenanceOnce(t.Context(), nil, MaintenanceConfig{
+		DataDir:            dir,
+		AutoCleanupLogDays: 7,
+		Now:                func() time.Time { return now },
+	})
+	if err == nil {
+		t.Skip("filesystem allowed traversal despite removed permissions")
+	}
+	if report.DeletedLogFiles != 1 || report.FreedLogBytes != int64(len("old-log")) {
+		t.Fatalf("partial cleanup report should be preserved, report=%#v err=%v", report, err)
+	}
+}
+
+func TestMaintenanceRunnerStartStopIsIdempotent(t *testing.T) {
+	runner := NewMaintenanceRunner(nil, MaintenanceConfig{
+		DataDir:  t.TempDir(),
+		Interval: time.Hour,
+	})
+	if err := runner.Stop(t.Context()); err != nil {
+		t.Fatalf("stop before start: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runner.Start(ctx)
+	runner.Start(ctx)
+	cancel()
+
+	stopCtx, stopCancel := context.WithTimeout(t.Context(), time.Second)
+	defer stopCancel()
+	if err := runner.Stop(stopCtx); err != nil {
+		t.Fatalf("stop after repeated start: %v", err)
+	}
+	if err := runner.Stop(t.Context()); err != nil {
+		t.Fatalf("second stop: %v", err)
 	}
 }

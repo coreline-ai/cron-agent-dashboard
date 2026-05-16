@@ -31,6 +31,18 @@ Daily checks after startup:
 - If the log shows `orphan_process_groups_skipped > 0`, the DB had stale or missing process metadata, so the server avoided killing a potentially reused OS process group and only performed DB orphan recovery.
 - If binding outside localhost, start with `--token` and store the same token in Settings → API token.
 
+## Configuration strictness
+
+Startup configuration is intentionally strict. Invalid numeric, boolean, or duration environment variables fail startup instead of silently falling back to defaults.
+
+Examples that fail fast:
+
+- `CORN_AGENT_DASHBOARD_WORKERS=abc`
+- `CORN_AGENT_DASHBOARD_AUTO_BACKUP=maybe`
+- `CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL=daily`
+
+Environment variables are parsed before CLI flags. If an invalid environment variable is present, startup fails before a CLI flag for the same setting can override it. Clear or correct the environment variable first.
+
 ## Daily stop
 
 Preferred stop path:

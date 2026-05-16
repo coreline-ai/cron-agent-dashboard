@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +82,16 @@ func TestLoadAutopilotFailureThresholdFallsBackToDefault(t *testing.T) {
 	}
 	if got, want := cfg.AutopilotFailureDisableThreshold, DefaultAutopilotFailureDisableThreshold; got != want {
 		t.Fatalf("AutopilotFailureDisableThreshold=%d, want %d", got, want)
+	}
+}
+
+func TestLoadRejectsInvalidNumericEnv(t *testing.T) {
+	t.Setenv("CORN_AGENT_DASHBOARD_WORKERS", "many")
+	_, _, err := Load(nil)
+	if err == nil {
+		t.Fatal("expected invalid env to fail")
+	}
+	if !strings.Contains(err.Error(), "CORN_AGENT_DASHBOARD_WORKERS") {
+		t.Fatalf("error=%v, want env key in message", err)
 	}
 }

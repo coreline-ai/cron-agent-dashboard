@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	backupops "github.com/coreline-ai/corn-agent-dashboard/internal/backup"
@@ -33,9 +34,11 @@ type MaintenanceReport struct {
 }
 
 type MaintenanceRunner struct {
-	db   backupops.Checkpointer
-	cfg  MaintenanceConfig
-	done chan struct{}
+	db      backupops.Checkpointer
+	cfg     MaintenanceConfig
+	mu      sync.Mutex
+	started bool
+	done    chan struct{}
 }
 
 func NewMaintenanceRunner(db backupops.Checkpointer, cfg MaintenanceConfig) *MaintenanceRunner {
@@ -44,8 +47,25 @@ func NewMaintenanceRunner(db backupops.Checkpointer, cfg MaintenanceConfig) *Mai
 }
 
 func (r *MaintenanceRunner) Start(ctx context.Context) {
+	r.mu.Lock()
+	if r.started {
+		r.mu.Unlock()
+		return
+	}
+	r.started = true
+	r.done = make(chan struct{})
+	done := r.done
+	r.mu.Unlock()
+
 	go func() {
-		defer close(r.done)
+		defer func() {
+			r.mu.Lock()
+			if r.done == done {
+				r.started = false
+			}
+			r.mu.Unlock()
+			close(done)
+		}()
 		r.runAndLog(ctx)
 		ticker := time.NewTicker(r.cfg.Interval)
 		defer ticker.Stop()
@@ -61,8 +81,16 @@ func (r *MaintenanceRunner) Start(ctx context.Context) {
 }
 
 func (r *MaintenanceRunner) Stop(ctx context.Context) error {
+	r.mu.Lock()
+	if !r.started {
+		r.mu.Unlock()
+		return nil
+	}
+	done := r.done
+	r.mu.Unlock()
+
 	select {
-	case <-r.done:
+	case <-done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -105,21 +133,19 @@ func RunMaintenanceOnce(ctx context.Context, db backupops.Checkpointer, cfg Main
 			report.BackupPath = result.Path
 			report.BackupSizeBytes = result.SizeBytes
 			pruned, err := PruneBackups(filepath.Join(cfg.DataDir, "backups"), cfg.AutoBackupKeep)
+			report.PrunedBackups = pruned
 			if err != nil {
 				errs = append(errs, err)
-			} else {
-				report.PrunedBackups = pruned
 			}
 		}
 	}
 	if cfg.AutoCleanupLogDays > 0 {
 		cutoff := cfg.now().Add(-time.Duration(cfg.AutoCleanupLogDays) * 24 * time.Hour)
 		cleanup, err := CleanupRunLogs(cfg.DataDir, cutoff)
+		report.DeletedLogFiles = cleanup.DeletedFiles
+		report.FreedLogBytes = cleanup.FreedBytes
 		if err != nil {
 			errs = append(errs, err)
-		} else {
-			report.DeletedLogFiles = cleanup.DeletedFiles
-			report.FreedLogBytes = cleanup.FreedBytes
 		}
 	}
 	return report, errors.Join(errs...)
@@ -136,19 +162,25 @@ func CleanupRunLogs(dataDir string, cutoff time.Time) (LogCleanupReport, error) 
 	if _, err := os.Stat(runsDir); errors.Is(err, os.ErrNotExist) {
 		return report, nil
 	}
+	var errs []error
 	err := filepath.Walk(runsDir, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() || !info.ModTime().Before(cutoff) {
+		if err != nil {
+			errs = append(errs, err)
+			return nil
+		}
+		if info == nil || info.IsDir() || !info.ModTime().Before(cutoff) {
 			return nil
 		}
 		size := info.Size()
 		if err := os.Remove(p); err != nil {
+			errs = append(errs, err)
 			return nil
 		}
 		report.DeletedFiles++
 		report.FreedBytes += size
 		return nil
 	})
-	return report, err
+	return report, errors.Join(append(errs, err)...)
 }
 
 func PruneBackups(dir string, keep int) (int, error) {
@@ -167,12 +199,14 @@ func PruneBackups(dir string, keep int) (int, error) {
 		mod  time.Time
 	}
 	files := []backupFile{}
+	var errs []error
 	for _, entry := range entries {
 		if entry.IsDir() || !isAutoBackupName(entry.Name()) {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
+			errs = append(errs, err)
 			continue
 		}
 		files = append(files, backupFile{path: filepath.Join(dir, entry.Name()), mod: info.ModTime()})
@@ -182,9 +216,11 @@ func PruneBackups(dir string, keep int) (int, error) {
 	for _, file := range files[keep:] {
 		if err := os.Remove(file.path); err == nil {
 			deleted++
+		} else {
+			errs = append(errs, err)
 		}
 	}
-	return deleted, nil
+	return deleted, errors.Join(errs...)
 }
 
 func normalizeMaintenanceConfig(cfg MaintenanceConfig) MaintenanceConfig {

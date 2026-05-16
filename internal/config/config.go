@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,7 +61,9 @@ func Load(args []string) (Config, []string, error) {
 	if err != nil {
 		return Config{}, nil, err
 	}
-	applyEnv(&cfg)
+	if err := applyEnv(&cfg); err != nil {
+		return Config{}, nil, err
+	}
 	explicitDBPath := os.Getenv("CORN_AGENT_DASHBOARD_DB") != ""
 
 	fs := flag.NewFlagSet("corn-agent-dashboard", flag.ContinueOnError)
@@ -150,7 +153,7 @@ func EnsureDirs(c Config) error {
 	return os.MkdirAll(filepath.Join(c.DataDir, "runs"), 0o755)
 }
 
-func applyEnv(c *Config) {
+func applyEnv(c *Config) error {
 	setString(&c.DataDir, "CORN_AGENT_DASHBOARD_DATA_DIR")
 	setString(&c.DBPath, "CORN_AGENT_DASHBOARD_DB")
 	setString(&c.Bind, "CORN_AGENT_DASHBOARD_BIND")
@@ -160,35 +163,48 @@ func applyEnv(c *Config) {
 		c.CORS = splitCSV(v)
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_WORKERS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.Workers = n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_WORKERS %q: %w", v, err)
 		}
+		c.Workers = n
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			c.AutoBackup = b
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_BACKUP %q: %w", v, err)
 		}
+		c.AutoBackup = b
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.AutoBackupKeep = n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_BACKUP_KEEP %q: %w", v, err)
 		}
+		c.AutoBackupKeep = n
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.AutoCleanupLogDays = n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTO_CLEANUP_LOG_DAYS %q: %w", v, err)
 		}
+		c.AutoCleanupLogDays = n
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			c.MaintenanceInterval = d
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_MAINTENANCE_INTERVAL %q: %w", v, err)
 		}
+		c.MaintenanceInterval = d
 	}
 	if v := os.Getenv("CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.AutopilotFailureDisableThreshold = n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid CORN_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD %q: %w", v, err)
 		}
+		c.AutopilotFailureDisableThreshold = n
 	}
+	return nil
 }
 
 func setString(dst *string, key string) {

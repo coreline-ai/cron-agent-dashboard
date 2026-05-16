@@ -27,6 +27,8 @@ type RunCanceller interface {
 	CancelRun(runID string) bool
 }
 
+// PendingRunCancelCleaner is implemented by worker.Pool so the API can remove
+// a pre-claim cancel marker when a queued run was cancelled directly in store.
 type PendingRunCancelCleaner interface {
 	ForgetPendingCancel(runID string) bool
 }
