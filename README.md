@@ -58,6 +58,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 
 ## 📑 목차
 
+- [화면 둘러보기](#-화면-둘러보기)
 - [왜 만드는가](#-왜-만드는가)
 - [핵심 가치](#-핵심-가치)
 - [기능](#-기능)
@@ -71,6 +72,96 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 - [디자인 원칙](#-디자인-원칙)
 - [기여](#-기여)
 - [라이선스](#-라이선스)
+
+---
+
+## 📸 화면 둘러보기
+
+> 모든 캡쳐는 `make screenshots`로 다시 생성할 수 있습니다(Playwright로 데모 워크스페이스를 시드 후 9개 페이지를 캡쳐). 파일은 [`docs/screenshots/`](docs/screenshots/)에 저장됩니다. 본 README에 사용된 캡쳐는 1440×900 viewport / 다크 테마 기준입니다.
+
+### 1. 대시보드 — 워크스페이스 운영 허브
+
+![대시보드](docs/screenshots/01-home.png)
+
+- 좌측 사이드바: 현재 워크스페이스 스위처(검색 + 다중 워크스페이스), Product/Workspace/System 메뉴 그룹, 하단 status dot + 테마 토글
+- 상단 hero 카드: 선택된 워크스페이스의 열린 이슈/에이전트 수 요약과 빠른 액션(`보드 열기`/`설정 보기`)
+- 메트릭 4종: **API 상태 · uptime**, **워크스페이스 개수 + 열린 이슈 합계**, **현재 워크스페이스 기준 queued/running**, **PATH에서 감지된 런타임 목록**
+- 최근 이슈 리스트는 워크스페이스 변경에 따라 자동 갱신되고, 5개 초과 시 `더 보기 (+N)` 토글로 5줄 점진 노출
+- 우측 사이드 패널: 빠른 액션(보드/에이전트/오토파일럿) + 선택된 워크스페이스 요약 카드
+
+### 2. 이슈 보드 — Kanban + 리스트 듀얼 뷰
+
+![이슈 보드 (보드 뷰)](docs/screenshots/02-board.png)
+
+- 컬럼: **진행(open)** / **완료(done)** / **취소(cancelled)** — 각 컬럼 헤더 `+` 아이콘으로 해당 상태 hint와 함께 새 이슈 생성
+- 카드에 `NEWS-12` 같은 사람이 읽는 식별자, 실행 상태 배지(대기/실행 중/실패/완료), 담당 에이전트(`@NewsLead`), 댓글 수
+- 카드 액션: `완료` / `이슈 취소` / `대기 취소` / `실행 취소` — 진행 중 run이 있으면 위험 버튼만 활성화
+- 툴바: **상태 segmented**, **실행 상태 select**, **담당 에이전트 select**, **보드↔리스트 토글**, **이슈 검색 input** 모두 URL 쿼리(`?status=...&execution=...&agent=...&view=...&q=...`)에 동기화 → 북마크/새 탭 시 그대로 복원
+- 좌측 사이드 status dot은 폴링 상태(`Loading workspace`/`/{slug}`)를 항상 표시
+
+![이슈 보드 (리스트 뷰)](docs/screenshots/03-board-list.png)
+
+- `?view=list&status=open` 필터 결과: 한눈에 더 많은 row를 비교하기 좋은 테이블 뷰
+- 컬럼: **이슈 식별자 + 제목 / 상태 배지 / 실행 배지 / 담당 / 댓글 수**
+- 활성 필터는 `상태: 진행 / 필터 초기화` chip으로 상단에 표시되어 의도하지 않은 빈 결과를 즉시 인지할 수 있도록 함
+
+### 3. 이슈 상세 — 흐름 그래프 + 댓글 + 작업 콘솔
+
+![이슈 상세](docs/screenshots/04-issue-detail.png)
+
+- 좌측 메인:
+  - **본문 패널**: `react-markdown` + `remark-gfm`로 안전 렌더 (raw HTML/script 차단, XSS smoke 회귀로 보호)
+  - **흐름 그래프 (`@xyflow/react`)**: parent issue → 현재 이슈 → sub-issue / chained run의 lineage를 시각화. 노드 클릭으로 자식 페이지 이동
+  - **하위 이슈 패널**: parent-child 관계 보존 + 폼으로 즉시 sub-issue 생성
+  - **댓글 스레드**: agent/result/system/user 출처 표시, 댓글 truncated 배지 + log 링크, `MentionAutocomplete`로 `@AgentName` 자동완성(키보드 ↑↓ Enter)
+  - **Run 이력 패널**: 각 run의 `terminal_reason / failure_kind / cancel_reason`, heartbeat, instructions version, token/cost/model, attempt 진행, parent run, chain depth, retry schedule, exit code, stdout size, 이벤트 타임라인까지 모두 노출
+- 우측 작업 콘솔(`IssueSummaryRail`):
+  - 이슈 상태 · 실행 상태 · 담당 · 댓글 수 · 누적 token · 누적 cost
+  - `재실행` / `이슈 취소` / `완료 처리` / `다시 열기` 버튼이 issue/run 상태에 따라 활성 토글
+  - `최근 실행` 블록에 마지막 run의 agent · started_at · 실패 사유까지 즉시 표시
+
+### 4. 에이전트 — 테이블 + 필터 + 검색
+
+![에이전트 목록](docs/screenshots/05-agents.png)
+
+- 카운트 헤더: 전체 / main / codex / claude / gemini를 항상 표시
+- `Main / codex / claude / gemini` 세그먼트 필터 + 이름·요약·tag 검색
+- 테이블 컬럼: **이름(@), runtime, model, role(main/worker), summary/tags**
+- 메인 에이전트는 `main` 배지로 구분 — case-insensitive 이름 유일 제약은 서버에서 강제
+
+![에이전트 상세](docs/screenshots/06-agent-detail.png)
+
+- 폼: 이름 / runtime select(codex/claude/gemini) / model select / summary / tags / timeout override / `max_attempts` + backoff(`10,60,300` 형태) / 재시도 정책(timeout / executor_error 체크박스) / instructions textarea
+- `메인으로 승격` 버튼: 비-main에서만 활성, 클릭 시 다른 에이전트는 자동 worker로 강등 — 메인 에이전트 invariant 유지
+- 삭제 버튼은 main에서 비활성
+- 하단 **Instructions 버전 이력**: instructions를 바꿀 때마다 자동 snapshot — 과거 run이 어떤 instructions 기준으로 실행됐는지 추적 가능
+
+### 5. 오토파일럿 — Cron 자동화 규칙
+
+![오토파일럿](docs/screenshots/07-autopilot.png)
+
+- 카운트 헤더: 전체 · ON · OFF/일시정지 · 실패 — 한 줄로 운영 상태 요약
+- 테이블 컬럼: **Rule(이름 + 제목 템플릿), Cron, Agent, Next, Last, Actions(`ON/OFF` 배지 · `편집/끄기/지금 실행/삭제`)**
+- `지금 실행`은 cron 트리거 없이도 즉시 이슈를 생성해 동일 흐름으로 실행 가능 — 디버깅용
+- 5회 연속 실패 시 룰 자동 OFF + `실패 N` 배지 + 마지막 오류 hover 표시
+- 룰이 0개이면 `자주 쓰는 템플릿` 3종(매일 09:00 뉴스 / 주간 회고 / 월요일 문서 갭) 카드로 시작 유도
+
+### 6. 설정 — 운영 콘솔
+
+![설정](docs/screenshots/08-settings.png)
+
+- **서버 설정** (읽기 전용): 버전, 데이터 디렉토리, 타임존, worker 수, 인증 모드, 감지된 런타임 + version + warning, 7일 token/cost, 자동 백업 보존 개수, 자동 로그 정리 기준, 마이그레이션 실패 이력
+- **사용량 대시보드**: 최근 7일 / 30일 input·output·total token + cost, 측정 run 수(`run_count` 대비 `measured_run_count`)
+- **워크스페이스 실행 기본값**: workspace별 `default_timeout_seconds` + auto-chain 5중 가드(ON/OFF · 최대 chain depth · 24시간 run 제한 · 24시간 비용 제한 · dry-run)
+- **운영 작업**: `DB 백업 (경로 옵션)` / `Vacuum` / `Run 로그 정리 (보존 일수)` — 결과는 하단 메시지 영역에 표시
+- **API 토큰**: 서버가 token mode일 때 사용할 Bearer token을 브라우저 `localStorage`에 저장/삭제(서버에 저장되지 않음)
+
+### 7. 라이트 테마
+
+![라이트 테마 대시보드](docs/screenshots/09-home-light.png)
+
+- 좌측 사이드바 하단 `Light/Dark` 버튼으로 즉시 전환, 선택은 `localStorage`에 보존 → 새 탭/새로고침에서도 유지
+- 디자인 토큰만 토글되고 컴포넌트 구조는 그대로 — 색상 대비/접근성 동일
 
 ---
 
@@ -379,6 +470,9 @@ make check
 
 # 단일 바이너리 기반 브라우저 smoke: workspace → issue → detail → comment
 make e2e-smoke
+
+# 메뉴 전 기능 회귀 (Playwright 전체 spec 매트릭스)
+make e2e-full
 
 # fresh copy에서 README quick start 재현
 make verify-clean-clone

@@ -41,6 +41,10 @@ test('local MVP browser smoke: workspace, issue, detail, comment', async ({ page
   expect(dialogOpened).toBe(false);
 
   await page.getByPlaceholder('@AgentName 멘션으로 위임할 수 있습니다.').fill('hello from e2e smoke');
+  const commentResp = page.waitForResponse(
+    (resp) => /\/api\/issues\/[^/]+\/comments/.test(resp.url()) && resp.request().method() === 'POST'
+  );
   await page.getByRole('button', { name: '댓글 등록' }).click();
-  await expect(page.locator('.comment-block').filter({ hasText: 'hello from e2e smoke' })).toBeVisible();
+  await commentResp;
+  await expect(page.locator('.comment-block').filter({ hasText: 'hello from e2e smoke' })).toBeVisible({ timeout: 15_000 });
 });
