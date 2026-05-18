@@ -2510,3 +2510,13 @@ button.quick-action {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.split-row {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.compact-form {
+  border-top: 1px solid var(--border);
+  padding-top: 0.85rem;
+}

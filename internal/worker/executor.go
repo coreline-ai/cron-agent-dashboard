@@ -101,6 +101,7 @@ func (e *Executor) Execute(ctx context.Context, run ExecutionContext) ExecutionR
 			IssueBody:              run.IssueBody,
 			TriggerContentSnapshot: run.TriggerContentSnapshot,
 			RunLogPath:             run.RelativeRunLogPath(),
+			Skills:                 run.Skills,
 			RecentComments:         run.RecentComments,
 		})
 		run.Prompt = prompt

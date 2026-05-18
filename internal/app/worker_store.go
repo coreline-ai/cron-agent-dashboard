@@ -70,6 +70,13 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 	if err != nil {
 		return ws.cancelClaimed(ctx, run.ID, err)
 	}
+	promptSkills, err := ws.store.ResolvePromptSkills(ctx, agent.ID, issue.Title, issue.Body, run.TriggerContentSnapshot, comments)
+	if err != nil {
+		return ws.cancelClaimed(ctx, run.ID, err)
+	}
+	if err := ws.store.AppendSkillsLoadedEvent(ctx, run.ID, promptSkills); err != nil {
+		return ws.cancelClaimed(ctx, run.ID, err)
+	}
 
 	timeoutSeconds := store.ResolveTimeoutSeconds(workspace, agent, issue)
 
@@ -82,6 +89,7 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 		IssueTitle:             issue.Title,
 		IssueBody:              issue.Body,
 		TriggerContentSnapshot: run.TriggerContentSnapshot,
+		Skills:                 promptSkillSnippets(promptSkills),
 		RecentComments:         recentCommentSnippets(comments, run.ID, 3),
 		TimeoutSeconds:         timeoutSeconds,
 	}, nil
@@ -186,6 +194,21 @@ func recentCommentSnippets(comments []store.Comment, currentRunID string, max in
 			AuthorType: c.AuthorType,
 			Content:    c.Content,
 			CreatedAt:  createdAt,
+		})
+	}
+	return out
+}
+
+func promptSkillSnippets(skills []store.PromptSkill) []worker.PromptSkillSnippet {
+	out := make([]worker.PromptSkillSnippet, 0, len(skills))
+	for _, skill := range skills {
+		out = append(out, worker.PromptSkillSnippet{
+			Name:           skill.Name,
+			Description:    skill.Description,
+			ActivationMode: skill.ActivationMode,
+			Content:        skill.Content,
+			Active:         skill.Active,
+			TriggerReason:  skill.TriggerReason,
 		})
 	}
 	return out

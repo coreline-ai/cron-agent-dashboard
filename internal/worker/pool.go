@@ -19,6 +19,7 @@ type ClaimedRun struct {
 	IssueTitle             string
 	IssueBody              string
 	TriggerContentSnapshot string
+	Skills                 []PromptSkillSnippet
 	RecentComments         []CommentSnippet
 	TimeoutSeconds         int
 }
@@ -432,6 +433,7 @@ func (p *Pool) claimOnce(workerID string) {
 		IssueTitle:             run.IssueTitle,
 		IssueBody:              run.IssueBody,
 		TriggerContentSnapshot: run.TriggerContentSnapshot,
+		Skills:                 run.Skills,
 		RecentComments:         run.RecentComments,
 		TimeoutSeconds:         run.TimeoutSeconds,
 	})

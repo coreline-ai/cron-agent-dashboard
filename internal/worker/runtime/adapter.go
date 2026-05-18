@@ -47,6 +47,18 @@ type CommentSnippet struct {
 	CreatedAt  time.Time
 }
 
+// SkillSnippet is the prompt-facing projection of an assigned agent skill.
+// Runtimes receive rendered prompt text, but the narrow shape keeps tests and
+// adapters decoupled from store models.
+type SkillSnippet struct {
+	Name           string
+	Description    string
+	ActivationMode string
+	Content        string
+	Active         bool
+	TriggerReason  string
+}
+
 // RunContext contains only the data needed to build an external CLI command.
 type RunContext struct {
 	RunID                  string
@@ -57,6 +69,7 @@ type RunContext struct {
 	IssueTitle             string
 	IssueBody              string
 	TriggerContentSnapshot string
+	Skills                 []SkillSnippet
 	RecentComments         []CommentSnippet
 	TimeoutSeconds         int
 

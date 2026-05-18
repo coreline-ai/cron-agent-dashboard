@@ -15,6 +15,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 - Autopilot rules now support `snooze_until` temporary pause, UI quick actions, and no-op trigger handling without increasing failure counts.
 - Added run resource-control foundation: best-effort token/cost/model metrics capture, timeout resolution, limited transient retry, and Unicode mention matching.
 - Added agent instructions version history and run-level instruction-version snapshots for reproducibility and audit.
+- Added workspace-level Agent Skills registry with `SKILL.md` parsing, agent skill assignment, `always` / `trigger` / `manual` activation, fenced prompt injection, and `skills_loaded` run events. Registered scripts are not auto-executed.
 - README, architecture, TRD, data model, roadmap, and operations docs now describe the shipped startup cleanup and release state more accurately.
 
 ## [0.1.0] - 2026-05-14

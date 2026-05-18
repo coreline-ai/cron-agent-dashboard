@@ -15,7 +15,7 @@
 - DDL의 DEFAULT는 호환을 위해 `datetime('now')`로 두되, 애플리케이션 INSERT 시 명시적으로 RFC3339 값 전달
 - 마이그레이션: forward-only, `internal/db/migrations/NNNN_*.sql`
 
-총 **6 테이블** + 1 메타 테이블.
+총 **10 테이블** + 메타 테이블.
 
 | 테이블 | 행 수 예상 | 목적 |
 |---|---|---|
@@ -27,6 +27,8 @@
 | `autopilot_rule` | 워크스페이스당 0~5 | cron 자동화 |
 | `schema_migrations` | (메타) | 마이그레이션 이력 |
 | `schema_migration_failures` | (메타) | 실패한 마이그레이션 이력 |
+| `skill` | 워크스페이스당 0~50 | `SKILL.md` 호환 재사용 지침 registry |
+| `agent_skill` | 에이전트당 0~20 | 에이전트별 skill 할당/활성화 정책 |
 
 ---
 
@@ -109,6 +111,49 @@ CREATE INDEX idx_agent_instruction_version_agent
 - `PUT /api/agents/:id`에서 instructions 본문이 달라질 때만 새 version을 추가한다.
 - 이름/모델/태그/timeout/retry 정책만 바뀌면 instructions version은 유지한다.
 - run에는 `agent_instructions_version`만 snapshot한다. 과거 전문은 `agent_instruction_version`에서 조회한다.
+
+
+### 2.2.2 skill / agent_skill
+```sql
+CREATE TABLE skill (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  triggers_json TEXT NOT NULL DEFAULT '[]',
+  content TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'manual' CHECK (source_type IN ('manual','local','git','builtin')),
+  source_url TEXT NOT NULL DEFAULT '',
+  source_ref TEXT NOT NULL DEFAULT '',
+  local_path TEXT NOT NULL DEFAULT '',
+  content_hash TEXT NOT NULL DEFAULT '',
+  trust_level TEXT NOT NULL DEFAULT 'local' CHECK (trust_level IN ('builtin','local','git','untrusted')),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX idx_skill_workspace_name_ci
+  ON skill(workspace_id, lower(name));
+
+CREATE TABLE agent_skill (
+  agent_id TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+  skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+  activation_mode TEXT NOT NULL DEFAULT 'trigger' CHECK (activation_mode IN ('always','trigger','manual')),
+  priority INTEGER NOT NULL DEFAULT 100,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(agent_id, skill_id)
+);
+```
+
+**정책**:
+- Skill은 runtime/tool이 아니라 agent instructions를 재사용 가능한 prompt module로 관리하는 registry다.
+- `SKILL.md` 호환 frontmatter(`name`, `description`, `triggers`)를 파싱해 저장할 수 있다.
+- `activation_mode`: `always`는 모든 run, `trigger`는 issue/comment/trigger snapshot keyword match, `manual`은 `#skills:` 명시 시에만 prompt에 주입한다.
+- Skill content는 `SKILL_CONTEXT` fence 안에 주입된다. 등록된 scripts/references/local_path는 metadata로만 저장하며 자동 실행하지 않는다.
+- `content_hash`는 audit/debug용이며 body 또는 원본 `SKILL.md` 기준 sha256 hex다.
 
 ### 2.3 issue
 ```sql
@@ -604,10 +649,11 @@ internal/db/migrations/
 ├── 0011_run_resource_controls.sql
 ├── 0012_phase2_collaboration.sql
 ├── 0013_auto_chain_guards.sql
-└── 0014_agent_instruction_history.sql
+├── 0014_agent_instruction_history.sql
+└── 0015_agent_skills.sql
 ```
 
-이후 변경은 `0003_*.sql` 등으로 누적. forward-only.
+이후 변경은 `0016_*.sql` 등으로 누적. forward-only.
 
 ### 0001_init.sql 핵심 포함 사항 체크리스트
 - [ ] `workspace.working_dir` 컬럼

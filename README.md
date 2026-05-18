@@ -54,7 +54,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 > **이 프로젝트는 현재 v0.1 안정화 단계입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 13 파일 / httpapi 9 파일), sentinel 에러 6종, panic cooldown, heartbeat 기반 stale 회수, gopsutil 기반 process 검증, react-error-boundary, @xyflow/react 흐름 그래프, workspace opt-in auto-chain (5중 가드)까지 적용된 상태로 `make check`와 `go test -race ./...`를 통과했습니다. e2e/release 검증은 아래 명령으로 재현합니다.
 
 > [!TIP]
-> **품질 지표 (2026-05-16 기준)** — Go src **~7,709 LOC** · TS/TSX **~4,872 LOC** · 테스트 **25 파일 / 4,397 LOC** · `go test -race ./...` clean (9 packages) · TypeScript strict + 0 `any` · sentinel 에러 6종 · single-direction migration 14개.
+> **품질 지표 (2026-05-17 기준)** — Go src **~8,700 LOC** · TS/TSX **~5,200 LOC** · 테스트 **27 파일 / 4,965 LOC** · `go test -race ./...` clean (9 packages) · TypeScript strict + 0 `any` · sentinel 에러 6종 · single-direction migration 15개.
 
 ---
 
@@ -137,6 +137,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 - `메인으로 승격` 버튼: 비-main에서만 활성, 클릭 시 다른 에이전트는 자동 worker로 강등 — 메인 에이전트 invariant 유지
 - 삭제 버튼은 main에서 비활성
 - 하단 **Instructions 버전 이력**: instructions를 바꿀 때마다 자동 snapshot — 과거 run이 어떤 instructions 기준으로 실행됐는지 추적 가능
+- **Agent Skills**: `SKILL.md` 호환 지침을 workspace registry에 등록하고 에이전트별로 `always` / `trigger` / `manual` 모드로 할당. 등록된 스크립트는 자동 실행하지 않고 prompt fence 안의 안전한 지침 context로만 주입
 
 ### 5. 오토파일럿 — Cron 자동화 규칙
 
@@ -182,10 +183,10 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 | Realtime | WebSocket Hub | **HTTP polling** (3s) |
 | 인증 | OAuth + PAT + Daemon Token | **무인증** (옵션: 단일 토큰) |
 | 멤버 / 권한 | RBAC + invite | **단일 사용자** |
-| Go 코드 규모 | ~25,000 LOC | **~7,700 LOC + 4,400 LOC tests** |
+| Go 코드 규모 | ~25,000 LOC | **~8,700 LOC + 4,965 LOC tests** |
 | Frontend 규모 | 40+ 페이지 | **7 페이지 (~4,900 LOC TS/TSX)** |
-| 테스트 | 통합/E2E 분리 | **25 test 파일 · `go test -race` clean** |
-| 마이그레이션 | Atlas/Goose | **14 single-direction SQL** (0001~0014) |
+| 테스트 | 통합/E2E 분리 | **27 test 파일 · `go test -race` clean** |
+| 마이그레이션 | Atlas/Goose | **15 single-direction SQL** (0001~0015) |
 
 ---
 
@@ -215,6 +216,7 @@ cron 기반 정기 이슈 자동 생성.
 룰별 일시정지(snooze), 실패 가시성, 5회 연속 실패 자동 OFF를 지원한다.
 Run별 token/cost/model metrics는 CLI가 usage 정보를 출력하는 경우 best-effort로 기록한다.
 에이전트 instructions는 version history로 보존되어 run 재현 기준을 추적할 수 있다.
+Agent Skills registry로 재사용 가능한 `SKILL.md` 지침을 에이전트별로 안전하게 활성화할 수 있다.
 
 </td>
 </tr>

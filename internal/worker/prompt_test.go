@@ -156,3 +156,24 @@ func TestRenderPromptIncludesRunLogPath(t *testing.T) {
 		t.Fatalf("prompt missing run log path: %q", prompt)
 	}
 }
+
+func TestRenderPromptIncludesActiveSkills(t *testing.T) {
+	prompt := RenderPrompt(PromptInput{
+		IssueTitle: "Reddit AI brief",
+		IssueBody:  "body",
+		Skills: []PromptSkillSnippet{
+			{Name: "reddit-ai-brief", Description: "Summarize Reddit AI discussions", ActivationMode: "trigger", Active: true, TriggerReason: "trigger:reddit", Content: "Use Korean markdown bullets."},
+			{Name: "editorial-style", Description: "Style guide", ActivationMode: "manual", Active: false, Content: "Should not be fenced."},
+		},
+	})
+	if !strings.Contains(prompt, "# 사용 가능한 Skills") || !strings.Contains(prompt, "reddit-ai-brief (trigger, active)") || !strings.Contains(prompt, "editorial-style (manual, available)") {
+		t.Fatalf("prompt missing skills list: %q", prompt)
+	}
+	if !strings.Contains(prompt, "----- SKILL_CONTEXT_BEGIN reddit-ai-brief -----") || !strings.Contains(prompt, "Use Korean markdown bullets.") {
+		t.Fatalf("prompt missing active skill fence: %q", prompt)
+	}
+	if strings.Contains(prompt, "Should not be fenced") {
+		t.Fatalf("inactive skill content must not be injected: %q", prompt)
+	}
+	assertBefore(t, prompt, "# 활성 Skill Context", "# 최근 컨텍스트")
+}

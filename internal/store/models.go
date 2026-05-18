@@ -62,6 +62,47 @@ type AgentInstructionVersion struct {
 	CreatedAt    string `db:"created_at" json:"created_at"`
 }
 
+type Skill struct {
+	ID           string   `db:"id" json:"id"`
+	WorkspaceID  string   `db:"workspace_id" json:"workspace_id"`
+	Name         string   `db:"name" json:"name"`
+	Description  string   `db:"description" json:"description"`
+	Triggers     []string `db:"-" json:"triggers"`
+	TriggersJSON string   `db:"triggers_json" json:"-"`
+	Content      string   `db:"content" json:"content"`
+	SourceType   string   `db:"source_type" json:"source_type"`
+	SourceURL    string   `db:"source_url" json:"source_url,omitempty"`
+	SourceRef    string   `db:"source_ref" json:"source_ref,omitempty"`
+	LocalPath    string   `db:"local_path" json:"local_path,omitempty"`
+	ContentHash  string   `db:"content_hash" json:"content_hash"`
+	TrustLevel   string   `db:"trust_level" json:"trust_level"`
+	Enabled      bool     `db:"enabled" json:"enabled"`
+	CreatedAt    string   `db:"created_at" json:"created_at"`
+	UpdatedAt    string   `db:"updated_at" json:"updated_at"`
+}
+
+type AgentSkill struct {
+	AgentID        string `db:"agent_id" json:"agent_id"`
+	SkillID        string `db:"skill_id" json:"skill_id"`
+	ActivationMode string `db:"activation_mode" json:"activation_mode"`
+	Priority       int    `db:"priority" json:"priority"`
+	Enabled        bool   `db:"enabled" json:"enabled"`
+	CreatedAt      string `db:"created_at" json:"created_at"`
+	UpdatedAt      string `db:"updated_at" json:"updated_at"`
+	Skill          *Skill `db:"-" json:"skill,omitempty"`
+}
+
+type PromptSkill struct {
+	ID             string
+	Name           string
+	Description    string
+	ActivationMode string
+	Content        string
+	Active         bool
+	TriggerReason  string
+	ContentHash    string
+}
+
 type Issue struct {
 	ID                     string    `db:"id" json:"id"`
 	WorkspaceID            string    `db:"workspace_id" json:"workspace_id"`
@@ -190,6 +231,7 @@ const (
 	RunEventFailed        = "run_failed"
 	RunEventOrphan        = "orphan_recovered"
 	RunEventStale         = "stale_recovered"
+	RunEventSkillsLoaded  = "skills_loaded"
 
 	RunEventSeverityDebug = "debug"
 	RunEventSeverityInfo  = "info"
@@ -285,6 +327,28 @@ type CreateAgentInput struct {
 	Tags                   string `json:"tags"`
 	TimeoutSecondsOverride *int   `json:"timeout_seconds_override"`
 	RetryPolicyJSON        string `json:"retry_policy_json"`
+}
+
+type UpsertSkillInput struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Triggers    []string `json:"triggers"`
+	Content     string   `json:"content"`
+	SkillMD     string   `json:"skill_md"`
+	SourceType  string   `json:"source_type"`
+	SourceURL   string   `json:"source_url"`
+	SourceRef   string   `json:"source_ref"`
+	LocalPath   string   `json:"local_path"`
+	ContentHash string   `json:"content_hash"`
+	TrustLevel  string   `json:"trust_level"`
+	Enabled     *bool    `json:"enabled"`
+}
+
+type AssignAgentSkillInput struct {
+	SkillID        string `json:"skill_id"`
+	ActivationMode string `json:"activation_mode"`
+	Priority       int    `json:"priority"`
+	Enabled        *bool  `json:"enabled"`
 }
 
 type UpdateWorkspaceInput struct {

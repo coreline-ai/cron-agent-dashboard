@@ -46,6 +46,35 @@ export type AgentInstructionVersion = {
   created_at: string;
 };
 
+export type Skill = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  triggers: string[];
+  content: string;
+  source_type: string;
+  source_url?: string;
+  source_ref?: string;
+  local_path?: string;
+  content_hash: string;
+  trust_level: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentSkill = {
+  agent_id: string;
+  skill_id: string;
+  activation_mode: 'always' | 'trigger' | 'manual';
+  priority: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  skill?: Skill;
+};
+
 export type Issue = {
   id: string;
   workspace_id?: string;
@@ -282,6 +311,22 @@ export function useAgentInstructionVersionsQuery(id: string | undefined) {
     queryKey: ['agent-instructions', id],
     enabled: Boolean(id),
     queryFn: async () => (await apiClient.get<{ versions: AgentInstructionVersion[] | null }>(`/agents/${id}/instructions`)).versions ?? []
+  });
+}
+
+export function useWorkspaceSkillsQuery(slug: string | undefined) {
+  return useQuery({
+    queryKey: ['workspace-skills', slug],
+    enabled: Boolean(slug),
+    queryFn: async () => (await apiClient.get<{ skills: Skill[] | null }>(`/workspaces/${slug}/skills`)).skills ?? []
+  });
+}
+
+export function useAgentSkillsQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['agent-skills', id],
+    enabled: Boolean(id),
+    queryFn: async () => (await apiClient.get<{ skills: AgentSkill[] | null }>(`/agents/${id}/skills`)).skills ?? []
   });
 }
 

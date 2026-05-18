@@ -70,6 +70,7 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 		s.registerSystemRoutes(api)
 		s.registerWorkspaceRoutes(api)
 		s.registerAgentRoutes(api)
+		s.registerSkillRoutes(api)
 		s.registerIssueRoutes(api)
 		s.registerCommentRoutes(api)
 		s.registerRunRoutes(api)
