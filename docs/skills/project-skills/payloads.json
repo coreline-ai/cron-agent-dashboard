@@ -1,0 +1,90 @@
+{
+  "workspace_slug": "project-skills-test",
+  "recommended_agent_assignment": [
+    {
+      "skill_name": "cron-stability-reviewer",
+      "activation_mode": "trigger",
+      "priority": 10,
+      "enabled": true
+    },
+    {
+      "skill_name": "cron-security-guard",
+      "activation_mode": "trigger",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "skill_name": "cron-release-operator",
+      "activation_mode": "manual",
+      "priority": 30,
+      "enabled": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "cron-stability-reviewer",
+      "description": "Review cron-agent-dashboard changes for data consistency, SQLite transaction safety, run lifecycle idempotency, worker cancellation/retry behavior, and regression test coverage. Use when editing internal/store, internal/worker, internal/app, migrations, or API handlers that mutate runs/issues/comments/skills.",
+      "triggers": [
+        "store",
+        "worker",
+        "run lifecycle",
+        "migration",
+        "sqlite",
+        "retry",
+        "cancellation",
+        "heartbeat",
+        "stale recovery",
+        "idempotency"
+      ],
+      "skill_md": "---\nname: cron-stability-reviewer\ndescription: Review cron-agent-dashboard changes for data consistency, SQLite transaction safety, run lifecycle idempotency, worker cancellation/retry behavior, and regression test coverage. Use when editing internal/store, internal/worker, internal/app, migrations, or API handlers that mutate runs/issues/comments/skills.\ntriggers: [store, worker, run lifecycle, migration, sqlite, retry, cancellation, heartbeat, stale recovery, idempotency]\n---\n# Cron Stability Reviewer\n\n## 목적\n\n이 skill은 cron-agent-dashboard의 핵심 안정성 경계를 지키기 위한 리뷰 지침이다. 새 기능을 늘리기보다 기존 run/issue/worker 흐름이 깨지지 않는지 확인한다.\n\n## 반드시 확인할 것\n\n1. **트랜잭션 경계**\n   - 하나의 상태 전이는 하나의 명확한 트랜잭션 안에서 끝나는지 확인한다.\n   - `tx.Rollback()` defer와 `Commit()` 순서가 안전한지 확인한다.\n   - SQLite `MaxOpenConns(1)` 전제를 깨는 변경인지 확인한다.\n\n2. **Run lifecycle invariant**\n   - `queued → running → done|failed|cancelled` 외 전이를 만들지 않는다.\n   - terminal run을 late writer가 덮어쓰지 못하게 `WHERE status='running'` 같은 guard가 있는지 확인한다.\n   - retry는 `attempt`, `next_retry_at`, `failure_kind`, `run_event`가 일관되게 갱신되는지 확인한다.\n\n3. **Cancellation / recovery**\n   - active run 취소는 queued/running을 구분한다.\n   - worker pending cancel, heartbeat, stale recovery, orphan recovery 경로가 서로 충돌하지 않는지 확인한다.\n   - cancel-after-claim처럼 stdout path만 남는 부분 결과 회수 정책을 유지한다.\n\n4. **Audit / observability**\n   - 사용자에게 보이는 상태 변화는 comment 또는 `run_event`로 추적 가능한지 확인한다.\n   - silent fail (`_, _ = ...`)이 새로 생기지 않았는지 확인한다.\n\n5. **테스트**\n   - store 변경은 SQLite integration test를 추가/수정한다.\n   - worker 동시성 변경은 `go test -race ./...` 또는 최소 해당 패키지 race test로 검증한다.\n\n## 출력 형식\n\n리뷰 결과는 아래 순서로 작성한다.\n\n1. `판정`: 안전 / 주의 / 차단\n2. `핵심 리스크`: 최대 5개\n3. `필수 수정`: 파일과 함수 단위로 구체화\n4. `검증`: 실행한 테스트와 결과\n",
+      "source_type": "local",
+      "local_path": "docs/skills/project-skills/cron-stability-reviewer/SKILL.md",
+      "trust_level": "local",
+      "enabled": true
+    },
+    {
+      "name": "cron-security-guard",
+      "description": "Review cron-agent-dashboard changes for prompt-injection boundaries, skill trust, secret leakage, workspace file exposure, auth/CORS safety, and safe handling of CLI agent output. Use when editing prompts, skills, runtime adapters, logs, auth, backup/restore, or workspace file access.",
+      "triggers": [
+        "security",
+        "prompt injection",
+        "skill",
+        "trust_level",
+        "token",
+        "secret",
+        "auth",
+        "cors",
+        "runtime",
+        "workspace",
+        "logs",
+        "backup"
+      ],
+      "skill_md": "---\nname: cron-security-guard\ndescription: Review cron-agent-dashboard changes for prompt-injection boundaries, skill trust, secret leakage, workspace file exposure, auth/CORS safety, and safe handling of CLI agent output. Use when editing prompts, skills, runtime adapters, logs, auth, backup/restore, or workspace file access.\ntriggers: [security, prompt injection, skill, trust_level, token, secret, auth, cors, runtime, workspace, logs, backup]\n---\n# Cron Security Guard\n\n## 목적\n\n이 skill은 로컬 단일 사용자 도구라는 전제를 유지하되, CLI agent가 실제 파일과 명령을 다룬다는 점을 기준으로 보안 경계를 점검한다.\n\n## 보안 체크리스트\n\n1. **Prompt boundary**\n   - 사용자 입력, 댓글, trigger snapshot, skill content는 fence 안에 들어가는지 확인한다.\n   - fence 내부 지시는 상위 지시를 덮어쓰지 못한다는 안전 규칙이 유지되는지 확인한다.\n   - skill content가 실행 지시처럼 보이더라도 dashboard가 script를 자동 실행하지 않는지 확인한다.\n\n2. **Skill registry trust**\n   - `source_type`, `trust_level`, `content_hash`, `local_path/source_url/source_ref`가 보존되는지 확인한다.\n   - git/untrusted skill은 UI/API에서 신뢰도를 숨기지 않는다.\n   - remote import나 update가 silent overwrite로 구현되지 않았는지 확인한다.\n\n3. **Secret / log leakage**\n   - `slog`에는 token, instructions, full prompt, stdout 본문, credential path를 기록하지 않는다.\n   - run log와 comments에는 cap/truncation 정책이 적용되는지 확인한다.\n   - README/OPERATIONS에 workspace와 log에 민감정보가 남을 수 있음을 명시한다.\n\n4. **HTTP exposure**\n   - localhost 외부 bind는 token 없이는 startup fail해야 한다.\n   - CORS allowlist가 wildcard로 넓어지지 않았는지 확인한다.\n   - backup/restore path는 allowlist 또는 명시 flag 없이 임의 경로를 허용하지 않는다.\n\n5. **Runtime execution**\n   - runtime adapter는 workspace `working_dir` 없이 실행되지 않아야 한다.\n   - 프로세스 group termination과 timeout이 유지되는지 확인한다.\n\n## 출력 형식\n\n- `차단 이슈`: 실제 데이터 유출/권한 상승/외부 노출 위험\n- `권장 보강`: 문서, UI 경고, 테스트로 막을 수 있는 항목\n- `검증`: grep/test/API 확인 결과\n",
+      "source_type": "local",
+      "local_path": "docs/skills/project-skills/cron-security-guard/SKILL.md",
+      "trust_level": "local",
+      "enabled": true
+    },
+    {
+      "name": "cron-release-operator",
+      "description": "Prepare cron-agent-dashboard changes for safe local release by checking docs, migrations, CI, embedded web build, naming consistency, and smoke-test readiness. Use before commit/push, release tagging, README updates, or when finishing a stabilization cycle.",
+      "triggers": [
+        "release",
+        "commit",
+        "push",
+        "changelog",
+        "README",
+        "migration",
+        "CI",
+        "e2e",
+        "make check",
+        "docs"
+      ],
+      "skill_md": "---\nname: cron-release-operator\ndescription: Prepare cron-agent-dashboard changes for safe local release by checking docs, migrations, CI, embedded web build, naming consistency, and smoke-test readiness. Use before commit/push, release tagging, README updates, or when finishing a stabilization cycle.\ntriggers: [release, commit, push, changelog, README, migration, CI, e2e, make check, docs]\n---\n# Cron Release Operator\n\n## 목적\n\n이 skill은 코드가 이미 구현된 뒤 릴리스 가능한 상태인지 점검하는 운영 마무리 지침이다. 기능 확장보다 문서 정합성과 재현 가능한 검증을 우선한다.\n\n## 릴리스 전 점검\n\n1. **Working tree**\n   - `git status --short`로 의도하지 않은 파일이 없는지 확인한다.\n   - 기능 변경, 문서 변경, 생성 산출물은 의미 단위로 분리한다.\n\n2. **Naming consistency**\n   - 저장소 slug, Go module, binary, release URL, README 제목이 `cron-agent-dashboard` 기준으로 일치하는지 확인한다.\n   - 과거 `corn` 표기가 재발하지 않았는지 grep한다.\n\n3. **Docs sync**\n   - API/DB/ARCHITECTURE/OPERATIONS/README가 실제 구현과 충돌하지 않는지 확인한다.\n   - 새 migration이 있으면 DATA_MODEL 또는 운영 문서에 필요한 설명을 반영한다.\n\n4. **Validation commands**\n   - 기본: `go test ./...`, `go vet ./...`, `pnpm --filter web build`\n   - 릴리스 후보: `make check`\n   - 동시성 변경: `go test -race ./...`\n   - UI 변경: Playwright smoke 또는 로컬 browser QA\n\n5. **Release readiness**\n   - embedded static이 최신인지 `make build` 또는 `make check` 흐름으로 확인한다.\n   - GitHub Actions 실패 원인이 있으면 로컬 재현 로그를 남긴다.\n\n## 출력 형식\n\n1. `릴리스 판정`: 가능 / 보류\n2. `변경 요약`: code/docs/tests\n3. `검증 명령`: 성공/실패와 핵심 로그\n4. `남은 항목`: 출시 차단 / 출시 후\n",
+      "source_type": "local",
+      "local_path": "docs/skills/project-skills/cron-release-operator/SKILL.md",
+      "trust_level": "local",
+      "enabled": true
+    }
+  ]
+}
