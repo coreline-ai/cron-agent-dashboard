@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type chunkReader struct {
@@ -125,5 +126,32 @@ func assertModeOnDarwinLinux(t *testing.T, path string, want os.FileMode) {
 	}
 	if got := info.Mode().Perm(); got != want {
 		t.Fatalf("%s mode=%#o, want %#o", path, got, want)
+	}
+}
+
+func TestCapCommentForLogWithStatusSanitizesInvalidUTF8(t *testing.T) {
+	input := "before " + string([]byte{0xc3, 0x28}) + " after"
+	got, truncated := CapCommentForLogWithStatus(input, "/api/runs/x/log")
+	if truncated {
+		t.Fatalf("did not expect truncation for short input; truncated=true")
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected sanitized UTF-8 output; got=%q bytes=%x", got, []byte(got))
+	}
+}
+
+func TestCapCommentForLogWithStatusPreservesUTF8AtTruncationBoundary(t *testing.T) {
+	// 25,000 Korean chars (3 bytes each) = 75,000 bytes — comfortably past the 64KB cap.
+	input := strings.Repeat("한", 25_000)
+	got, truncated := CapCommentForLogWithStatus(input, "/api/runs/x/log")
+	if !truncated {
+		t.Fatalf("expected truncation for input of %d bytes", len(input))
+	}
+	if !utf8.ValidString(got) {
+		tail := []byte(got)
+		if len(tail) > 6 {
+			tail = tail[len(tail)-6:]
+		}
+		t.Fatalf("expected valid UTF-8 after truncation; tail=%x", tail)
 	}
 }

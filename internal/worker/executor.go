@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -354,8 +355,11 @@ func CapCommentForLog(content, logURL string) string {
 }
 
 // CapCommentForLogWithStatus is the same cap policy as CapCommentForLog and
-// also reports whether the comment was truncated.
+// also reports whether the comment was truncated. Any invalid UTF-8 in the
+// input is sanitized to U+FFFD before truncation so that downstream consumers
+// (DB, chain prompt snapshot, runtime stdin) never see broken sequences.
 func CapCommentForLogWithStatus(content, logURL string) (string, bool) {
+	content = strings.ToValidUTF8(content, "�")
 	if len([]byte(content)) <= DefaultCommentCapBytes {
 		return content, false
 	}

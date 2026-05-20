@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -85,8 +86,23 @@ func nullIfEmpty(v string) any {
 
 func capSnapshot(v string) string {
 	const max = 4000
-	if len(v) <= max {
-		return v
+	return safeUTF8Cap(v, max)
+}
+
+// safeUTF8Cap returns s with any invalid UTF-8 byte sequences replaced by
+// U+FFFD and the result truncated to at most maxBytes without splitting a
+// rune. Truncation past valid input is byte-exact (no extra padding).
+func safeUTF8Cap(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
 	}
-	return v[:max]
+	s = strings.ToValidUTF8(s, "�")
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }

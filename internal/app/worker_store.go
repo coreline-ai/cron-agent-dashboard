@@ -11,6 +11,7 @@ import (
 
 	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 	"github.com/coreline-ai/cron-agent-dashboard/internal/worker"
+	workerruntime "github.com/coreline-ai/cron-agent-dashboard/internal/worker/runtime"
 )
 
 type WorkerStore struct {
@@ -117,7 +118,7 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 		exitCode = 1
 	}
 
-	content, truncated := readRunComment(result.StdoutPath, "/api/runs/"+runID+"/log")
+	content, truncated := readRunComment(result.StdoutPath, "/api/runs/"+runID+"/log", result.Runtime)
 	errMsg := executionErrorMessage(result, exitCode)
 	terminalReason, failureKind := classifyExecutionFailure(result, exitCode)
 	if exitCode != 0 || terminalReason != store.TerminalReasonCompleted {
@@ -214,7 +215,7 @@ func promptSkillSnippets(skills []store.PromptSkill) []worker.PromptSkillSnippet
 	return out
 }
 
-func readRunComment(stdoutPath, logURL string) (string, bool) {
+func readRunComment(stdoutPath, logURL, runtime string) (string, bool) {
 	if stdoutPath == "" {
 		return "", false
 	}
@@ -222,7 +223,8 @@ func readRunComment(stdoutPath, logURL string) (string, bool) {
 	if err != nil || len(data) == 0 {
 		return "", false
 	}
-	return worker.CapCommentForLogWithStatus(string(data), logURL)
+	cleaned, _ := workerruntime.SanitizeStdout(runtime, string(data))
+	return worker.CapCommentForLogWithStatus(cleaned, logURL)
 }
 
 func executionErrorMessage(result worker.ExecutionResult, exitCode int) string {

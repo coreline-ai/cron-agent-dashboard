@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestAutoChainMainAgentRevisitAllowed(t *testing.T) {
@@ -228,5 +229,50 @@ func TestAutoChainMainAgentRevisitStopsAtMaxDepth(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected depth-limit system comment, comments=%#v", comments)
+	}
+}
+
+func TestAutoChainDispatchSanitizesPromptSnapshot(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "Snapshot Chain",
+		Slug:             "snapshot-chain",
+		IdentifierPrefix: "SNP",
+		AutoChainEnabled: true,
+		MainAgent:        CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := st.CreateAgent(ctx, ws.ID, CreateAgentInput{Name: "Writer", Runtime: "codex", Instructions: "write"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	issue, leadRun, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "snapshot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "w"); err != nil || !ok {
+		t.Fatalf("claim lead ok=%v err=%v", ok, err)
+	}
+
+	// Comment content contains an invalid UTF-8 byte sequence (\xc3\x28) plus a chain mention.
+	rawContent := "draft please " + string([]byte{0xc3, 0x28}) + " — @Writer take it over"
+	if _, err := st.CompleteRun(ctx, leadRun.ID, 0, "", rawContent, false, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := st.ListRuns(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 || runs[1].AgentID != writer.ID {
+		t.Fatalf("expected Writer dispatched via chain, runs=%#v", runs)
+	}
+	snap := runs[1].TriggerContentSnapshot
+	if !utf8.ValidString(snap) {
+		t.Fatalf("trigger_content_snapshot contains invalid UTF-8: bytes=%x", []byte(snap))
 	}
 }
