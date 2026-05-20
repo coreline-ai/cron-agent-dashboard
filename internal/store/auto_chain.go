@@ -126,6 +126,13 @@ func (s *Store) checkAutoChainDispatchDuplicates(ctx context.Context, tx *sqlx.T
 	if existingQueued > 0 {
 		return false, "이미 @" + agent.Name + " queued run이 있어 자동 체이닝을 건너뛰었습니다.", nil
 	}
+	// Main agent (workspace PM hub) is allowed to re-enter the same chain so it
+	// can orchestrate sequential worker delegations. Non-main agents stay blocked
+	// from same-chain revisits to prevent loops. max_depth and daily guards still
+	// apply to main agents as the safety net.
+	if agent.IsMain {
+		return true, "", nil
+	}
 	var duplicate int
 	if err := tx.GetContext(ctx, &duplicate, `SELECT COUNT(*) FROM run WHERE issue_id=? AND agent_id=? AND (chain_id=? OR id=?)`, run.IssueID, agent.ID, chainID, chainID); err != nil {
 		return false, "", normalizeErr(err)
