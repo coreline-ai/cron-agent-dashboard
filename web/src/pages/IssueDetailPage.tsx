@@ -10,7 +10,11 @@ import { IssueSummaryRail } from '../components/IssueSummaryRail';
 import { MarkdownText } from '../components/MarkdownText';
 import { MentionAutocomplete } from '../components/MentionAutocomplete';
 import { MutationErrorAlert } from '../components/MutationErrorAlert';
+import { AgentPipelineStrip } from '../components/AgentPipelineStrip';
+import { LiveRunCard } from '../components/LiveRunCard';
+import { MentionQueuePanel } from '../components/MentionQueuePanel';
 import { PageHeader } from '../components/PageHeader';
+import { ReviewBanner } from '../components/ReviewBanner';
 import { StatusPill } from '../components/StatusPill';
 import { useToast } from '../components/ToastProvider';
 import {
@@ -183,6 +187,32 @@ export function IssueDetailPage() {
 
       {issue.isError ? <MutationErrorAlert error={issue.error} title="이슈 로드 실패" /> : null}
 
+      <ReviewBanner
+        issue={issue.data}
+        runs={runList}
+        onMarkDone={() => setConfirmAction('markDone')}
+        onCancelIssue={() => setConfirmAction('cancelIssue')}
+        onRetryStage={(agentName, stage) => {
+          const template = `@${agentName} 이전 시도(Stage ${stage})가 실패했습니다. 다시 진행해주세요.\n\n(필요한 추가 컨텍스트나 변경된 가정이 있으면 여기에 적은 후 [댓글 등록]을 누르세요)`;
+          setContent(template);
+          // scroll the comment textarea into view so the operator can review + submit
+          setTimeout(() => {
+            const form = document.querySelector('.comment-form');
+            if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const textarea = document.querySelector<HTMLTextAreaElement>('.comment-form textarea');
+            if (textarea) {
+              textarea.focus();
+              textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            }
+          }, 50);
+        }}
+        disabled={actionPending}
+      />
+
+      <LiveRunCard run={runList.find((r) => r.status === 'running' || r.status === 'queued')} onCancel={() => setConfirmAction('cancelRun')} cancelDisabled={actionPending} />
+
+      <AgentPipelineStrip runs={runList} loading={runs.isLoading} />
+
       <div className="issue-detail-layout">
         <div className="issue-detail-main">
           <article className="panel">
@@ -255,6 +285,7 @@ export function IssueDetailPage() {
               </div>
             ))}
             {!comments.isLoading && !comments.data?.length && <p>아직 댓글이 없습니다.</p>}
+            <MentionQueuePanel runs={runList} />
             <form className="form-grid comment-form" onSubmit={onCommentSubmit}>
               <MentionAutocomplete
                 placeholder="@AgentName 멘션으로 위임할 수 있습니다."
@@ -316,7 +347,7 @@ function RunHistoryCard({ run }: { run: Run }) {
   const showError = run.status !== 'done' && Boolean(message);
 
   return (
-    <section className={`run-history-card run-status-${run.status}`}>
+    <section id={`run-${run.id}`} className={`run-history-card run-status-${run.status}`}>
       <header className="run-history-header">
         <StatusPill kind="run" status={run.status} pulse={run.status === 'running'} />
         <strong>@{run.agent_name || '-'}</strong>

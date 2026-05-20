@@ -19,10 +19,11 @@ test.describe('Phase 8 — Cross-page integration & resilience', () => {
     const dialog = page.getByRole('dialog', { name: '새 이슈' });
     await dialog.getByPlaceholder('제목').fill('A-flow root');
     await dialog.getByRole('button', { name: '이슈 생성' }).click();
-    await expect(page.getByRole('link', { name: /TST-1/ })).toBeVisible({ timeout: 15_000 });
+    const cardLink = page.locator('.kanban-card-link', { hasText: 'TST-1' });
+    await expect(cardLink).toBeVisible({ timeout: 15_000 });
 
     // Issue detail
-    await page.getByRole('link', { name: /TST-1/ }).click();
+    await cardLink.click();
     await expect(page.getByRole('heading', { name: 'A-flow root' })).toBeVisible();
 
     // Add a regular comment

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPanel';
 import { PageHeader } from '../components/PageHeader';
+import { TeamPulseWidget } from '../components/TeamPulseWidget';
 import { useHealthQuery, useIssuesQuery } from '../api/queries';
 import type { DashboardOutletContext } from '../layouts/DashboardLayout';
 
@@ -122,6 +123,7 @@ export function HomePage() {
         </article>
 
         <aside className="dashboard-side">
+          <TeamPulseWidget slug={currentWorkspace?.slug} />
           <article className="panel">
             <div className="section-heading">
               <h2>빠른 액션</h2>

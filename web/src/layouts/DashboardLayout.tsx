@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
 import { CreateWorkspaceDialog } from '../components/CreateWorkspaceDialog';
+import { WorkspaceActivityStrip } from '../components/WorkspaceActivityStrip';
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher';
 import { useWorkspacesQuery, type WorkspaceSummary } from '../api/queries';
 
@@ -132,6 +133,7 @@ export function DashboardLayout() {
         <NavGroup title="Product" items={productNav} />
         <NavGroup title="Workspace" items={workspaceNav} />
         <NavGroup title="System" items={systemNav} />
+        <WorkspaceActivityStrip slug={currentSlug} />
         <div className="sidebar-footer">
           <div className="sidebar-status">
             <span className="status-dot" aria-hidden="true" />

@@ -322,6 +322,28 @@ export function useWorkspaceSkillsQuery(slug: string | undefined) {
   });
 }
 
+export type AgentActivity = {
+  agent_id: string;
+  agent_name: string;
+  runtime: string;
+  is_main: boolean;
+  latest_run_id?: string;
+  latest_run_status?: string;
+  latest_run_finished_at?: string;
+  latest_run_enqueued_at?: string;
+  latest_issue_id?: string;
+  latest_issue_identifier?: string;
+};
+
+export function useAgentActivityQuery(slug: string | undefined) {
+  return useQuery({
+    queryKey: ['agent-activity', slug],
+    enabled: Boolean(slug),
+    refetchInterval: 5_000,
+    queryFn: async () => (await apiClient.get<{ activity: AgentActivity[] | null }>(`/workspaces/${slug}/agents/activity`)).activity ?? []
+  });
+}
+
 export function useAgentSkillsQuery(id: string | undefined) {
   return useQuery({
     queryKey: ['agent-skills', id],

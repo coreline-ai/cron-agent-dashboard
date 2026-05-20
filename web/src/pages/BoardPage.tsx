@@ -52,8 +52,17 @@ function IssueCard({
   disabled: boolean;
 }) {
   const busy = issue.execution_status === 'queued' || issue.execution_status === 'running';
+  // Review-pending: 사용자 검토 대기 — agent run 모두 done인데 사람이 아직 issue를 닫지 않음.
+  // F3 워크스페이스 옵션(auto_close_on_run_done=false)에서 자연스럽게 발생하는 상태로,
+  // 보드에서 한눈에 알아볼 수 있도록 강조 배지 + 카드 테두리를 변경한다.
+  const reviewPending = issue.status === 'open' && issue.execution_status === 'done' && (issue.comment_count ?? 0) > 0;
   return (
-    <article className="kanban-card">
+    <article className={`kanban-card${reviewPending ? ' review-pending' : ''}`}>
+      {reviewPending ? (
+        <span className="review-pending-tag" title="에이전트 작업 완료, 사용자 확인 필요">
+          ✓ 검토 대기
+        </span>
+      ) : null}
       <Link className="kanban-card-link" to={`/w/${slug}/issues/${issue.identifier}`}>
         <span className="issue-id">{issue.identifier}</span>
         <strong>{issue.title}</strong>

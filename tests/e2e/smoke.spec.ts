@@ -51,8 +51,9 @@ test('local MVP browser smoke: workspace, issue, detail, comment', async ({ page
   await page.getByPlaceholder('본문').fill('<script>alert(1)</script>');
   await page.getByRole('button', { name: '이슈 생성' }).click();
 
-  await expect(page.getByRole('link', { name: /SMK-1/ })).toBeVisible();
-  await page.getByRole('link', { name: /SMK-1/ }).click();
+  const cardLink = page.locator('.kanban-card-link', { hasText: 'SMK-1' });
+  await expect(cardLink).toBeVisible({ timeout: 15_000 });
+  await cardLink.click();
 
   await expect(page.getByRole('heading', { name: 'Smoke issue' })).toBeVisible();
   await expect(page.locator('.markdown-content').filter({ hasText: '<script>alert(1)</script>' })).toBeVisible();

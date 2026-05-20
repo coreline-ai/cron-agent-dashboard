@@ -19,7 +19,7 @@ test.describe('Phase 3 — Board page', () => {
     await dialog.getByPlaceholder('제목').fill('Board create test');
     await dialog.getByRole('button', { name: '이슈 생성' }).click();
 
-    await expect(page.getByRole('link', { name: /TST-1/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.kanban-card-link', { hasText: 'TST-1' })).toBeVisible({ timeout: 15_000 });
   });
 
   test('TC-3.2 — status filter syncs to URL ?status=done', async ({ page, request }) => {

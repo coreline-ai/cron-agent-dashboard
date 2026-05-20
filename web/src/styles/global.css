@@ -2520,3 +2520,699 @@ button.quick-action {
   border-top: 1px solid var(--border);
   padding-top: 0.85rem;
 }
+
+/* ───────────────────────────── WorkspaceActivityStrip ───────────────────────────── */
+
+.activity-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.55rem 0.4rem 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--accent) 60%, transparent);
+  color: var(--foreground);
+  font-size: 0.78rem;
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+
+.activity-strip:hover {
+  background: color-mix(in oklab, var(--accent) 80%, transparent);
+}
+
+.activity-strip.idle {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.activity-strip.running {
+  border-color: color-mix(in oklab, var(--warning) 55%, var(--border));
+  background: color-mix(in oklab, var(--warning) 12%, var(--accent));
+}
+
+.activity-strip.queued {
+  border-color: color-mix(in oklab, var(--muted-foreground) 40%, var(--border));
+}
+
+.activity-strip .activity-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.activity-strip .activity-copy strong {
+  font-size: 0.82rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-strip .activity-copy small {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-strip .activity-next {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  padding: 0.15rem 0.4rem;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.activity-dot {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+.activity-dot.idle { background: var(--muted-foreground); }
+.activity-dot.queued { background: var(--muted-foreground); }
+.activity-dot.running {
+  background: var(--warning);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 60%, transparent);
+  animation: activityPulse 1.6s ease-out infinite;
+}
+
+@keyframes activityPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 60%, transparent); }
+  70% { box-shadow: 0 0 0 0.45rem color-mix(in oklab, var(--warning) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 0%, transparent); }
+}
+
+/* ───────────────────────────── AgentPipelineStrip ───────────────────────────── */
+
+.pipeline-strip {
+  background: var(--card-background, var(--background));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem 0.95rem;
+  margin-bottom: 0.85rem;
+}
+
+.pipeline-strip.empty {
+  padding: 0.85rem 1rem;
+}
+
+.pipeline-strip-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.pipeline-strip-header small {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.pipeline-stages {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.pipeline-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 9.5rem;
+  flex: 0 0 auto;
+}
+
+.pipeline-stage .stage-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  width: 100%;
+  position: relative;
+}
+
+.pipeline-stage .stage-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.pipeline-stage .stage-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.pipeline-stage .stage-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.pipeline-stage .stage-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.pipeline-stage .stage-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 22%, transparent);
+  color: var(--foreground);
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-stage .stage-head strong {
+  font-size: 0.82rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-stage .stage-state-label,
+.pipeline-stage .stage-duration,
+.pipeline-stage .stage-attempt,
+.pipeline-stage .stage-failure {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  line-height: 1.25;
+}
+
+.pipeline-stage .stage-failure {
+  color: var(--danger, #d04545);
+}
+
+.pipeline-stage.stage-done .stage-connector {
+  background: color-mix(in oklab, var(--success) 60%, var(--border));
+}
+.pipeline-stage.stage-done .stage-card {
+  border-color: color-mix(in oklab, var(--success) 35%, var(--border));
+}
+
+.pipeline-stage.stage-running .stage-card {
+  border-color: color-mix(in oklab, var(--warning) 55%, var(--border));
+  background: color-mix(in oklab, var(--warning) 14%, var(--accent));
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 60%, transparent);
+  animation: stageRunPulse 1.6s ease-out infinite;
+}
+
+@keyframes stageRunPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 60%, transparent); }
+  70% { box-shadow: 0 0 0 0.6rem color-mix(in oklab, var(--warning) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 0%, transparent); }
+}
+
+.pipeline-stage.stage-failed .stage-card {
+  border-color: color-mix(in oklab, var(--danger, #d04545) 50%, var(--border));
+  background: color-mix(in oklab, var(--danger, #d04545) 10%, var(--accent));
+}
+
+.pipeline-stage.stage-cancelled .stage-card {
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.pipeline-stage.stage-retrying .stage-card {
+  border-color: color-mix(in oklab, var(--warning) 40%, var(--border));
+  border-style: dashed;
+}
+
+/* ───────────────────────────── LiveRunCard ───────────────────────────── */
+
+.live-run-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.95rem 0.85rem;
+  margin-bottom: 0.85rem;
+  background: color-mix(in oklab, var(--accent) 45%, transparent);
+}
+
+.live-run-card.live-run-running {
+  border-color: color-mix(in oklab, var(--warning) 55%, var(--border));
+  background: color-mix(in oklab, var(--warning) 12%, var(--accent));
+}
+
+.live-run-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.live-run-head strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+.live-run-head .live-run-agent {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.live-run-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 60%, transparent);
+  animation: activityPulse 1.6s ease-out infinite;
+}
+
+.live-run-card.live-run-queued .live-run-dot {
+  background: var(--muted-foreground);
+  animation: none;
+}
+
+.live-run-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.45rem 0.85rem;
+  margin: 0;
+}
+
+.live-run-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.live-run-stats dt {
+  font-size: 0.66rem;
+  color: var(--muted-foreground);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.live-run-stats dd {
+  font-size: 0.82rem;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-run-stats .hb-healthy {
+  color: var(--success);
+}
+
+.live-run-stats .hb-stale {
+  color: var(--danger, #d04545);
+}
+
+.live-run-stats .muted {
+  color: var(--muted-foreground);
+}
+
+.live-run-cancel {
+  margin-top: 0.65rem;
+}
+
+/* ───────────────────────────── MentionQueuePanel ───────────────────────────── */
+
+.mention-queue-panel {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.85rem;
+  margin: 0.8rem 0 0.6rem;
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.mention-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+
+.mention-queue-head small {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.mention-queue-icon {
+  font-size: 1rem;
+}
+
+.mention-queue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mention-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.queue-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 22%, transparent);
+  color: var(--foreground);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.queue-copy strong {
+  font-size: 0.82rem;
+}
+
+.queue-copy small {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+}
+
+/* ───────────────────────────── TeamPulseWidget ───────────────────────────── */
+
+.team-pulse-card .section-heading p {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  margin: 0.1rem 0 0;
+}
+
+.team-pulse-list {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.team-pulse-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.team-pulse-row.pulse-running {
+  background: color-mix(in oklab, var(--warning) 12%, var(--accent));
+}
+.team-pulse-row.pulse-failed {
+  background: color-mix(in oklab, var(--danger, #d04545) 10%, var(--accent));
+}
+
+.team-pulse-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+.team-pulse-dot.pulse-running {
+  background: var(--warning);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--warning) 60%, transparent);
+  animation: activityPulse 1.6s ease-out infinite;
+}
+.team-pulse-dot.pulse-done { background: var(--success); }
+.team-pulse-dot.pulse-failed { background: var(--danger, #d04545); }
+.team-pulse-dot.pulse-cancelled { background: var(--muted-foreground); }
+.team-pulse-dot.pulse-queued { background: var(--warning); }
+.team-pulse-dot.pulse-idle { background: color-mix(in oklab, var(--muted-foreground) 40%, transparent); }
+
+.team-pulse-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.82rem;
+}
+
+.team-pulse-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: var(--muted-foreground);
+}
+
+.team-pulse-issue {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  text-decoration: none;
+}
+
+.team-pulse-time {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────────────────────── ReviewBanner ───────────────────────────── */
+
+.review-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.95rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid color-mix(in oklab, var(--success) 55%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--success) 12%, var(--background));
+  color: var(--foreground);
+}
+
+.review-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--success) 70%, transparent);
+  color: var(--background, #fff);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.review-banner-copy strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 0.2rem;
+}
+
+.review-banner-copy p {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  color: var(--foreground);
+}
+
+.review-banner-hints {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.review-banner-hints li {
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+}
+
+.review-banner-hints code {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--accent) 60%, transparent);
+}
+
+.review-banner-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: stretch;
+  min-width: 9rem;
+}
+
+.review-banner-failure-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--danger, #d04545);
+  background: none;
+  border: none;
+  border-bottom: 1px dashed currentColor;
+  cursor: pointer;
+}
+.review-banner-failure-toggle:hover { color: color-mix(in oklab, var(--danger, #d04545) 75%, var(--foreground)); }
+.review-banner-failure-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.review-banner-caret {
+  font-size: 0.7rem;
+  margin-left: 0.1rem;
+}
+
+.review-banner-failure-list {
+  list-style: none;
+  margin: 0.55rem 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.review-banner-failure-item {
+  border: 1px solid color-mix(in oklab, var(--danger, #d04545) 35%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--danger, #d04545) 7%, var(--background));
+  padding: 0.55rem 0.7rem 0.65rem;
+}
+
+.review-banner-failure-item header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
+}
+
+.review-banner-failure-item header strong {
+  font-size: 0.85rem;
+}
+
+.failure-icon {
+  font-size: 0.95rem;
+}
+
+.failure-meta {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.failure-error {
+  margin: 0.35rem 0 0.35rem;
+  padding: 0.45rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: color-mix(in oklab, var(--background) 65%, black 6%);
+  color: var(--foreground);
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--danger, #d04545) 22%, var(--border));
+}
+
+.failure-recovery {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--success);
+}
+
+.failure-recovery.unrecovered {
+  color: var(--warning);
+}
+
+.failure-link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
+}
+.failure-link:hover { color: var(--foreground); }
+
+.failure-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.failure-actions .failure-link {
+  margin-top: 0;
+}
+
+/* ───────────────────────────── BoardPage review-pending card ───────────────────────────── */
+
+.kanban-card.review-pending {
+  position: relative;
+  border-color: color-mix(in oklab, var(--success) 55%, var(--border));
+  background: color-mix(in oklab, var(--success) 6%, var(--card-background, var(--background)));
+}
+
+.review-pending-tag {
+  position: absolute;
+  top: -0.5rem;
+  right: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--background, #fff);
+  background: var(--success);
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--background);
+}
+
+/* ───────────────────────────── ActivityStrip review-pending ───────────────────────────── */
+
+.activity-strip.review-pending {
+  border-color: color-mix(in oklab, var(--success) 55%, var(--border));
+  background: color-mix(in oklab, var(--success) 14%, var(--accent));
+}
+
+.activity-dot.review {
+  background: var(--success);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 60%, transparent);
+  animation: activityPulse 2.4s ease-out infinite;
+}
