@@ -274,6 +274,17 @@ func maybeMarkIssueDoneTx(ctx context.Context, tx *sqlx.Tx, run Run, status stri
 	if status != "done" || autoChainQueued {
 		return nil
 	}
+	// Respect workspace.auto_close_on_run_done. Multi-step collaboration
+	// workspaces (RFP-1 style) opt out so partial agent completion does not
+	// auto-close the parent issue.
+	var autoClose int
+	row := tx.QueryRowxContext(ctx, `SELECT COALESCE(w.auto_close_on_run_done, 1) FROM workspace w JOIN issue i ON i.workspace_id = w.id WHERE i.id = ?`, run.IssueID)
+	if err := row.Scan(&autoClose); err != nil {
+		return normalizeErr(err)
+	}
+	if autoClose == 0 {
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE issue SET status='done', updated_at=? WHERE id=?`, updatedAt, run.IssueID); err != nil {
 		return normalizeErr(err)
 	}

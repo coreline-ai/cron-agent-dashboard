@@ -193,14 +193,20 @@ func commandWithoutStdin(ctx context.Context, executable string, args []string, 
 	return cmd, nil, nil
 }
 
+// ErrWorkspaceWorkingDirMissing is returned when a workspace lacks the
+// working_dir setting required by CLI runtimes. The codex adapter especially
+// exits with the unhelpful "No such file or directory (os error 2)" otherwise.
+var ErrWorkspaceWorkingDirMissing = errors.New("workspace working_dir not configured")
+
 func command(ctx context.Context, executable string, args []string, run RunContext) (*exec.Cmd, error) {
 	if executable == "" {
 		return nil, errors.New("runtime executable is empty")
 	}
-	cmd := exec.CommandContext(ctx, executable, args...)
-	if run.WorkspaceWorkingDir != "" {
-		cmd.Dir = run.WorkspaceWorkingDir
+	if strings.TrimSpace(run.WorkspaceWorkingDir) == "" {
+		return nil, fmt.Errorf("%w: configure workspace working_dir before running agent (run_id=%s)", ErrWorkspaceWorkingDirMissing, run.RunID)
 	}
+	cmd := exec.CommandContext(ctx, executable, args...)
+	cmd.Dir = run.WorkspaceWorkingDir
 	return cmd, nil
 }
 

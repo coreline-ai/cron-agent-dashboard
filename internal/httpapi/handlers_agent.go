@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -9,12 +10,23 @@ import (
 
 func (s *Server) registerAgentRoutes(api chi.Router) {
 	api.Get("/api/workspaces/{workspace}/agents", s.listAgents)
+	api.Get("/api/workspaces/{workspace}/agents/activity", s.listAgentActivity)
 	api.Post("/api/workspaces/{workspace}/agents", s.createAgent)
 	api.Get("/api/agents/{id}", s.getAgent)
 	api.Get("/api/agents/{id}/instructions", s.listAgentInstructions)
 	api.Put("/api/agents/{id}", s.updateAgent)
 	api.Post("/api/agents/{id}/promote", s.promoteAgent)
 	api.Delete("/api/agents/{id}", s.deleteAgent)
+}
+
+func (s *Server) listAgentActivity(w http.ResponseWriter, r *http.Request) {
+	ws, _, err := s.store.GetWorkspace(r.Context(), chi.URLParam(r, "workspace"))
+	if err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	xs, err := s.store.ListAgentActivity(r.Context(), ws.ID)
+	respond(w, map[string]any{"activity": xs}, err, http.StatusOK)
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +48,9 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	var req store.CreateAgentInput
 	if !decode(w, r, &req) {
 		return
+	}
+	if strings.TrimSpace(req.RetryPolicyJSON) == "" {
+		req.RetryPolicyJSON = defaultRetryPolicyJSON
 	}
 	a, err := s.store.CreateAgent(r.Context(), ws.ID, req)
 	respond(w, map[string]any{"agent": a}, err, http.StatusCreated)

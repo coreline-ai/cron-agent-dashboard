@@ -90,6 +90,37 @@ func (s *Store) CreateAgent(ctx context.Context, workspaceID string, in CreateAg
 	return s.GetAgent(ctx, a.ID)
 }
 
+// ListAgentActivity returns a per-agent snapshot of the most recent run so the
+// Home page Team Pulse widget can show who is busy at a glance. The latest
+// run is determined by enqueued_at DESC. Agents without any run history yield
+// rows with empty LatestRun* fields.
+func (s *Store) ListAgentActivity(ctx context.Context, workspaceID string) ([]AgentActivity, error) {
+	const q = `
+SELECT
+  a.id  AS agent_id,
+  a.name AS agent_name,
+  a.runtime,
+  a.is_main,
+  COALESCE(r.id,'')           AS latest_run_id,
+  COALESCE(r.status,'')        AS latest_run_status,
+  COALESCE(r.finished_at,'')   AS latest_run_finished_at,
+  COALESCE(r.enqueued_at,'')   AS latest_run_enqueued_at,
+  COALESCE(i.id,'')            AS latest_issue_id,
+  COALESCE(i.identifier,'')    AS latest_issue_identifier
+FROM agent a
+LEFT JOIN (
+  SELECT r1.* FROM run r1
+  JOIN (SELECT agent_id, MAX(enqueued_at) AS mx FROM run GROUP BY agent_id) r2
+    ON r1.agent_id = r2.agent_id AND r1.enqueued_at = r2.mx
+) r ON r.agent_id = a.id
+LEFT JOIN issue i ON i.id = r.issue_id
+WHERE a.workspace_id = ?
+ORDER BY a.is_main DESC, LOWER(a.name)`
+	var out []AgentActivity
+	err := s.db.SelectContext(ctx, &out, q, workspaceID)
+	return out, normalizeErr(err)
+}
+
 func (s *Store) ListAgents(ctx context.Context, workspaceID string) ([]Agent, error) {
 	var out []Agent
 	err := s.db.SelectContext(ctx, &out, agentSelectBase+` WHERE workspace_id=? ORDER BY is_main DESC, created_at ASC`, workspaceID)

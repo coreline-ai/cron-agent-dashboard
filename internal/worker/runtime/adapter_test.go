@@ -29,7 +29,7 @@ func TestCodexAdapterBuildCommand(t *testing.T) {
 }
 
 func TestClaudeAdapterBuildCommand(t *testing.T) {
-	run := RunContext{AgentModel: "sonnet", Prompt: "summarize"}
+	run := RunContext{WorkspaceWorkingDir: "/tmp/workspace", AgentModel: "sonnet", Prompt: "summarize"}
 	cmd, stdin, err := ClaudeAdapter{Executable: "claude-test"}.BuildCommand(context.Background(), run)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestClaudeAdapterBuildCommand(t *testing.T) {
 }
 
 func TestGeminiAdapterBuildCommand(t *testing.T) {
-	run := RunContext{AgentModel: "gemini-2.5-pro", Prompt: "write markdown"}
+	run := RunContext{WorkspaceWorkingDir: "/tmp/workspace", AgentModel: "gemini-2.5-pro", Prompt: "write markdown"}
 	cmd, stdin, err := GeminiAdapter{Executable: "gemini-test"}.BuildCommand(context.Background(), run)
 	if err != nil {
 		t.Fatal(err)

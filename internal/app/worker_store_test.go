@@ -35,11 +35,13 @@ func (e fakeExecutor) Execute(_ context.Context, run worker.ExecutionContext) wo
 func TestWorkerPoolCompletesClaimedRunThroughStore(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
+	autoClose := true
 	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
-		Name:             "AI News",
-		Slug:             "ai-news",
-		IdentifierPrefix: "NEWS",
-		MainAgent:        store.CreateAgentInput{Name: "NewsLead", Runtime: "fake", Instructions: "lead"},
+		Name:               "AI News",
+		Slug:               "ai-news",
+		IdentifierPrefix:   "NEWS",
+		AutoCloseOnRunDone: &autoClose,
+		MainAgent:          store.CreateAgentInput{Name: "NewsLead", Runtime: "fake", Instructions: "lead"},
 	})
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)

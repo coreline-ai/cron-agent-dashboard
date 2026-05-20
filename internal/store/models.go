@@ -31,6 +31,7 @@ type Workspace struct {
 	AutoChainDailyRunLimit   int    `db:"auto_chain_daily_run_limit" json:"auto_chain_daily_run_limit"`
 	AutoChainDailyCostMicros int64  `db:"auto_chain_daily_cost_micros" json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          bool   `db:"auto_chain_dry_run" json:"auto_chain_dry_run"`
+	AutoCloseOnRunDone       bool   `db:"auto_close_on_run_done" json:"auto_close_on_run_done"`
 	CreatedAt                string `db:"created_at" json:"created_at"`
 	UpdatedAt                string `db:"updated_at" json:"updated_at"`
 	AgentCount               int64  `db:"agent_count" json:"agent_count,omitempty"`
@@ -60,6 +61,22 @@ type AgentInstructionVersion struct {
 	Version      int    `db:"version" json:"version"`
 	Instructions string `db:"instructions" json:"instructions"`
 	CreatedAt    string `db:"created_at" json:"created_at"`
+}
+
+// AgentActivity is a lightweight projection of an agent's most recent run so
+// the home Team Pulse widget can render at-a-glance state without pulling the
+// full run history for every issue. See Store.ListAgentActivity.
+type AgentActivity struct {
+	AgentID                string `db:"agent_id" json:"agent_id"`
+	AgentName              string `db:"agent_name" json:"agent_name"`
+	Runtime                string `db:"runtime" json:"runtime"`
+	IsMain                 bool   `db:"is_main" json:"is_main"`
+	LatestRunID            string `db:"latest_run_id" json:"latest_run_id,omitempty"`
+	LatestRunStatus        string `db:"latest_run_status" json:"latest_run_status,omitempty"`
+	LatestRunFinishedAt    string `db:"latest_run_finished_at" json:"latest_run_finished_at,omitempty"`
+	LatestRunEnqueuedAt    string `db:"latest_run_enqueued_at" json:"latest_run_enqueued_at,omitempty"`
+	LatestIssueID          string `db:"latest_issue_id" json:"latest_issue_id,omitempty"`
+	LatestIssueIdentifier  string `db:"latest_issue_identifier" json:"latest_issue_identifier,omitempty"`
 }
 
 type Skill struct {
@@ -315,6 +332,7 @@ type CreateWorkspaceInput struct {
 	AutoChainDailyRunLimit   *int             `json:"auto_chain_daily_run_limit"`
 	AutoChainDailyCostMicros int64            `json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          bool             `json:"auto_chain_dry_run"`
+	AutoCloseOnRunDone       *bool            `json:"auto_close_on_run_done"`
 	MainAgent                CreateAgentInput `json:"main_agent"`
 }
 
@@ -362,6 +380,7 @@ type UpdateWorkspaceInput struct {
 	AutoChainDailyRunLimit   *int   `json:"auto_chain_daily_run_limit"`
 	AutoChainDailyCostMicros *int64 `json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          *bool  `json:"auto_chain_dry_run"`
+	AutoCloseOnRunDone       *bool  `json:"auto_close_on_run_done"`
 }
 
 type CreateIssueInput struct {

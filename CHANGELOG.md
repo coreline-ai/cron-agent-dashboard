@@ -6,7 +6,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ## [Unreleased]
 
+### Added
+
+- **F1** `POST /api/workspaces` now auto-populates `working_dir` to `<data_dir>/workdirs/<slug>` and creates the directory when the request omits an explicit path. Prevents `os error 2` failures observed with the codex CLI when workspaces were created without a working directory (RFP-1 incident).
+- **F2** Runtime adapters (codex/claude/gemini) now return the new sentinel `runtime.ErrWorkspaceWorkingDirMissing` with a clear message (`configure workspace working_dir before running agent`) instead of letting the CLI exit with the unhelpful `No such file or directory (os error 2)`.
+- **F3** New workspace column `auto_close_on_run_done` (migration `0016`) and matching field on `Workspace`, `CreateWorkspaceInput`, `UpdateWorkspaceInput`. Multi-step collaboration workspaces (RFP-style) can now opt out so that a single successful agent run does not auto-close the parent issue. **New workspaces default to `false`** (preserves design principle `issue.status ≠ run.status`); existing rows keep the previous behavior (`true`) via migration default.
+- **F4** Workspace and agent create handlers default `retry_policy_json` to `{"max_attempts":3,"backoff_seconds":[10,60,300],"retry_on":["timeout","executor_error"]}` when callers omit it, so transient runtime errors auto-recover.
+
 ### Changed
+
+- `maybeMarkIssueDoneTx` (`internal/store/runs.go`) now reads `workspace.auto_close_on_run_done` before marking the parent issue done. Existing flows that depended on auto-close are unaffected when the workspace keeps the legacy default.
+
+### Migration
+
+- `0016_workspace_auto_close.sql` — `ALTER TABLE workspace ADD COLUMN auto_close_on_run_done INTEGER NOT NULL DEFAULT 1`. The application layer still defaults newly-created workspaces to `false`.
 
 - Startup orphan process cleanup now uses `process_recorded_at` freshness checks before sending signals, reducing OS process group reuse risk.
 - Executor process metadata recording now retries short transient failures before falling back to best-effort logging.

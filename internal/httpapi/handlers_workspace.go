@@ -2,10 +2,36 @@ package httpapi
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 	"github.com/go-chi/chi/v5"
 )
+
+// defaultRetryPolicyJSON is applied when a workspace/agent create request omits
+// retry_policy_json. We default to 3 attempts with exponential backoff on
+// timeout/executor_error so that transient environment issues self-recover.
+const defaultRetryPolicyJSON = `{"max_attempts":3,"backoff_seconds":[10,60,300],"retry_on":["timeout","executor_error"]}`
+
+// ensureWorkspaceWorkingDir returns a working_dir path that exists on disk.
+// If the caller did not specify one, it is auto-populated to
+// <data_dir>/workdirs/<slug> and the directory is created. This guards against
+// codex/claude/gemini failures caused by empty CWD (see RFP-1 incident).
+func (s *Server) ensureWorkspaceWorkingDir(workingDir, slug string) (string, error) {
+	working := strings.TrimSpace(workingDir)
+	if working == "" {
+		if s.cfg.DataDir == "" || slug == "" {
+			return working, nil
+		}
+		working = filepath.Join(s.cfg.DataDir, "workdirs", slug)
+	}
+	if err := os.MkdirAll(working, 0o755); err != nil {
+		return "", err
+	}
+	return working, nil
+}
 
 func (s *Server) registerWorkspaceRoutes(api chi.Router) {
 	api.Get("/api/workspaces", s.listWorkspaces)
@@ -34,12 +60,21 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		AutoChainDailyRunLimit   *int                   `json:"auto_chain_daily_run_limit"`
 		AutoChainDailyCostMicros int64                  `json:"auto_chain_daily_cost_micros"`
 		AutoChainDryRun          bool                   `json:"auto_chain_dry_run"`
+		AutoCloseOnRunDone       *bool                  `json:"auto_close_on_run_done"`
 		MainAgent                store.CreateAgentInput `json:"main_agent"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: req.WorkingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, AutoChainMaxDepth: req.AutoChainMaxDepth, AutoChainDailyRunLimit: req.AutoChainDailyRunLimit, AutoChainDailyCostMicros: req.AutoChainDailyCostMicros, AutoChainDryRun: req.AutoChainDryRun, MainAgent: req.MainAgent})
+	workingDir, err := s.ensureWorkspaceWorkingDir(req.WorkingDir, req.Slug)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "WORKING_DIR_SETUP_FAILED", err.Error(), nil)
+		return
+	}
+	if strings.TrimSpace(req.MainAgent.RetryPolicyJSON) == "" {
+		req.MainAgent.RetryPolicyJSON = defaultRetryPolicyJSON
+	}
+	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: workingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, AutoChainMaxDepth: req.AutoChainMaxDepth, AutoChainDailyRunLimit: req.AutoChainDailyRunLimit, AutoChainDailyCostMicros: req.AutoChainDailyCostMicros, AutoChainDryRun: req.AutoChainDryRun, AutoCloseOnRunDone: req.AutoCloseOnRunDone, MainAgent: req.MainAgent})
 	respond(w, map[string]any{"workspace": ws, "main_agent": agent}, err, http.StatusCreated)
 }
 

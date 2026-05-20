@@ -25,11 +25,13 @@ func TestNormalizeFinishRunInputDefaultsTerminalFields(t *testing.T) {
 func TestCompleteRunWithReasonRecordsCommentEventsMetricsAndIssueDone(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
+	autoClose := true
 	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
-		Name:             "Finish Helpers",
-		Slug:             "finish-helpers",
-		IdentifierPrefix: "FIN",
-		MainAgent:        CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"},
+		Name:               "Finish Helpers",
+		Slug:               "finish-helpers",
+		IdentifierPrefix:   "FIN",
+		AutoCloseOnRunDone: &autoClose,
+		MainAgent:          CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"},
 	})
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
@@ -104,4 +106,42 @@ func hasRunEvent(events []RunEvent, eventType string) bool {
 		}
 	}
 	return false
+}
+
+// TestCompleteRunPreservesOpenIssueWhenAutoCloseDisabled verifies that the
+// per-workspace auto_close_on_run_done=false opt-out (introduced by F3) keeps
+// the parent issue open after a successful run completes. Multi-step
+// collaboration flows like the RFP-studio workspace rely on this so the first
+// Lead/Sales/Planner run does not silently close the working issue.
+func TestCompleteRunPreservesOpenIssueWhenAutoCloseDisabled(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	autoClose := false
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:               "Multi-step",
+		Slug:               "multi-step",
+		IdentifierPrefix:   "MUL",
+		AutoCloseOnRunDone: &autoClose,
+		MainAgent:          CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	issue, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "stage 1"})
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "worker"); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := st.CompleteRunWithReason(ctx, run.ID, FinishRunInput{ExitCode: 0, Content: "stage one done"}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	updated, err := st.GetIssue(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "open" {
+		t.Fatalf("issue should stay open when auto_close_on_run_done=false, got %q", updated.Status)
+	}
 }
