@@ -17,7 +17,14 @@ func (a ClaudeAdapter) Detect(ctx context.Context) RuntimeInfo {
 }
 
 func (a ClaudeAdapter) BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error) {
-	args := []string{"--print"}
+	// claude --print alone does not advertise that stdin will carry the
+	// prompt, and the CLI drops back into interactive mode when the input
+	// format is ambiguous — that produced the 10-minute timeouts on RFP-2
+	// when the prompt body was piped through stdin (see dev-plan/
+	// implement_20260520_230031.md). `--input-format text` makes the
+	// "stdin holds a text prompt" contract explicit so the CLI exits
+	// non-interactively after consuming EOF.
+	args := []string{"--print", "--input-format", "text"}
 	if run.AgentModel != "" {
 		args = append(args, "--model", run.AgentModel)
 	}

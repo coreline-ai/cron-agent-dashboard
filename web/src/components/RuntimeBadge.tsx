@@ -3,14 +3,12 @@ import type { SettingsResponse } from '../api/queries';
 type RuntimeInfo = SettingsResponse['available_runtimes'][number];
 
 // KNOWN_RUNTIME_ISSUES surfaces operational warnings that the dashboard has
-// observed but the runtime CLI itself reports as "available". The strings
-// are operator-facing and are mirrored in dev-plan/implement_20260520_230031.md
-// (claude --print + stdin pipe hang) and dev-plan/implement_20260521_211716.md
-// (hub-PM workflow recommendations).
-const KNOWN_RUNTIME_ISSUES: Record<string, string> = {
-  claude:
-    'claude --print를 비대화형 stdin pipe로 호출할 때 입력 대기로 hang하는 사례가 관측됐습니다. RFP/hub-PM 류 워크플로우는 codex 사용을 권장합니다.'
-};
+// observed but the runtime CLI itself reports as "available". When a known
+// issue gets resolved by an adapter patch it should be removed here so the
+// badge stops nagging operators. Currently empty — see dev-plan/
+// implement_20260521_221108.md for the most recent cleanup (claude --print
+// + stdin pipe hang resolved by passing --input-format text).
+const KNOWN_RUNTIME_ISSUES: Record<string, string> = {};
 
 export type RuntimeBadgeVariant = 'ok' | 'warn-known-issue' | 'warn-not-detected';
 

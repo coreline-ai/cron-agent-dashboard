@@ -16,10 +16,12 @@ describe('RuntimeBadge', () => {
     expect(res.description).toContain('/usr/local/bin/codex');
   });
 
-  it('flags claude with the operational hang warning even when detected', () => {
+  it('treats claude as recommended now that --input-format text fixes the stdin hang', () => {
+    // dev-plan/implement_20260521_221108.md removed the claude warning;
+    // detected claude should classify as ok like codex does.
     const res = classifyRuntime('claude', detected);
-    expect(res.variant).toBe('warn-known-issue');
-    expect(res.description).toContain('hang');
+    expect(res.variant).toBe('ok');
+    expect(res.description).toContain('/usr/local/bin/claude');
   });
 
   it('marks runtimes that are not on PATH as not-detected and surfaces the server warning', () => {

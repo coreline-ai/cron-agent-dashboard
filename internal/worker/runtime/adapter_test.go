@@ -35,7 +35,10 @@ func TestClaudeAdapterBuildCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{"claude-test", "--print", "--model", "sonnet"}
+	// --input-format text pins the "stdin carries a plain text prompt"
+	// contract so claude --print does not fall back into interactive mode
+	// (which caused 10-minute hangs in dev-plan/implement_20260520_230031.md).
+	wantArgs := []string{"claude-test", "--print", "--input-format", "text", "--model", "sonnet"}
 	if !reflect.DeepEqual(cmd.Args, wantArgs) {
 		t.Fatalf("args=%#v, want %#v", cmd.Args, wantArgs)
 	}
