@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -33,9 +34,27 @@ func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Ru
 	}
 	agent, err := s.resolveAutoChainAgent(ctx, tx, cfg.WorkspaceID, mention)
 	if err != nil {
-		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, "자동 체이닝 대상 @"+mention+"을 찾을 수 없습니다.", at)
+		// Distinguish "agent not registered" from unexpected store errors so
+		// operators can tell whether the chain stopped because of a typo in
+		// the mention vs. a database / connectivity issue. The error is
+		// swallowed (return nil) regardless so the parent transaction —
+		// which already contains the agent result comment — can still commit.
+		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, autoChainAgentLookupMessage(mention, err), at)
 	}
 	return s.dispatchAutoChainRun(ctx, tx, run, agent, commentID, content, at)
+}
+
+// autoChainAgentLookupMessage returns the operator-facing system comment text
+// for an auto-chain agent lookup failure. It splits ErrNotFound ("the mention
+// targets an agent that does not exist in this workspace") from unexpected
+// store errors ("transient DB / lookup failure"). Raw error details are not
+// surfaced here to avoid leaking SQL fragments or credentials into the
+// issue thread.
+func autoChainAgentLookupMessage(mention string, err error) string {
+	if errors.Is(err, ErrNotFound) {
+		return "자동 체이닝 대상 @" + mention + "을 찾을 수 없습니다."
+	}
+	return "자동 체이닝 agent 조회 중 일시적 오류가 발생했습니다. 운영자에게 알려주세요."
 }
 
 func firstAutoChainMention(content string) string {

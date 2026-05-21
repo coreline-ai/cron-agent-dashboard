@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -274,5 +276,87 @@ func TestAutoChainDispatchSanitizesPromptSnapshot(t *testing.T) {
 	snap := runs[1].TriggerContentSnapshot
 	if !utf8.ValidString(snap) {
 		t.Fatalf("trigger_content_snapshot contains invalid UTF-8: bytes=%x", []byte(snap))
+	}
+}
+
+func TestAutoChainAgentLookupMessageDistinguishesNotFoundFromStoreError(t *testing.T) {
+	notFoundMsg := autoChainAgentLookupMessage("Writer", ErrNotFound)
+	if !strings.Contains(notFoundMsg, "@Writer") || !strings.Contains(notFoundMsg, "찾을 수 없습니다") {
+		t.Fatalf("not-found message did not include mention + 찾을 수 없습니다: %q", notFoundMsg)
+	}
+
+	wrapped := fmt.Errorf("scan row: %w", ErrNotFound)
+	if got := autoChainAgentLookupMessage("Writer", wrapped); got != notFoundMsg {
+		t.Fatalf("wrapped ErrNotFound should still be treated as not-found, got=%q", got)
+	}
+
+	storeErr := errors.New("simulated connection reset")
+	storeMsg := autoChainAgentLookupMessage("Writer", storeErr)
+	if storeMsg == notFoundMsg {
+		t.Fatalf("store error should produce a different message than not-found")
+	}
+	if !strings.Contains(storeMsg, "일시적 오류") {
+		t.Fatalf("store error message did not flag transient failure: %q", storeMsg)
+	}
+	if strings.Contains(storeMsg, "simulated connection reset") {
+		t.Fatalf("raw error details leaked into system comment: %q", storeMsg)
+	}
+}
+
+func TestAutoChainMentionNotFoundProducesNotFoundComment(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "MissingMention",
+		Slug:             "missing-mention",
+		IdentifierPrefix: "MM",
+		AutoChainEnabled: true,
+		MainAgent:        CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, leadRun, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "w"); err != nil || !ok {
+		t.Fatalf("claim ok=%v err=%v", ok, err)
+	}
+	// @Writer does not exist in this workspace.
+	if _, err := st.CompleteRun(ctx, leadRun.ID, 0, "", "@Writer please pick this up", false, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := st.ListRuns(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected no chained run; runs=%#v", runs)
+	}
+
+	comments, err := st.ListComments(ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundNotFound := false
+	foundTransient := false
+	for _, c := range comments {
+		if c.AuthorType != "system" {
+			continue
+		}
+		if strings.Contains(c.Content, "@Writer을 찾을 수 없습니다") {
+			foundNotFound = true
+		}
+		if strings.Contains(c.Content, "일시적 오류") {
+			foundTransient = true
+		}
+	}
+	if !foundNotFound {
+		t.Fatalf("missing not-found system comment; comments=%#v", comments)
+	}
+	if foundTransient {
+		t.Fatalf("expected only not-found message, but transient error message also surfaced; comments=%#v", comments)
 	}
 }
