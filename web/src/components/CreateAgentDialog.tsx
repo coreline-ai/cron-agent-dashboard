@@ -1,8 +1,10 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
+import { useSettingsQuery } from '../api/queries';
 import { ModelSelect } from './ModelSelect';
 import { Modal } from './Modal';
+import { RuntimeBadge } from './RuntimeBadge';
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -12,6 +14,7 @@ type CreateAgentDialogProps = {
 
 export function CreateAgentDialog({ open, slug, onClose }: CreateAgentDialogProps) {
   const queryClient = useQueryClient();
+  const settings = useSettingsQuery();
   const [form, setForm] = useState({ name: '', runtime: 'codex', model: '', summary: '', tags: '', instructions: '' });
   const createAgent = useMutation({
     mutationFn: () => apiClient.post(`/workspaces/${slug}/agents`, form),
@@ -51,11 +54,14 @@ export function CreateAgentDialog({ open, slug, onClose }: CreateAgentDialogProp
         </label>
         <label className="field-label">
           Runtime
-          <select value={form.runtime} onChange={(e) => setForm({ ...form, runtime: e.target.value })}>
-            <option value="codex">codex</option>
-            <option value="claude">claude</option>
-            <option value="gemini">gemini</option>
-          </select>
+          <div className="runtime-select-row">
+            <select value={form.runtime} onChange={(e) => setForm({ ...form, runtime: e.target.value })}>
+              <option value="codex">codex</option>
+              <option value="claude">claude</option>
+              <option value="gemini">gemini</option>
+            </select>
+            <RuntimeBadge runtime={form.runtime} runtimes={settings.data?.available_runtimes} />
+          </div>
         </label>
         <ModelSelect runtime={form.runtime} value={form.model} onChange={(model) => setForm({ ...form, model })} />
         <label className="field-label">

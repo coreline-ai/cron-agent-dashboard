@@ -2,11 +2,12 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { type Skill, useAgentInstructionVersionsQuery, useAgentQuery, useAgentSkillsQuery, useWorkspaceSkillsQuery } from '../api/queries';
+import { type Skill, useAgentInstructionVersionsQuery, useAgentQuery, useAgentSkillsQuery, useSettingsQuery, useWorkspaceSkillsQuery } from '../api/queries';
 import { DateTimeText } from '../components/DateTimeText';
 import { ModelSelect } from '../components/ModelSelect';
 import { MutationErrorAlert } from '../components/MutationErrorAlert';
 import { PageHeader } from '../components/PageHeader';
+import { RuntimeBadge } from '../components/RuntimeBadge';
 
 function retryPolicyFromJSON(value?: string) {
   const fallback = { max_attempts: '1', backoff_seconds: '', retry_on_timeout: true, retry_on_executor_error: true };
@@ -49,6 +50,7 @@ export function AgentDetailPage() {
   const instructionVersions = useAgentInstructionVersionsQuery(id);
   const workspaceSkills = useWorkspaceSkillsQuery(slug);
   const agentSkills = useAgentSkillsQuery(id);
+  const settings = useSettingsQuery();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({ name: '', runtime: 'codex', model: '', summary: '', tags: '', instructions: '', timeout_seconds_override: '', max_attempts: '1', backoff_seconds: '', retry_on_timeout: true, retry_on_executor_error: true });
   const [skillForm, setSkillForm] = useState({ name: '', description: '', triggers: '', content: '' });
@@ -171,11 +173,14 @@ export function AgentDetailPage() {
         </label>
         <label className="field-label">
           런타임
-          <select value={form.runtime} onChange={(e) => updateForm({ runtime: e.target.value })}>
-            <option value="codex">codex</option>
-            <option value="claude">claude</option>
-            <option value="gemini">gemini</option>
-          </select>
+          <div className="runtime-select-row">
+            <select value={form.runtime} onChange={(e) => updateForm({ runtime: e.target.value })}>
+              <option value="codex">codex</option>
+              <option value="claude">claude</option>
+              <option value="gemini">gemini</option>
+            </select>
+            <RuntimeBadge runtime={form.runtime} runtimes={settings.data?.available_runtimes} />
+          </div>
         </label>
         <ModelSelect runtime={form.runtime} value={form.model} onChange={(model) => updateForm({ model })} disabled={!agent.data} />
         <label className="field-label">

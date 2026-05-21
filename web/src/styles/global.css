@@ -3216,3 +3216,42 @@ button.quick-action {
   box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 60%, transparent);
   animation: activityPulse 2.4s ease-out infinite;
 }
+
+/* ───────────────────────────── Runtime selection badge ───────────────────────────── */
+
+.runtime-select-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.runtime-select-row > select {
+  flex: 1 1 auto;
+  min-width: 8rem;
+}
+
+.runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.25rem 0.55rem;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.runtime-badge--ok {
+  background: color-mix(in oklab, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.runtime-badge--warn-known-issue,
+.runtime-badge--warn-not-detected {
+  background: color-mix(in oklab, var(--warning, var(--brand)) 16%, transparent);
+  color: color-mix(in oklab, var(--warning, var(--brand)) 80%, var(--foreground));
+}
