@@ -17,11 +17,16 @@ func (a GeminiAdapter) Detect(ctx context.Context) RuntimeInfo {
 }
 
 func (a GeminiAdapter) BuildCommand(ctx context.Context, run RunContext) (*exec.Cmd, []byte, error) {
-	args := []string{"--prompt", run.PromptText()}
+	// gemini -p switches the CLI to headless mode and (per `gemini --help`)
+	// the argv prompt is appended to whatever arrives on stdin. By passing an
+	// empty argv prompt and routing the actual body through stdin we keep the
+	// prompt text out of /proc/<pid>/cmdline so other local users (or shell
+	// history captures) cannot observe it.
+	args := []string{"-p", ""}
 	if run.AgentModel != "" {
 		args = append(args, "--model", run.AgentModel)
 	}
-	return commandWithoutStdin(ctx, a.executable(), args, run)
+	return commandWithPrompt(ctx, a.executable(), args, run)
 }
 
 func (a GeminiAdapter) executable() string {

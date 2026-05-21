@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -43,19 +44,54 @@ func TestClaudeAdapterBuildCommand(t *testing.T) {
 	}
 }
 
-func TestGeminiAdapterBuildCommand(t *testing.T) {
-	run := RunContext{WorkspaceWorkingDir: "/tmp/workspace", AgentModel: "gemini-2.5-pro", Prompt: "write markdown"}
+func TestGeminiAdapterBuildCommandPassesPromptViaStdin(t *testing.T) {
+	const promptBody = "write markdown — sensitive!@# prompt body"
+	run := RunContext{WorkspaceWorkingDir: "/tmp/workspace", AgentModel: "gemini-2.5-pro", Prompt: promptBody}
 	cmd, stdin, err := GeminiAdapter{Executable: "gemini-test"}.BuildCommand(context.Background(), run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{"gemini-test", "--prompt", "write markdown", "--model", "gemini-2.5-pro"}
-	if !reflect.DeepEqual(cmd.Args, wantArgs) {
-		t.Fatalf("args=%#v, want %#v", cmd.Args, wantArgs)
+	// argv must not leak the prompt body. (`gemini -p ""` triggers headless
+	// mode and the empty prompt is appended to the body coming from stdin.)
+	for _, arg := range cmd.Args {
+		if strings.Contains(arg, promptBody) {
+			t.Fatalf("prompt body leaked into argv: %#v", cmd.Args)
+		}
 	}
-	if len(stdin) != 0 {
-		t.Fatalf("gemini prompt should be passed by argv, got stdin=%q", string(stdin))
+	// Headless flag must be present so gemini does not drop into interactive mode.
+	foundHeadless := false
+	for _, arg := range cmd.Args {
+		if arg == "-p" || arg == "--prompt" {
+			foundHeadless = true
+			break
+		}
 	}
+	if !foundHeadless {
+		t.Fatalf("expected -p/--prompt flag in args=%#v", cmd.Args)
+	}
+	// Model flag still appears.
+	wantTail := []string{"--model", "gemini-2.5-pro"}
+	if !containsSubseq(cmd.Args, wantTail) {
+		t.Fatalf("model args missing from %#v", cmd.Args)
+	}
+	if string(stdin) != promptBody {
+		t.Fatalf("stdin=%q, want %q", string(stdin), promptBody)
+	}
+	if cmd.Dir != "/tmp/workspace" {
+		t.Fatalf("Dir=%q, want workspace", cmd.Dir)
+	}
+}
+
+func containsSubseq(haystack, needle []string) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if reflect.DeepEqual(haystack[i:i+len(needle)], needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestParseMetricsFromText(t *testing.T) {
