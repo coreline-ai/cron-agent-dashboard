@@ -27,19 +27,17 @@ func (s *Store) enqueueAutoChainMention(ctx context.Context, tx *sqlx.Tx, run Ru
 	if err != nil || !cfg.Enabled {
 		return false, err
 	}
-	if ok, message, err := s.checkAutoChainGuards(ctx, tx, cfg, run, mention); err != nil {
+	// Resolve the agent first so hub-PM aware guards (max_depth bypass for
+	// main agent re-entry) can apply. Agent lookup failures are split into
+	// "not registered" vs transient errors via autoChainAgentLookupMessage.
+	agent, err := s.resolveAutoChainAgent(ctx, tx, cfg.WorkspaceID, mention)
+	if err != nil {
+		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, autoChainAgentLookupMessage(mention, err), at)
+	}
+	if ok, message, err := s.checkAutoChainGuards(ctx, tx, cfg, run, agent); err != nil {
 		return false, err
 	} else if !ok {
 		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, message, at)
-	}
-	agent, err := s.resolveAutoChainAgent(ctx, tx, cfg.WorkspaceID, mention)
-	if err != nil {
-		// Distinguish "agent not registered" from unexpected store errors so
-		// operators can tell whether the chain stopped because of a typo in
-		// the mention vs. a database / connectivity issue. The error is
-		// swallowed (return nil) regardless so the parent transaction —
-		// which already contains the agent result comment — can still commit.
-		return false, s.insertAutoChainSystemComment(ctx, tx, run.IssueID, autoChainAgentLookupMessage(mention, err), at)
 	}
 	return s.dispatchAutoChainRun(ctx, tx, run, agent, commentID, content, at)
 }
@@ -77,13 +75,17 @@ FROM issue i JOIN workspace w ON w.id=i.workspace_id WHERE i.id=?`, issueID)
 	return cfg, normalizeErr(err)
 }
 
-func (s *Store) checkAutoChainGuards(ctx context.Context, tx *sqlx.Tx, cfg autoChainConfig, run Run, mention string) (bool, string, error) {
+func (s *Store) checkAutoChainGuards(ctx context.Context, tx *sqlx.Tx, cfg autoChainConfig, run Run, agent Agent) (bool, string, error) {
 	maxDepth := normalizeAutoChainMaxDepth(cfg.MaxDepth)
-	if run.ChainDepth >= maxDepth {
+	// Main agent (workspace PM hub) re-entry does not advance chain_depth in
+	// dispatchAutoChainRun, so it must also be exempt from the max_depth
+	// gate. Only worker dispatches count toward the depth limit; the daily
+	// run / cost guards and queued-duplicate guard still apply to both.
+	if !agent.IsMain && run.ChainDepth >= maxDepth {
 		return false, fmt.Sprintf("자동 체이닝 깊이 제한(%d)에 도달해 추가 실행을 등록하지 않았습니다.", maxDepth), nil
 	}
 	if cfg.DryRun {
-		return false, "자동 체이닝 dry-run: @" + mention + " 실행을 큐에 등록하지 않았습니다.", nil
+		return false, "자동 체이닝 dry-run: @" + agent.Name + " 실행을 큐에 등록하지 않았습니다.", nil
 	}
 	return s.autoChainWithinDailyGuards(ctx, tx, cfg.WorkspaceID, cfg.DailyRunLimit, cfg.DailyCostMicros)
 }
@@ -114,7 +116,14 @@ func (s *Store) dispatchAutoChainRun(ctx context.Context, tx *sqlx.Tx, run Run, 
 		instructionsVersion = 1
 	}
 	nextRunID := newID()
-	depth := run.ChainDepth + 1
+	// Hub-PM policy: main agent re-entry inherits the parent's chain_depth so
+	// that worker→main→worker→main→… chains accumulate depth only on worker
+	// dispatches. Worker dispatches still advance by 1, preserving the
+	// max_depth gate for linear chains.
+	depth := run.ChainDepth
+	if !agent.IsMain {
+		depth = run.ChainDepth + 1
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO run(id,issue_id,agent_id,status,trigger_type,trigger_comment_id,trigger_content_snapshot,enqueued_at,max_attempts,agent_instructions_version,parent_run_id,chain_id,chain_depth) VALUES(?,?,?,'queued','mention',?,?,?,?,?,?,?,?)`, nextRunID, run.IssueID, agent.ID, commentID, capSnapshot(content), at, maxAttempts, instructionsVersion, run.ID, chainID, depth); err != nil {
 		return false, normalizeErr(err)
 	}
