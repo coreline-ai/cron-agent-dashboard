@@ -479,6 +479,12 @@ make build
 # ./cron-agent-dashboard workspace-export --workspace <slug> --to demo.json
 # ./cron-agent-dashboard workspace-import --from demo.json --dest-slug demo-clone
 
+# (선택) 워크스페이스 동시 실행을 켜려면 `per_run_worktree`를 활성화하세요.
+# 각 run이 <data_dir>/worktrees/<slug>/<run-id>/에서 실행되고
+# 같은 워크스페이스의 다른 이슈가 즉시 병렬 claim됩니다. `--workers`를
+# 함께 늘려야 동시 실행 효과를 봅니다. 현재는 파일 시스템 격리만 —
+# git worktree 통합은 별도 후속 작업입니다.
+
 # 백엔드 + 내장 UI 서버 시작
 ./cron-agent-dashboard serve
 

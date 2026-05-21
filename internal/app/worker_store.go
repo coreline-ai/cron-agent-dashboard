@@ -18,6 +18,9 @@ import (
 type WorkerStore struct {
 	store          *store.Store
 	defaultWorkDir string
+	// dataDir roots <data_dir>/worktrees/<workspace>/<run-id>/ when a workspace
+	// opted into per_run_worktree. Empty string disables the feature entirely.
+	dataDir string
 }
 
 type WorkerStoreOption func(*WorkerStore)
@@ -33,6 +36,17 @@ func NewWorkerStore(st *store.Store, opts ...WorkerStoreOption) *WorkerStore {
 func WithDefaultWorkDir(path string) WorkerStoreOption {
 	return func(ws *WorkerStore) {
 		ws.defaultWorkDir = path
+	}
+}
+
+// WithDataDir lets the worker store know which directory to root per-run
+// worktrees under. When unset, ClaimNextRun ignores the workspace's
+// per_run_worktree flag (so the SQL claim policy still relaxes the
+// workspace-serializes-runs rule, but every run keeps the workspace
+// working_dir as cwd).
+func WithDataDir(path string) WorkerStoreOption {
+	return func(ws *WorkerStore) {
+		ws.dataDir = path
 	}
 }
 
@@ -66,6 +80,18 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 		if err := os.MkdirAll(workingDir, 0o755); err != nil {
 			return ws.cancelClaimed(ctx, run.ID, err)
 		}
+	}
+	// Per-run worktree opt-in: when the workspace flag is set and a data dir
+	// is configured, override cwd with <data_dir>/worktrees/<slug>/<run-id>/
+	// so the worker pool can claim sibling runs on this workspace in parallel
+	// without trampling on each other's working directory. Cleanup happens
+	// in FinishRun (success / failure / cancel).
+	if workspace.PerRunWorktree && ws.dataDir != "" {
+		worktreePath, _, err := AllocateRunWorktree(ws.dataDir, workspace.Slug, run.ID)
+		if err != nil {
+			return ws.cancelClaimed(ctx, run.ID, err)
+		}
+		workingDir = worktreePath
 	}
 
 	comments, err := ws.store.ListComments(ctx, run.IssueID)
@@ -111,6 +137,7 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 	}
 	if result.Cancelled {
 		_, err := ws.store.CancelRunWithReason(ctx, runID, cancelReasonInput(result.CancelReason))
+		ws.cleanupWorktreeIfOptedIn(ctx, runID)
 		return ignoreTerminalState(err)
 	}
 
@@ -139,8 +166,12 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 	terminalReason, failureKind := classifyExecutionFailure(result, exitCode)
 	if exitCode != 0 || terminalReason != store.TerminalReasonCompleted {
 		if _, retryErr := ws.store.RescheduleRunForRetry(ctx, runID, failureKind, errMsg, result.StdoutPath); retryErr == nil {
+			// Retry scheduled: leave the worktree intact so the next attempt
+			// (same run.ID) reuses the same isolated cwd via the idempotent
+			// AllocateRunWorktree path. Cleanup happens on the terminal pass.
 			return nil
 		} else if !errors.Is(retryErr, store.ErrState) {
+			ws.cleanupWorktreeIfOptedIn(ctx, runID)
 			return retryErr
 		}
 	}
@@ -158,7 +189,34 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 		TotalCostMicros:  result.Metrics.TotalCostMicros,
 		ModelResolved:    result.Metrics.ModelResolved,
 	})
+	ws.cleanupWorktreeIfOptedIn(ctx, runID)
 	return ignoreTerminalState(err)
+}
+
+// cleanupWorktreeIfOptedIn removes the run's per_run_worktree directory when
+// the workspace opted in. Failures are warn-only — the run is already
+// terminal at this point and the worktree path lives under data-dir, so the
+// maintenance routine can sweep it up later if RemoveAll trips on EBUSY.
+func (ws *WorkerStore) cleanupWorktreeIfOptedIn(ctx context.Context, runID string) {
+	if ws.dataDir == "" {
+		return
+	}
+	run, err := ws.store.GetRun(ctx, runID)
+	if err != nil {
+		return
+	}
+	issue, err := ws.store.GetIssue(ctx, run.IssueID)
+	if err != nil {
+		return
+	}
+	workspace, _, err := ws.store.GetWorkspace(ctx, issue.WorkspaceID)
+	if err != nil || !workspace.PerRunWorktree {
+		return
+	}
+	path := filepath.Join(ws.dataDir, "worktrees", workspace.Slug, runID)
+	if err := os.RemoveAll(path); err != nil {
+		slog.Default().Warn("per_run_worktree cleanup failed", "run_id", runID, "path", path, "error", err)
+	}
 }
 
 func (ws *WorkerStore) CancelRun(ctx context.Context, runID, reason string) error {

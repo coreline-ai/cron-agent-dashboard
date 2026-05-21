@@ -42,6 +42,7 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
   const [autoChainDailyCostDollars, setAutoChainDailyCostDollars] = useState(String(((workspace.auto_chain_daily_cost_micros ?? 0) / 1_000_000).toFixed(4)));
   const [autoChainDryRun, setAutoChainDryRun] = useState(Boolean(workspace.auto_chain_dry_run));
   const [autoCloseOnRunDone, setAutoCloseOnRunDone] = useState(Boolean(workspace.auto_close_on_run_done));
+  const [perRunWorktree, setPerRunWorktree] = useState(Boolean(workspace.per_run_worktree));
   const save = useMutation({
     mutationFn: () =>
       apiClient.put(`/workspaces/${workspace.slug}`, {
@@ -55,7 +56,8 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
         auto_chain_daily_run_limit: Number(autoChainDailyRunLimit) || 0,
         auto_chain_daily_cost_micros: Math.max(0, Math.round((Number(autoChainDailyCostDollars) || 0) * 1_000_000)),
         auto_chain_dry_run: autoChainDryRun,
-        auto_close_on_run_done: autoCloseOnRunDone
+        auto_close_on_run_done: autoCloseOnRunDone,
+        per_run_worktree: perRunWorktree
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -76,6 +78,10 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
       <label className="checkbox-row">
         <input type="checkbox" checked={autoCloseOnRunDone} onChange={(e) => setAutoCloseOnRunDone(e.target.checked)} />
         run 성공 시 이슈 자동 완료 처리
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={perRunWorktree} onChange={(e) => setPerRunWorktree(e.target.checked)} />
+        run마다 별도 worktree 사용 (워크스페이스 동시 실행 허용)
       </label>
       <label className="checkbox-row">
         <input type="checkbox" checked={autoChainEnabled} onChange={(e) => setAutoChainEnabled(e.target.checked)} />

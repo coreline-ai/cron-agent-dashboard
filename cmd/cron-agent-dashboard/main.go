@@ -191,7 +191,10 @@ func serve(cfg config.Config, st *store.Store) error {
 		report.MigrationFailureCount,
 	)
 
-	workerStore := app.NewWorkerStore(st, app.WithDefaultWorkDir(filepath.Join(cfg.DataDir, "workdirs")))
+	workerStore := app.NewWorkerStore(st,
+		app.WithDefaultWorkDir(filepath.Join(cfg.DataDir, "workdirs")),
+		app.WithDataDir(cfg.DataDir),
+	)
 	executor := app.NewRuntimeExecutor(
 		workerruntime.DefaultAdapters(),
 		filepath.Join(cfg.DataDir, "runs"),

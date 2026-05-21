@@ -6,6 +6,72 @@ import (
 	"testing"
 )
 
+func TestClaimNextRunPerWorkspaceWorktreeAllowsConcurrentClaims(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "Concurrent",
+		Slug:             "concurrent",
+		IdentifierPrefix: "CC",
+		PerRunWorktree:   true,
+		MainAgent:        CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, _, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: fmt.Sprintf("issue-%d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, ok, err := st.ClaimNextRun(ctx, "w1")
+	if err != nil || !ok {
+		t.Fatalf("first claim ok=%v err=%v", ok, err)
+	}
+	if first.Status != "running" {
+		t.Fatalf("first claim should be running, got %q", first.Status)
+	}
+	// Without per_run_worktree the second claim would block here. With
+	// per_run_worktree=true the workspace guard is lifted so we can claim
+	// the next queued run in the same workspace immediately.
+	second, ok, err := st.ClaimNextRun(ctx, "w2")
+	if err != nil || !ok {
+		t.Fatalf("second claim ok=%v err=%v (per_run_worktree should allow concurrent claims)", ok, err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("second claim returned same run as first: %#v", second)
+	}
+	if second.Status != "running" {
+		t.Fatalf("second claim should be running, got %q", second.Status)
+	}
+}
+
+func TestClaimNextRunWithoutPerWorkspaceWorktreeStillSerializes(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "Serial",
+		Slug:             "serial",
+		IdentifierPrefix: "SE",
+		MainAgent:        CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, _, err := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: fmt.Sprintf("issue-%d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "w1"); err != nil || !ok {
+		t.Fatalf("first claim ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := st.ClaimNextRun(ctx, "w2"); err != nil || ok {
+		t.Fatalf("second claim should be blocked by workspace guard; got ok=%v err=%v", ok, err)
+	}
+}
+
 // TestListIssuesExecutionFilterIsAppliedBeforeLimit reproduces the bug where
 // the execution filter was applied in memory after SQL LIMIT, dropping older
 // matching rows when more recent non-matching rows fill the LIMIT window.

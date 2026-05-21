@@ -24,7 +24,8 @@ const initialForm = {
   runtime: 'codex',
   model: '',
   instructions: '작업을 수행하고 결과를 한국어 markdown으로 요약하세요.',
-  auto_chain_enabled: false
+  auto_chain_enabled: false,
+  per_run_worktree: false
 };
 
 export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorkspaceDialogProps) {
@@ -38,6 +39,7 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorksp
         slug: form.slug,
         identifier_prefix: form.identifier_prefix,
         auto_chain_enabled: form.auto_chain_enabled,
+        per_run_worktree: form.per_run_worktree,
         main_agent: {
           name: form.main_agent_name,
           runtime: form.runtime,
@@ -132,6 +134,17 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorksp
         </label>
         <p className="form-helper">
           켜면 agent 결과 댓글의 첫 <code>@AgentName</code>이 자동으로 다음 run으로 dispatch됩니다. depth/24h run/24h cost/dry-run/main agent 재진입 면제 가드가 함께 적용됩니다. 기본값은 끔 — RFP·hub-PM 같이 한 이슈를 여러 agent가 순차 처리하는 워크플로우에 권장합니다. 사후에 Settings에서 변경할 수 있습니다.
+        </p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={form.per_run_worktree}
+            onChange={(e) => setForm({ ...form, per_run_worktree: e.target.checked })}
+          />
+          run마다 별도 worktree 사용 (워크스페이스 동시 실행 허용)
+        </label>
+        <p className="form-helper">
+          켜면 각 run이 <code>&lt;data_dir&gt;/worktrees/&lt;slug&gt;/&lt;run-id&gt;/</code>에서 실행되고, 같은 워크스페이스의 다른 이슈가 즉시 병렬 claim됩니다. 워커풀 크기(<code>--workers</code>)를 늘리는 것과 함께 쓰세요. 현재는 파일 시스템 격리만 — git worktree 통합은 별도 후속 작업입니다.
         </p>
         {createWorkspace.isError && <p className="error-text">워크스페이스 생성에 실패했습니다.</p>}
       </form>

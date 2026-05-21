@@ -421,6 +421,82 @@ func TestWorkerStoreRecordsStrippedNoiseAsRunEvent(t *testing.T) {
 	}
 }
 
+func TestWorkerStorePerRunWorktreeAllocatesAndCleansUp(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	dataDir := t.TempDir()
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Worktree",
+		Slug:             "wt",
+		IdentifierPrefix: "WT",
+		PerRunWorktree:   true,
+		MainAgent:        store.CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "wt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workerStore := NewWorkerStore(st, WithDataDir(dataDir))
+	claimed, err := workerStore.ClaimNextRun(ctx, "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed == nil {
+		t.Fatalf("claim returned nil")
+	}
+	wantPath := filepath.Join(dataDir, "worktrees", "wt", run.ID)
+	if claimed.WorkspaceWorkingDir != wantPath {
+		t.Fatalf("WorkspaceWorkingDir=%q want %q", claimed.WorkspaceWorkingDir, wantPath)
+	}
+	if info, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("worktree path not created: %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("worktree path is not a directory: %v", info.Mode())
+	}
+
+	if err := workerStore.FinishRun(ctx, run.ID, worker.ExecutionResult{
+		RunID:    run.ID,
+		ExitCode: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wantPath); !os.IsNotExist(err) {
+		t.Fatalf("expected worktree to be cleaned up after FinishRun; stat err=%v", err)
+	}
+}
+
+func TestWorkerStoreWithoutPerRunWorktreeUsesWorkspaceWorkingDir(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	dataDir := t.TempDir()
+	defaultDir := t.TempDir()
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "NoWorktree",
+		Slug:             "nowt",
+		IdentifierPrefix: "NW",
+		MainAgent:        store.CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "nowt"}); err != nil {
+		t.Fatal(err)
+	}
+
+	workerStore := NewWorkerStore(st, WithDefaultWorkDir(defaultDir), WithDataDir(dataDir))
+	claimed, err := workerStore.ClaimNextRun(ctx, "w")
+	if err != nil || claimed == nil {
+		t.Fatalf("claim ok=%v err=%v", claimed, err)
+	}
+	if strings.Contains(claimed.WorkspaceWorkingDir, filepath.Join("worktrees", "nowt")) {
+		t.Fatalf("per_run_worktree=false should not use worktree path; got %q", claimed.WorkspaceWorkingDir)
+	}
+}
+
 func TestWorkerStoreSkipsRunEventWhenNoNoise(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)

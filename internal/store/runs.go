@@ -65,11 +65,27 @@ func (s *Store) ClaimNextRun(ctx context.Context, workerID string) (Run, bool, e
 	}
 	defer tx.Rollback()
 	var runID string
+	// The per-issue "single running run" guard always applies — auto-chain and
+	// concurrency reuse the same trigger logic, so two runs sharing an issue
+	// would step on each other regardless of the workspace policy.
+	//
+	// The per-workspace guard only applies when the workspace did *not* opt
+	// into per_run_worktree. With per_run_worktree=true the worker gives each
+	// run its own cwd (Phase 2 helper) so the historical reason for
+	// serializing — shared working_dir — disappears.
 	err = tx.GetContext(ctx, &runID, `SELECT r.id FROM run r JOIN issue i ON i.id=r.issue_id
+JOIN workspace w ON w.id=i.workspace_id
 WHERE r.status='queued'
   AND (r.next_retry_at IS NULL OR r.next_retry_at='' OR r.next_retry_at <= ?)
   AND NOT EXISTS (SELECT 1 FROM run r2 WHERE r2.issue_id=r.issue_id AND r2.status='running')
-  AND NOT EXISTS (SELECT 1 FROM run r3 JOIN issue i3 ON i3.id=r3.issue_id WHERE i3.workspace_id=i.workspace_id AND r3.status='running')
+  AND (COALESCE(w.per_run_worktree, 0) = 1
+       OR NOT EXISTS (
+         SELECT 1 FROM run r3 JOIN issue i3 ON i3.id=r3.issue_id
+         JOIN workspace w3 ON w3.id=i3.workspace_id
+         WHERE i3.workspace_id=i.workspace_id
+           AND COALESCE(w3.per_run_worktree, 0) = 0
+           AND r3.status='running'
+       ))
 ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`, now())
 	if errors.Is(err, sql.ErrNoRows) {
 		return Run{}, false, nil
