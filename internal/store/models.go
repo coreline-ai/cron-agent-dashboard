@@ -350,6 +350,49 @@ type CreateAgentInput struct {
 	RetryPolicyJSON        string `json:"retry_policy_json"`
 }
 
+// Webhook is a workspace-scoped external subscription. Events array selects
+// which lifecycle events trigger a delivery; empty array means "all known
+// events". Secret is used by the dispatcher to compute X-Cron-Agent-Signature
+// (HMAC-SHA256, hex). It is intentionally stored in plain text — readers
+// must mask it at the API boundary.
+type Webhook struct {
+	ID          string   `db:"id" json:"id"`
+	WorkspaceID string   `db:"workspace_id" json:"workspace_id"`
+	URL         string   `db:"url" json:"url"`
+	Secret      string   `db:"secret" json:"-"`
+	EventsJSON  string   `db:"events_json" json:"-"`
+	Events      []string `db:"-" json:"events"`
+	Enabled     bool     `db:"enabled" json:"enabled"`
+	CreatedAt   string   `db:"created_at" json:"created_at"`
+	UpdatedAt   string   `db:"updated_at" json:"updated_at"`
+}
+
+// WebhookDelivery is one attempted delivery of a webhook payload. Rows with
+// status='pending' double as the dispatcher's work queue; rows with status
+// in 'delivered'/'failed' are the audit log.
+type WebhookDelivery struct {
+	ID            string         `db:"id" json:"id"`
+	WebhookID     string         `db:"webhook_id" json:"webhook_id"`
+	EventType     string         `db:"event_type" json:"event_type"`
+	PayloadJSON   string         `db:"payload_json" json:"payload_json"`
+	Status        string         `db:"status" json:"status"`
+	StatusCode    int            `db:"status_code" json:"status_code"`
+	ResponseBody  string         `db:"response_body" json:"response_body,omitempty"`
+	ErrorMessage  string         `db:"error_message" json:"error_message,omitempty"`
+	Attempt       int            `db:"attempt" json:"attempt"`
+	NextAttemptAt string         `db:"next_attempt_at" json:"next_attempt_at"`
+	DeliveredAt   sql.NullString `db:"delivered_at" json:"delivered_at,omitempty"`
+	CreatedAt     string         `db:"created_at" json:"created_at"`
+}
+
+// UpsertWebhookInput is the request shape for Create / Update.
+type UpsertWebhookInput struct {
+	URL     string   `json:"url"`
+	Secret  string   `json:"secret"`
+	Events  []string `json:"events"`
+	Enabled *bool    `json:"enabled"`
+}
+
 type UpsertSkillInput struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
