@@ -73,6 +73,7 @@ SELECT w.id, w.name, w.slug, w.description, w.output_dir, w.working_dir, w.ident
        COALESCE(w.auto_chain_daily_cost_micros, 0) AS auto_chain_daily_cost_micros,
        COALESCE(w.auto_chain_dry_run, 0) AS auto_chain_dry_run,
        COALESCE(w.auto_close_on_run_done, 1) AS auto_close_on_run_done,
+       COALESCE(w.per_run_worktree, 0) AS per_run_worktree,
        w.created_at, w.updated_at,
        (SELECT COUNT(*) FROM agent a WHERE a.workspace_id = w.id) AS agent_count,
        (SELECT COUNT(*) FROM issue i WHERE i.workspace_id = w.id AND i.status = 'open') AS open_issue_count
@@ -107,8 +108,8 @@ func (s *Store) CreateWorkspaceWithMainAgent(ctx context.Context, in CreateWorks
 	if in.AutoCloseOnRunDone != nil {
 		autoClose = *in.AutoCloseOnRunDone
 	}
-	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: timeoutSeconds, AutoChainEnabled: in.AutoChainEnabled, AutoChainMaxDepth: chainMaxDepth, AutoChainDailyRunLimit: chainRunLimit, AutoChainDailyCostMicros: chainCostLimit, AutoChainDryRun: in.AutoChainDryRun, AutoCloseOnRunDone: autoClose, CreatedAt: t, UpdatedAt: t}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,default_timeout_seconds,auto_chain_enabled,auto_chain_max_depth,auto_chain_daily_run_limit,auto_chain_daily_cost_micros,auto_chain_dry_run,auto_close_on_run_done,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, w.DefaultTimeoutSeconds, boolInt(w.AutoChainEnabled), w.AutoChainMaxDepth, w.AutoChainDailyRunLimit, w.AutoChainDailyCostMicros, boolInt(w.AutoChainDryRun), boolInt(w.AutoCloseOnRunDone), t, t)
+	w := Workspace{ID: newID(), Name: in.Name, Slug: in.Slug, Description: in.Description, OutputDir: in.OutputDir, WorkingDir: in.WorkingDir, IdentifierPrefix: in.IdentifierPrefix, NextIssueSeq: 1, DefaultTimeoutSeconds: timeoutSeconds, AutoChainEnabled: in.AutoChainEnabled, AutoChainMaxDepth: chainMaxDepth, AutoChainDailyRunLimit: chainRunLimit, AutoChainDailyCostMicros: chainCostLimit, AutoChainDryRun: in.AutoChainDryRun, AutoCloseOnRunDone: autoClose, PerRunWorktree: in.PerRunWorktree, CreatedAt: t, UpdatedAt: t}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workspace(id,name,slug,description,output_dir,working_dir,identifier_prefix,next_issue_seq,default_timeout_seconds,auto_chain_enabled,auto_chain_max_depth,auto_chain_daily_run_limit,auto_chain_daily_cost_micros,auto_chain_dry_run,auto_close_on_run_done,per_run_worktree,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, w.ID, w.Name, w.Slug, w.Description, w.OutputDir, w.WorkingDir, w.IdentifierPrefix, w.NextIssueSeq, w.DefaultTimeoutSeconds, boolInt(w.AutoChainEnabled), w.AutoChainMaxDepth, w.AutoChainDailyRunLimit, w.AutoChainDailyCostMicros, boolInt(w.AutoChainDryRun), boolInt(w.AutoCloseOnRunDone), boolInt(w.PerRunWorktree), t, t)
 	if err != nil {
 		return Workspace{}, Agent{}, normalizeErr(err)
 	}
@@ -192,7 +193,11 @@ func (s *Store) UpdateWorkspace(ctx context.Context, idOrSlug string, in UpdateW
 	if in.AutoCloseOnRunDone != nil {
 		autoClose = *in.AutoCloseOnRunDone
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE workspace SET name=?, description=?, working_dir=?, output_dir=?, default_timeout_seconds=?, auto_chain_enabled=?, auto_chain_max_depth=?, auto_chain_daily_run_limit=?, auto_chain_daily_cost_micros=?, auto_chain_dry_run=?, auto_close_on_run_done=?, updated_at=? WHERE id=?`, in.Name, in.Description, in.WorkingDir, in.OutputDir, timeoutSeconds, boolInt(autoChain), maxDepth, dailyRunLimit, dailyCostLimit, boolInt(dryRun), boolInt(autoClose), now(), w.ID)
+	perRunWorktree := w.PerRunWorktree
+	if in.PerRunWorktree != nil {
+		perRunWorktree = *in.PerRunWorktree
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE workspace SET name=?, description=?, working_dir=?, output_dir=?, default_timeout_seconds=?, auto_chain_enabled=?, auto_chain_max_depth=?, auto_chain_daily_run_limit=?, auto_chain_daily_cost_micros=?, auto_chain_dry_run=?, auto_close_on_run_done=?, per_run_worktree=?, updated_at=? WHERE id=?`, in.Name, in.Description, in.WorkingDir, in.OutputDir, timeoutSeconds, boolInt(autoChain), maxDepth, dailyRunLimit, dailyCostLimit, boolInt(dryRun), boolInt(autoClose), boolInt(perRunWorktree), now(), w.ID)
 	if err != nil {
 		return Workspace{}, normalizeErr(err)
 	}

@@ -32,6 +32,7 @@ type Workspace struct {
 	AutoChainDailyCostMicros int64  `db:"auto_chain_daily_cost_micros" json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          bool   `db:"auto_chain_dry_run" json:"auto_chain_dry_run"`
 	AutoCloseOnRunDone       bool   `db:"auto_close_on_run_done" json:"auto_close_on_run_done"`
+	PerRunWorktree           bool   `db:"per_run_worktree" json:"per_run_worktree"`
 	CreatedAt                string `db:"created_at" json:"created_at"`
 	UpdatedAt                string `db:"updated_at" json:"updated_at"`
 	AgentCount               int64  `db:"agent_count" json:"agent_count,omitempty"`
@@ -334,6 +335,7 @@ type CreateWorkspaceInput struct {
 	AutoChainDailyCostMicros int64            `json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          bool             `json:"auto_chain_dry_run"`
 	AutoCloseOnRunDone       *bool            `json:"auto_close_on_run_done"`
+	PerRunWorktree           bool             `json:"per_run_worktree"`
 	MainAgent                CreateAgentInput `json:"main_agent"`
 }
 
@@ -382,6 +384,7 @@ type UpdateWorkspaceInput struct {
 	AutoChainDailyCostMicros *int64 `json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          *bool  `json:"auto_chain_dry_run"`
 	AutoCloseOnRunDone       *bool  `json:"auto_close_on_run_done"`
+	PerRunWorktree           *bool  `json:"per_run_worktree"`
 }
 
 type CreateIssueInput struct {
