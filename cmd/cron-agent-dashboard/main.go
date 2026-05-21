@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -77,9 +78,62 @@ func main() {
 		if err := seedExample(st); err != nil {
 			log.Fatal(err)
 		}
+	case "workspace-export":
+		if err := workspaceExportCmd(cfg, st); err != nil {
+			log.Fatal(err)
+		}
+	case "workspace-import":
+		if err := workspaceImportCmd(cfg, st); err != nil {
+			log.Fatal(err)
+		}
 	default:
-		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, import, or seed)", cmd)
+		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, import, seed, workspace-export, or workspace-import)", cmd)
 	}
+}
+
+func workspaceExportCmd(cfg config.Config, st *store.Store) error {
+	if cfg.WorkspaceSlug == "" {
+		return fmt.Errorf("workspace-export: --workspace <slug> is required")
+	}
+	if cfg.BackupTo == "" {
+		return fmt.Errorf("workspace-export: --to <file.json> is required")
+	}
+	export, err := app.ExportWorkspace(context.Background(), st, cfg.WorkspaceSlug)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(export, "", "  ")
+	if err != nil {
+		return fmt.Errorf("workspace-export: marshal: %w", err)
+	}
+	if err := os.WriteFile(cfg.BackupTo, data, 0o600); err != nil {
+		return fmt.Errorf("workspace-export: write %s: %w", cfg.BackupTo, err)
+	}
+	fmt.Printf("workspace %q exported to %s (%d agents, %d skills, %d autopilot rules)\n",
+		export.Workspace.Slug, cfg.BackupTo,
+		len(export.Agents), len(export.Skills), len(export.Autopilot),
+	)
+	return nil
+}
+
+func workspaceImportCmd(cfg config.Config, st *store.Store) error {
+	if cfg.RestoreFrom == "" {
+		return fmt.Errorf("workspace-import: --from <file.json> is required")
+	}
+	data, err := os.ReadFile(cfg.RestoreFrom)
+	if err != nil {
+		return fmt.Errorf("workspace-import: read %s: %w", cfg.RestoreFrom, err)
+	}
+	var export app.WorkspaceExport
+	if err := json.Unmarshal(data, &export); err != nil {
+		return fmt.Errorf("workspace-import: parse %s: %w", cfg.RestoreFrom, err)
+	}
+	ws, err := app.ImportWorkspace(context.Background(), st, export, app.ImportOptions{DestSlug: cfg.WorkspaceDestSlug})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("imported workspace %q (slug=%s) from %s\n", ws.Name, ws.Slug, cfg.RestoreFrom)
+	return nil
 }
 
 func seedExample(st *store.Store) error {

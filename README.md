@@ -475,6 +475,10 @@ make build
 # (선택) hub-PM 데모 워크스페이스 시드 — Lead + Writer + Reviewer + auto-chain 활성화
 ./cron-agent-dashboard seed
 
+# (선택) 워크스페이스 운영 설정 백업/복제 (workspace + agents + skills + autopilot rules)
+# ./cron-agent-dashboard workspace-export --workspace <slug> --to demo.json
+# ./cron-agent-dashboard workspace-import --from demo.json --dest-slug demo-clone
+
 # 백엔드 + 내장 UI 서버 시작
 ./cron-agent-dashboard serve
 
