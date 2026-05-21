@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,9 +73,35 @@ func main() {
 			log.Fatal(err)
 		}
 		fmt.Printf("backup written to %s\n", path)
+	case "seed":
+		if err := seedExample(st); err != nil {
+			log.Fatal(err)
+		}
 	default:
-		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, or import)", cmd)
+		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, import, or seed)", cmd)
 	}
+}
+
+func seedExample(st *store.Store) error {
+	result, err := app.SeedExample(context.Background(), st)
+	if err != nil {
+		return err
+	}
+	if result.AlreadyHad {
+		fmt.Printf("workspace %q already seeded (slug=%s) — nothing to do\n", result.Workspace.Name, result.Workspace.Slug)
+		return nil
+	}
+	workerNames := make([]string, 0, len(result.Worker))
+	for _, w := range result.Worker {
+		workerNames = append(workerNames, w.Name)
+	}
+	fmt.Printf("seeded workspace %q (slug=%s) — main agent: %s, workers: %s, auto_chain_enabled=true\n",
+		result.Workspace.Name,
+		result.Workspace.Slug,
+		result.MainAgent.Name,
+		strings.Join(workerNames, ", "),
+	)
+	return nil
 }
 
 func backupDatabase(cfg config.Config, database interface {

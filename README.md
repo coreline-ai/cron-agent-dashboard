@@ -472,6 +472,9 @@ go run ./cmd/cron-agent-dashboard init
 # 단일 바이너리 빌드 (web/dist embed 포함)
 make build
 
+# (선택) hub-PM 데모 워크스페이스 시드 — Lead + Writer + Reviewer + auto-chain 활성화
+./cron-agent-dashboard seed
+
 # 백엔드 + 내장 UI 서버 시작
 ./cron-agent-dashboard serve
 
