@@ -243,6 +243,90 @@ func jsonEscape(s string) string {
 	return string(b)
 }
 
+// TestWebhookHTTPCRUDMasksSecretAndExposesEvents pins the HTTP contract for
+// POST/GET/PUT/DELETE on /api/workspaces/:slug/webhooks: the secret is never
+// echoed in responses (only has_secret), events round-trip verbatim, and
+// DELETE removes the row.
+func TestWebhookHTTPCRUDMasksSecretAndExposesEvents(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	wsBody := `{"name":"Hook","slug":"hook-http","identifier_prefix":"HHT","main_agent":{"name":"Lead","runtime":"codex","instructions":"lead"}}`
+	if res := do(t, h, http.MethodPost, "/api/workspaces", wsBody); res.Code != http.StatusCreated {
+		t.Fatalf("seed workspace: %s", res.Body.String())
+	}
+
+	createBody := `{"url":"https://hook.example/x","secret":"topsecret","events":["run.completed","issue.done"]}`
+	res := do(t, h, http.MethodPost, "/api/workspaces/hook-http/webhooks", createBody)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create webhook: %d %s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "topsecret") {
+		t.Fatalf("create response leaked secret: %s", res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"has_secret":true`) {
+		t.Fatalf("create response missing has_secret: %s", res.Body.String())
+	}
+
+	var created struct {
+		Webhook struct {
+			ID        string   `json:"id"`
+			HasSecret bool     `json:"has_secret"`
+			Events    []string `json:"events"`
+		} `json:"webhook"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if !created.Webhook.HasSecret || len(created.Webhook.Events) != 2 {
+		t.Fatalf("unexpected create payload: %#v", created.Webhook)
+	}
+
+	// List
+	res = do(t, h, http.MethodGet, "/api/workspaces/hook-http/webhooks", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "topsecret") {
+		t.Fatalf("list response leaked secret: %s", res.Body.String())
+	}
+
+	// PUT — clearing the secret by sending an empty string
+	updateBody := `{"url":"https://hook.example/y","secret":"","events":["run.failed"]}`
+	res = do(t, h, http.MethodPut, "/api/webhooks/"+created.Webhook.ID, updateBody)
+	if res.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", res.Code, res.Body.String())
+	}
+	var updated struct {
+		Webhook struct {
+			URL       string   `json:"url"`
+			HasSecret bool     `json:"has_secret"`
+			Events    []string `json:"events"`
+		} `json:"webhook"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Webhook.URL != "https://hook.example/y" || updated.Webhook.HasSecret || len(updated.Webhook.Events) != 1 {
+		t.Fatalf("PUT did not replace fields: %#v", updated.Webhook)
+	}
+
+	// DELETE
+	res = do(t, h, http.MethodDelete, "/api/webhooks/"+created.Webhook.ID, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", res.Code, res.Body.String())
+	}
+	res = do(t, h, http.MethodGet, "/api/webhooks/"+created.Webhook.ID, "")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("get after delete should be 404, got %d", res.Code)
+	}
+}
+
 // TestUpdateAgentIsFullReplacePinsContract pins the published behavior of
 // PUT /api/agents/:id: the handler treats the request body as a complete
 // agent replacement, so any field omitted from the payload is reset to its

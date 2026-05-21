@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 
@@ -221,4 +223,92 @@ func decodeWebhookEvents(w *Webhook) error {
 	}
 	w.Events = events
 	return nil
+}
+
+// NextPendingWebhookDelivery returns the oldest pending webhook_delivery row
+// whose next_attempt_at has come due (relative to nowRFC3339), together with
+// its webhook subscription. ok is false when the queue is empty.
+//
+// The implementation is intentionally simple: pick the oldest pending row,
+// then look up the webhook. Callers must serialize tick() in a single
+// goroutine — the dispatcher does. There's no SELECT FOR UPDATE in SQLite,
+// so cross-process concurrency is out of scope (this is a local single-
+// binary tool).
+func (s *Store) NextPendingWebhookDelivery(ctx context.Context, nowRFC3339 string) (WebhookDelivery, Webhook, bool, error) {
+	var delivery WebhookDelivery
+	err := s.db.GetContext(ctx, &delivery,
+		`SELECT id,webhook_id,event_type,payload_json,status,status_code,response_body,error_message,attempt,next_attempt_at,delivered_at,created_at
+FROM webhook_delivery WHERE status='pending' AND next_attempt_at <= ? ORDER BY next_attempt_at ASC, created_at ASC LIMIT 1`, nowRFC3339)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return WebhookDelivery{}, Webhook{}, false, nil
+		}
+		return WebhookDelivery{}, Webhook{}, false, normalizeErr(err)
+	}
+	hook, err := s.GetWebhook(ctx, delivery.WebhookID)
+	if err != nil {
+		return WebhookDelivery{}, Webhook{}, false, err
+	}
+	return delivery, hook, true, nil
+}
+
+// MarkWebhookDeliveryDelivered marks a delivery as successfully delivered.
+func (s *Store) MarkWebhookDeliveryDelivered(ctx context.Context, id string, statusCode int, responseBody string) error {
+	t := now()
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE webhook_delivery SET status='delivered', status_code=?, response_body=?, delivered_at=?, attempt=attempt+1 WHERE id=? AND status='pending'`,
+		statusCode, capWebhookResponseBody(responseBody), t, id,
+	)
+	if err != nil {
+		return normalizeErr(err)
+	}
+	if aff, _ := res.RowsAffected(); aff == 0 {
+		return ErrState
+	}
+	return nil
+}
+
+// MarkWebhookDeliveryFailure records a failed attempt. When maxAttempts is
+// reached, the row terminates as 'failed'; otherwise next_attempt_at is set
+// to nowRFC3339+backoff so the dispatcher retries later.
+//
+// maxAttempts counts total attempts (initial + retries). The default plan is
+// 2 (one immediate attempt + one retry).
+func (s *Store) MarkWebhookDeliveryFailure(ctx context.Context, id string, statusCode int, responseBody, errMsg string, retryAt string, maxAttempts int) error {
+	t := now()
+	// Inspect current attempt count to decide between retry and terminal fail.
+	var attempt int
+	if err := s.db.GetContext(ctx, &attempt, `SELECT attempt FROM webhook_delivery WHERE id=?`, id); err != nil {
+		return normalizeErr(err)
+	}
+	nextAttempt := attempt + 1
+	terminal := nextAttempt >= maxAttempts
+	if terminal {
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE webhook_delivery SET status='failed', status_code=?, response_body=?, error_message=?, attempt=?, next_attempt_at=? WHERE id=? AND status='pending'`,
+			statusCode, capWebhookResponseBody(responseBody), capWebhookErrorMessage(errMsg), nextAttempt, t, id,
+		)
+		return normalizeErr(err)
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE webhook_delivery SET status_code=?, response_body=?, error_message=?, attempt=?, next_attempt_at=? WHERE id=? AND status='pending'`,
+		statusCode, capWebhookResponseBody(responseBody), capWebhookErrorMessage(errMsg), nextAttempt, retryAt, id,
+	)
+	return normalizeErr(err)
+}
+
+func capWebhookResponseBody(body string) string {
+	const max = 2048
+	if len(body) <= max {
+		return body
+	}
+	return body[:max]
+}
+
+func capWebhookErrorMessage(msg string) string {
+	const max = 1024
+	if len(msg) <= max {
+		return msg
+	}
+	return msg[:max]
 }

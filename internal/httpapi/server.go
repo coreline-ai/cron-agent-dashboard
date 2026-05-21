@@ -75,6 +75,7 @@ func New(st *store.Store, cfg config.Config, opts ...Option) http.Handler {
 		s.registerCommentRoutes(api)
 		s.registerRunRoutes(api)
 		s.registerAutopilotRoutes(api)
+		s.registerWebhookRoutes(api)
 	})
 	r.HandleFunc("/*", s.static)
 	return r

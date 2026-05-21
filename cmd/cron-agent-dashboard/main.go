@@ -223,6 +223,9 @@ func serve(cfg config.Config, st *store.Store) error {
 	})
 	maintenance.Start(runCtx)
 
+	webhooks := app.NewWebhookDispatcher(st)
+	webhooks.Start(runCtx)
+
 	srv := &http.Server{
 		Addr:              cfg.Bind,
 		Handler:           httpapi.New(st, cfg, httpapi.WithRunCanceller(pool), httpapi.WithAutopilotReloader(autopilot)),
@@ -261,6 +264,9 @@ func serve(cfg config.Config, st *store.Store) error {
 		return err
 	}
 	if err := maintenance.Stop(shutdownCtx); err != nil {
+		return err
+	}
+	if err := webhooks.Stop(shutdownCtx); err != nil {
 		return err
 	}
 	if err := pool.Shutdown(shutdownCtx); err != nil {
