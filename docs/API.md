@@ -216,12 +216,20 @@
 ```
 
 ### 2.5 `PUT /api/agents/:id`
-에이전트 수정 (`name`, `runtime`, `model`, `instructions`). `model`은 빈 문자열로 보내면 런타임 기본값, 값이 있으면 해당 모델 ID를 사용합니다.
+에이전트 수정. **본 엔드포인트는 full-replace 의미를 갖습니다** — 요청 본문이 그대로 새로운 에이전트 상태가 되며, 누락한 필드는 빈 값(`""` 또는 `null`)으로 덮어 씌워집니다.
 
-**Request**: 위 필드 일부 또는 전체
-- `is_main` 변경 X (별도 엔드포인트)
-- `instructions` 본문이 변경되면 `instructions_version`이 1 증가하고 이력 row가 추가됩니다.
-- 이름/모델/태그/timeout/retry 정책만 변경되면 `instructions_version`은 유지됩니다.
+**Request body (모든 필드를 항상 명시)**:
+- `name`, `runtime`, `instructions`: 필수.
+- `model`: 빈 문자열로 보내면 런타임 기본값, 값이 있으면 해당 모델 ID 사용.
+- `summary`, `tags`: 누락하면 빈 문자열로 초기화됩니다. 기존 값을 보존하려면 GET → 수정 → PUT 패턴으로 모든 필드를 다시 보내야 합니다.
+- `timeout_seconds_override`, `retry_policy_json`: 누락하면 각각 `null`/기본값으로 초기화됩니다.
+- `is_main`: 변경 불가 (별도 엔드포인트 `POST /api/agents/:id/promote`).
+
+**Side effects**:
+- `instructions` 본문이 직전 값과 다르면 `instructions_version`이 1 증가하고 `agent_instruction_version` 이력 row가 추가됩니다.
+- 이름/모델/태그/timeout/retry 정책만 바뀌고 instructions가 그대로면 `instructions_version`은 유지됩니다.
+
+> 계약은 `TestUpdateAgentIsFullReplacePinsContract`(internal/httpapi/patches_test.go)로 못박혀 있습니다. partial update 도입은 별도 호환성 작업이며 현재 범위 밖입니다.
 
 ### 2.6 `POST /api/agents/:id/promote`
 이 에이전트를 메인으로 승격. 기존 메인은 자동 강등.

@@ -6,6 +6,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ## [Unreleased]
 
+### Added (2026-05-21 cycle)
+
+- **2026-05-20 chain stabilization**: workspace main agent (PM hub) can now re-enter the same auto-chain ([`294fe2e`](https://github.com/coreline-ai/cron-agent-dashboard/commit/294fe2e)); UTF-8 safe truncation through `capSnapshot` + `CapCommentForLogWithStatus` and runtime CLI diagnostic noise (`MCP issues detected. Run /mcp list for status.`) strip applied across codex / claude / gemini ([`25c1ec2`](https://github.com/coreline-ai/cron-agent-dashboard/commit/25c1ec2)); stripped diagnostic lines recorded as `stdout_sanitized` run_event via migration `0017` ([`e619548`](https://github.com/coreline-ai/cron-agent-dashboard/commit/e619548)).
+- **2026-05-21 quality cycle**: `ListIssues` execution filter moved to SQL WHERE so LIMIT does not drop matching rows ([`27021cc`](https://github.com/coreline-ai/cron-agent-dashboard/commit/27021cc)); Gemini adapter routes the prompt body through stdin (was argv) to keep prompts out of `/proc/<pid>/cmdline` ([`13bc9ed`](https://github.com/coreline-ai/cron-agent-dashboard/commit/13bc9ed)); Settings UI now exposes `auto_close_on_run_done` toggle per workspace ([`9770c05`](https://github.com/coreline-ai/cron-agent-dashboard/commit/9770c05)); auto-chain agent lookup splits `ErrNotFound` from transient store errors with distinct system comments ([`e458c05`](https://github.com/coreline-ai/cron-agent-dashboard/commit/e458c05)); `PUT /api/agents/:id` full-replace contract pinned in docs + test.
+
+### Changed (2026-05-21 cycle)
+
+- Bumped web dependencies — `vite ^6.4.2` (was `^5.4.14`) and `vitest@latest` — to clear `pnpm audit` moderate advisories `GHSA-67mh-4wv8-2f99` (esbuild dev server CORS) and `GHSA-4w7w-66w2-5vf9` (Vite `.map` path traversal). `pnpm audit --prod` and full `pnpm audit` are clean.
+- README quality metrics refreshed: sentinel error count 6 → 14, automation test/spec files 49 → 50, migrations 16 → 17.
+- `docs/API.md` §2.5 `PUT /api/agents/:id` is now explicit about full-replace semantics; partial updates require GET → modify → PUT.
+
+### Migration (2026-05-21 cycle)
+
+- `0017_run_event_stdout_sanitized.sql` — `run_event.event_type` CHECK enum extended with `stdout_sanitized` (table-rebuild pattern, matches `0015`).
+
 ### Added
 
 - **F1** `POST /api/workspaces` now auto-populates `working_dir` to `<data_dir>/workdirs/<slug>` and creates the directory when the request omits an explicit path. Prevents `os error 2` failures observed with the codex CLI when workspaces were created without a working directory (RFP-1 incident).

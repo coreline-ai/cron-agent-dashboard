@@ -242,3 +242,59 @@ func jsonEscape(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// TestUpdateAgentIsFullReplacePinsContract pins the published behavior of
+// PUT /api/agents/:id: the handler treats the request body as a complete
+// agent replacement, so any field omitted from the payload is reset to its
+// zero value. docs/API.md §2.5 must reflect this; clients that need a
+// partial update must read-modify-write the full resource.
+func TestUpdateAgentIsFullReplacePinsContract(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	wsBody := `{"name":"AG","slug":"agent-put","identifier_prefix":"AGP","main_agent":{"name":"Lead","runtime":"codex","instructions":"lead"}}`
+	if res := do(t, h, http.MethodPost, "/api/workspaces", wsBody); res.Code != http.StatusCreated {
+		t.Fatalf("seed workspace: %s", res.Body.String())
+	}
+
+	createBody := `{"name":"Writer","runtime":"claude","instructions":"write","summary":"initial summary","tags":"alpha,beta"}`
+	res := do(t, h, http.MethodPost, "/api/workspaces/agent-put/agents", createBody)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create agent: %s", res.Body.String())
+	}
+	var created struct {
+		Agent store.Agent `json:"agent"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Agent.Summary != "initial summary" || created.Agent.Tags != "alpha,beta" {
+		t.Fatalf("seed agent did not carry summary/tags: %#v", created.Agent)
+	}
+
+	// PUT payload omits summary and tags on purpose. Under partial-update
+	// semantics summary/tags would survive; under full-replace semantics they
+	// are reset to "". The current handler is full-replace.
+	putBody := `{"name":"Writer","runtime":"claude","instructions":"write"}`
+	res = do(t, h, http.MethodPut, "/api/agents/"+created.Agent.ID, putBody)
+	if res.Code != http.StatusOK {
+		t.Fatalf("put status=%d body=%s", res.Code, res.Body.String())
+	}
+	var after struct {
+		Agent store.Agent `json:"agent"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Agent.Summary != "" {
+		t.Fatalf("PUT contract drift: omitted summary should be cleared to \"\" (full replace), got %q", after.Agent.Summary)
+	}
+	if after.Agent.Tags != "" {
+		t.Fatalf("PUT contract drift: omitted tags should be cleared to \"\" (full replace), got %q", after.Agent.Tags)
+	}
+}
