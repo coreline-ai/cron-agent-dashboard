@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -190,13 +191,90 @@ func (s *Store) CompleteRunWithReason(ctx context.Context, runID string, in Fini
 	if err := emitRunFinishEventsTx(ctx, tx, run, status, in); err != nil {
 		return Run{}, err
 	}
-	if err := maybeMarkIssueDoneTx(ctx, tx, run, status, autoChainQueued, t); err != nil {
+	markedDone, err := maybeMarkIssueDoneTx(ctx, tx, run, status, autoChainQueued, t)
+	if err != nil {
 		return Run{}, err
+	}
+	// Fan out terminal-lifecycle webhooks inside the same transaction so
+	// either the lifecycle change AND the delivery rows commit together, or
+	// neither does. The dispatcher (Phase 5) consumes the pending rows.
+	if status == "done" {
+		if err := s.enqueueRunLifecycleWebhookTx(ctx, tx, run, "run.completed", status, in, t); err != nil {
+			return Run{}, err
+		}
+	} else if status == "failed" {
+		if err := s.enqueueRunLifecycleWebhookTx(ctx, tx, run, "run.failed", status, in, t); err != nil {
+			return Run{}, err
+		}
+	}
+	if markedDone {
+		if err := s.enqueueRunLifecycleWebhookTx(ctx, tx, run, "issue.done", "done", in, t); err != nil {
+			return Run{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
 	return s.GetRun(ctx, runID)
+}
+
+// enqueueRunLifecycleWebhookTx builds a JSON payload for a run/issue
+// lifecycle event and inserts a pending webhook_delivery row for every
+// matching subscription on the workspace. It is a no-op when no subscription
+// matches (or no webhook is registered at all).
+func (s *Store) enqueueRunLifecycleWebhookTx(ctx context.Context, tx *sqlx.Tx, run Run, eventType, runStatus string, in FinishRunInput, occurredAt string) error {
+	var ws struct {
+		ID   string `db:"id"`
+		Slug string `db:"slug"`
+		Name string `db:"name"`
+	}
+	if err := tx.QueryRowxContext(ctx,
+		`SELECT w.id, w.slug, w.name FROM workspace w JOIN issue i ON i.workspace_id=w.id WHERE i.id=?`,
+		run.IssueID,
+	).Scan(&ws.ID, &ws.Slug, &ws.Name); err != nil {
+		return normalizeErr(err)
+	}
+	var issue struct {
+		ID         string `db:"id"`
+		Identifier string `db:"identifier"`
+		Title      string `db:"title"`
+		Status     string `db:"status"`
+	}
+	if err := tx.QueryRowxContext(ctx,
+		`SELECT id, identifier, title, status FROM issue WHERE id=?`,
+		run.IssueID,
+	).Scan(&issue.ID, &issue.Identifier, &issue.Title, &issue.Status); err != nil {
+		return normalizeErr(err)
+	}
+	payload := map[string]any{
+		"event":       eventType,
+		"occurred_at": occurredAt,
+		"workspace": map[string]any{
+			"id":   ws.ID,
+			"slug": ws.Slug,
+			"name": ws.Name,
+		},
+		"issue": map[string]any{
+			"id":         issue.ID,
+			"identifier": issue.Identifier,
+			"title":      issue.Title,
+			"status":     issue.Status,
+		},
+		"run": map[string]any{
+			"id":            run.ID,
+			"agent_id":      run.AgentID,
+			"agent_name":    run.AgentName,
+			"status":        runStatus,
+			"exit_code":     in.ExitCode,
+			"error_message": in.ErrorMessage,
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.EnqueueWebhookDeliveries(ctx, tx, ws.ID, eventType, body)
+	return err
 }
 
 func normalizeFinishRunInput(in FinishRunInput) (string, FinishRunInput) {
@@ -286,9 +364,11 @@ func emitRunFinishEventsTx(ctx context.Context, tx *sqlx.Tx, run Run, status str
 	return err
 }
 
-func maybeMarkIssueDoneTx(ctx context.Context, tx *sqlx.Tx, run Run, status string, autoChainQueued bool, updatedAt string) error {
+// maybeMarkIssueDoneTx returns markedDone=true when it actually flipped the
+// issue to 'done' so the caller can fan out an "issue.done" webhook delivery.
+func maybeMarkIssueDoneTx(ctx context.Context, tx *sqlx.Tx, run Run, status string, autoChainQueued bool, updatedAt string) (bool, error) {
 	if status != "done" || autoChainQueued {
-		return nil
+		return false, nil
 	}
 	// Respect workspace.auto_close_on_run_done. Multi-step collaboration
 	// workspaces (RFP-1 style) opt out so partial agent completion does not
@@ -296,15 +376,15 @@ func maybeMarkIssueDoneTx(ctx context.Context, tx *sqlx.Tx, run Run, status stri
 	var autoClose int
 	row := tx.QueryRowxContext(ctx, `SELECT COALESCE(w.auto_close_on_run_done, 1) FROM workspace w JOIN issue i ON i.workspace_id = w.id WHERE i.id = ?`, run.IssueID)
 	if err := row.Scan(&autoClose); err != nil {
-		return normalizeErr(err)
+		return false, normalizeErr(err)
 	}
 	if autoClose == 0 {
-		return nil
+		return false, nil
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE issue SET status='done', updated_at=? WHERE id=?`, updatedAt, run.IssueID); err != nil {
-		return normalizeErr(err)
+		return false, normalizeErr(err)
 	}
-	return nil
+	return true, nil
 }
 
 func emptyRunComment(status, errMsg string) string {
@@ -368,6 +448,13 @@ func (s *Store) FailInfrastructureRun(ctx context.Context, runID, terminalReason
 			"failure_kind":    failureKind,
 		},
 	}); err != nil {
+		return Run{}, err
+	}
+	// Infrastructure failures (worker prepare / claim / forced fail) take the
+	// fast path above without going through CompleteRunWithReason, so fan
+	// out the run.failed webhook here too so subscribers see the same set of
+	// terminal events regardless of which lifecycle path produced them.
+	if err := s.enqueueRunLifecycleWebhookTx(ctx, tx, run, "run.failed", "failed", FinishRunInput{ExitCode: 1, ErrorMessage: errMsg}, t); err != nil {
 		return Run{}, err
 	}
 	if err := tx.Commit(); err != nil {
