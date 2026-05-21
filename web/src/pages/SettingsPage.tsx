@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiAuth, apiClient } from '../api/client';
 import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPanel';
 import { PageHeader } from '../components/PageHeader';
+import { WorkspaceWebhookSection } from '../components/WorkspaceWebhookSection';
 import { WorkspaceSummary, useSettingsQuery, useUsageSummaryQuery, useWorkspacesQuery } from '../api/queries';
 
 function formatTokens(value?: number) {
@@ -109,6 +110,7 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
         {save.isPending ? '저장 중' : '저장'}
       </button>
       {save.isError && <p className="error-text">저장 실패: {save.error instanceof Error ? save.error.message : '알 수 없는 오류'}</p>}
+      <WorkspaceWebhookSection workspace={workspace} />
     </section>
   );
 }

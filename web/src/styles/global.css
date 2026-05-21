@@ -3290,3 +3290,133 @@ button.quick-action {
   border-color: color-mix(in oklab, var(--brand) 60%, var(--border));
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--brand) 22%, transparent);
 }
+
+/* ───────────────────────────── Workspace webhook section ───────────────────────────── */
+
+.webhook-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.webhook-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.webhook-section__form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.webhook-section__events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.webhook-section__event {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.field-label-text {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  margin-right: 0.35rem;
+}
+
+.webhook-section__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.webhook-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.webhook-row__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.webhook-row__url {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.webhook-row__events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.webhook-row__events code {
+  font-size: 0.7rem;
+  background: color-mix(in oklab, var(--muted-foreground) 14%, transparent);
+  padding: 0.05rem 0.32rem;
+  border-radius: 4px;
+}
+
+.webhook-row__deliveries ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+}
+
+.webhook-row__deliveries li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.webhook-delivery-status {
+  font-weight: 600;
+  font-size: 0.72rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+}
+
+.webhook-delivery-status[data-status="delivered"] {
+  background: color-mix(in oklab, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.webhook-delivery-status[data-status="failed"] {
+  background: color-mix(in oklab, var(--danger, var(--brand)) 16%, transparent);
+  color: color-mix(in oklab, var(--danger, var(--brand)) 80%, var(--foreground));
+}
+
+.webhook-delivery-status[data-status="pending"] {
+  background: color-mix(in oklab, var(--muted-foreground) 16%, transparent);
+  color: var(--muted-foreground);
+}

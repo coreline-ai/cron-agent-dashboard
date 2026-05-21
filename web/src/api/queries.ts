@@ -316,6 +316,49 @@ export function useAgentInstructionVersionsQuery(id: string | undefined) {
   });
 }
 
+export type Webhook = {
+  id: string;
+  workspace_id: string;
+  url: string;
+  has_secret: boolean;
+  events: string[];
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WebhookDelivery = {
+  id: string;
+  webhook_id: string;
+  event_type: string;
+  status: 'pending' | 'delivered' | 'failed';
+  status_code: number;
+  response_body?: string;
+  error_message?: string;
+  attempt: number;
+  next_attempt_at: string;
+  delivered_at?: string;
+  created_at: string;
+};
+
+export function useWorkspaceWebhooksQuery(slug: string | undefined) {
+  return useQuery({
+    enabled: Boolean(slug),
+    queryKey: ['webhooks', slug],
+    queryFn: async () => (await apiClient.get<{ webhooks: Webhook[] | null }>(`/workspaces/${slug}/webhooks`)).webhooks ?? []
+  });
+}
+
+export function useWebhookDeliveriesQuery(webhookID: string | undefined, limit = 5) {
+  return useQuery({
+    enabled: Boolean(webhookID),
+    queryKey: ['webhook-deliveries', webhookID, limit],
+    queryFn: async () =>
+      (await apiClient.get<{ deliveries: WebhookDelivery[] | null }>(`/webhooks/${webhookID}/deliveries?limit=${limit}`)).deliveries ?? [],
+    refetchInterval: 15_000
+  });
+}
+
 export function useWorkspaceSkillsQuery(slug: string | undefined) {
   return useQuery({
     queryKey: ['workspace-skills', slug],
