@@ -3270,3 +3270,23 @@ button.quick-action {
   padding: 0.05rem 0.32rem;
   border-radius: 4px;
 }
+
+.issue-flow-graph__legend {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+}
+
+.issue-flow-graph__legend code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  background: color-mix(in oklab, var(--muted-foreground) 14%, transparent);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}
+
+.flow-node.run-hub {
+  border-color: color-mix(in oklab, var(--brand) 60%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--brand) 22%, transparent);
+}

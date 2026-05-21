@@ -7,10 +7,15 @@ export type IssueFlowGraphProps = {
   issue: Issue;
   subIssues: Issue[];
   runs: Run[];
+  mainAgentName?: string;
 };
 
-export function IssueFlowGraph({ issue, subIssues, runs }: IssueFlowGraphProps) {
-  const graph = buildIssueFlowGraph(issue, subIssues, runs);
+export type BuildIssueFlowGraphOptions = {
+  mainAgentName?: string;
+};
+
+export function IssueFlowGraph({ issue, subIssues, runs, mainAgentName }: IssueFlowGraphProps) {
+  const graph = buildIssueFlowGraph(issue, subIssues, runs, { mainAgentName });
 
   if (graph.nodes.length <= 1) {
     return <p className="muted-copy">아직 그래프로 표시할 하위 이슈나 run chain이 없습니다.</p>;
@@ -18,6 +23,9 @@ export function IssueFlowGraph({ issue, subIssues, runs }: IssueFlowGraphProps) 
 
   return (
     <div className="issue-flow-graph" aria-label="이슈 흐름 그래프">
+      <p className="issue-flow-graph__legend">
+        run 노드의 <code>d=N</code>은 <code>chain_depth</code>입니다. main agent 재진입은 depth를 증가시키지 않으며 <code>max_depth</code> 가드에서도 제외됩니다.
+      </p>
       <ReactFlow
         nodes={graph.nodes}
         edges={graph.edges}
@@ -35,7 +43,17 @@ export function IssueFlowGraph({ issue, subIssues, runs }: IssueFlowGraphProps) 
   );
 }
 
-export function buildIssueFlowGraph(issue: Issue, subIssues: Issue[], runs: Run[]): { nodes: Node[]; edges: Edge[] } {
+function normalizeAgentName(name?: string): string {
+  return (name ?? '').trim().toLowerCase();
+}
+
+export function buildIssueFlowGraph(
+  issue: Issue,
+  subIssues: Issue[],
+  runs: Run[],
+  options?: BuildIssueFlowGraphOptions
+): { nodes: Node[]; edges: Edge[] } {
+  const mainAgentKey = normalizeAgentName(options?.mainAgentName);
   const nodes: Node[] = [
     graphNode(`issue-${issue.id}`, `${issue.identifier}\n${issue.title}`, 0, 0, 'issue')
   ];
@@ -53,8 +71,13 @@ export function buildIssueFlowGraph(issue: Issue, subIssues: Issue[], runs: Run[
     const id = `run-${run.id}`;
     const x = (index - (sortedRuns.length - 1) / 2) * 220;
     const y = subIssues.length > 0 ? 330 : 160;
-    const label = `@${run.agent_name || '-'}\n${run.status} · ${getTriggerLabel(run.trigger_type)}`;
-    nodes.push(graphNode(id, label, x, y, `run-${run.status}`));
+    const depth = typeof run.chain_depth === 'number' ? run.chain_depth : undefined;
+    const isHub = mainAgentKey !== '' && normalizeAgentName(run.agent_name) === mainAgentKey;
+    const depthSuffix = depth !== undefined ? ` · d=${depth}` : '';
+    const hubSuffix = isHub ? ' · hub' : '';
+    const label = `@${run.agent_name || '-'}${hubSuffix}\n${run.status} · ${getTriggerLabel(run.trigger_type)}${depthSuffix}`;
+    const kind = isHub ? `run-${run.status} run-hub` : `run-${run.status}`;
+    nodes.push(graphNode(id, label, x, y, kind));
     const parent = run.parent_run_id ? `run-${run.parent_run_id}` : `issue-${issue.id}`;
     edges.push(graphEdge(parent, id, `edge-run-${run.id}`));
   });

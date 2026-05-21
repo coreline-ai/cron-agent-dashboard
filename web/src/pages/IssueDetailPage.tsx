@@ -229,7 +229,14 @@ export function IssueDetailPage() {
                 <h2>흐름 그래프</h2>
                 <span className="badge">lineage</span>
               </div>
-              <Suspense fallback={<p className="muted-copy">그래프를 불러오는 중입니다.</p>}><IssueFlowGraph issue={issue.data} subIssues={subIssues.data ?? []} runs={runList} /></Suspense>
+              <Suspense fallback={<p className="muted-copy">그래프를 불러오는 중입니다.</p>}>
+                <IssueFlowGraph
+                  issue={issue.data}
+                  subIssues={subIssues.data ?? []}
+                  runs={runList}
+                  mainAgentName={(agents.data ?? []).find((agent) => agent.is_main)?.name}
+                />
+              </Suspense>
             </article>
           ) : null}
 
