@@ -3255,3 +3255,18 @@ button.quick-action {
   background: color-mix(in oklab, var(--warning, var(--brand)) 16%, transparent);
   color: color-mix(in oklab, var(--warning, var(--brand)) 80%, var(--foreground));
 }
+
+.form-helper {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.form-helper code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.78rem;
+  background: color-mix(in oklab, var(--muted-foreground) 14%, transparent);
+  padding: 0.05rem 0.32rem;
+  border-radius: 4px;
+}

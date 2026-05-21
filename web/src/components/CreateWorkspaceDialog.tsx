@@ -1,9 +1,10 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import type { WorkspaceSummary } from '../api/queries';
+import { useSettingsQuery, type WorkspaceSummary } from '../api/queries';
 import { ModelSelect } from './ModelSelect';
 import { Modal } from './Modal';
+import { RuntimeBadge } from './RuntimeBadge';
 
 type CreateWorkspaceResponse = {
   workspace: WorkspaceSummary;
@@ -22,11 +23,13 @@ const initialForm = {
   main_agent_name: 'Codex',
   runtime: 'codex',
   model: '',
-  instructions: '작업을 수행하고 결과를 한국어 markdown으로 요약하세요.'
+  instructions: '작업을 수행하고 결과를 한국어 markdown으로 요약하세요.',
+  auto_chain_enabled: false
 };
 
 export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorkspaceDialogProps) {
   const queryClient = useQueryClient();
+  const settings = useSettingsQuery();
   const [form, setForm] = useState(initialForm);
   const createWorkspace = useMutation({
     mutationFn: () =>
@@ -34,6 +37,7 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorksp
         name: form.name,
         slug: form.slug,
         identifier_prefix: form.identifier_prefix,
+        auto_chain_enabled: form.auto_chain_enabled,
         main_agent: {
           name: form.main_agent_name,
           runtime: form.runtime,
@@ -99,11 +103,14 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorksp
         </label>
         <label className="field-label">
           Runtime
-          <select value={form.runtime} onChange={(e) => setForm({ ...form, runtime: e.target.value })}>
-            <option value="codex">codex</option>
-            <option value="claude">claude</option>
-            <option value="gemini">gemini</option>
-          </select>
+          <div className="runtime-select-row">
+            <select value={form.runtime} onChange={(e) => setForm({ ...form, runtime: e.target.value })}>
+              <option value="codex">codex</option>
+              <option value="claude">claude</option>
+              <option value="gemini">gemini</option>
+            </select>
+            <RuntimeBadge runtime={form.runtime} runtimes={settings.data?.available_runtimes} />
+          </div>
         </label>
         <ModelSelect runtime={form.runtime} value={form.model} onChange={(model) => setForm({ ...form, model })} />
         <label className="field-label">
@@ -115,6 +122,17 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorksp
             required
           />
         </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={form.auto_chain_enabled}
+            onChange={(e) => setForm({ ...form, auto_chain_enabled: e.target.checked })}
+          />
+          agent 결과 @mention 자동 체이닝 허용
+        </label>
+        <p className="form-helper">
+          켜면 agent 결과 댓글의 첫 <code>@AgentName</code>이 자동으로 다음 run으로 dispatch됩니다. depth/24h run/24h cost/dry-run/main agent 재진입 면제 가드가 함께 적용됩니다. 기본값은 끔 — RFP·hub-PM 같이 한 이슈를 여러 agent가 순차 처리하는 워크플로우에 권장합니다. 사후에 Settings에서 변경할 수 있습니다.
+        </p>
         {createWorkspace.isError && <p className="error-text">워크스페이스 생성에 실패했습니다.</p>}
       </form>
     </Modal>
