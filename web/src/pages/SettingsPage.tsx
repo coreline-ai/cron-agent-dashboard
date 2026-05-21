@@ -41,6 +41,7 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
   const [autoChainDailyRunLimit, setAutoChainDailyRunLimit] = useState(String(workspace.auto_chain_daily_run_limit ?? 20));
   const [autoChainDailyCostDollars, setAutoChainDailyCostDollars] = useState(String(((workspace.auto_chain_daily_cost_micros ?? 0) / 1_000_000).toFixed(4)));
   const [autoChainDryRun, setAutoChainDryRun] = useState(Boolean(workspace.auto_chain_dry_run));
+  const [autoCloseOnRunDone, setAutoCloseOnRunDone] = useState(Boolean(workspace.auto_close_on_run_done));
   const save = useMutation({
     mutationFn: () =>
       apiClient.put(`/workspaces/${workspace.slug}`, {
@@ -53,7 +54,8 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
         auto_chain_max_depth: Number(autoChainMaxDepth) || 5,
         auto_chain_daily_run_limit: Number(autoChainDailyRunLimit) || 0,
         auto_chain_daily_cost_micros: Math.max(0, Math.round((Number(autoChainDailyCostDollars) || 0) * 1_000_000)),
-        auto_chain_dry_run: autoChainDryRun
+        auto_chain_dry_run: autoChainDryRun,
+        auto_close_on_run_done: autoCloseOnRunDone
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -70,6 +72,10 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
       <label className="field-label">
         기본 timeout (초)
         <input min="1" max="86400" type="number" value={timeoutSeconds} onChange={(e) => setTimeoutSeconds(e.target.value)} />
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={autoCloseOnRunDone} onChange={(e) => setAutoCloseOnRunDone(e.target.checked)} />
+        run 성공 시 이슈 자동 완료 처리
       </label>
       <label className="checkbox-row">
         <input type="checkbox" checked={autoChainEnabled} onChange={(e) => setAutoChainEnabled(e.target.checked)} />

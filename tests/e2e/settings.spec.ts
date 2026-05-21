@@ -95,4 +95,37 @@ test.describe('Phase 7 — Settings', () => {
     await page.getByRole('button', { name: 'Vacuum' }).click();
     await expect(page.locator('.settings-message', { hasText: 'Vacuum 완료' })).toBeVisible({ timeout: 15_000 });
   });
+
+  test('TC-7.7 — auto_close_on_run_done toggle persists via PUT', async ({ page, request }) => {
+    const fixture = await createWorkspaceFixture(request, { slugPrefix: 'set-autoclose' });
+
+    // Read the initial server value so we test against whatever the workspace
+    // factory chose as default (rather than hardcoding the assumption).
+    const before = await request.get(`/api/workspaces/${fixture.slug}`);
+    expect(before.ok()).toBeTruthy();
+    const initial = Boolean(((await before.json()).workspace ?? {}).auto_close_on_run_done);
+
+    await page.goto('/settings');
+    const row = page.locator('.setting-action', { hasText: fixture.slug });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+
+    const checkbox = row.getByLabel(/run 성공 시 이슈 자동 완료 처리/);
+    await expect(checkbox).toBeVisible();
+
+    const saveResponse = page.waitForResponse(
+      (resp) => resp.url().includes(`/api/workspaces/${fixture.slug}`) && resp.request().method() === 'PUT'
+    );
+    if (initial) {
+      await checkbox.uncheck();
+    } else {
+      await checkbox.check();
+    }
+    await row.getByRole('button', { name: '저장' }).click();
+    await saveResponse;
+
+    const after = await request.get(`/api/workspaces/${fixture.slug}`);
+    expect(after.ok()).toBeTruthy();
+    const value = Boolean(((await after.json()).workspace ?? {}).auto_close_on_run_done);
+    expect(value).toBe(!initial);
+  });
 });

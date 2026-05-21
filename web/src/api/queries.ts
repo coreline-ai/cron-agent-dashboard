@@ -15,6 +15,7 @@ export type WorkspaceSummary = {
   auto_chain_daily_run_limit?: number;
   auto_chain_daily_cost_micros?: number;
   auto_chain_dry_run?: boolean;
+  auto_close_on_run_done?: boolean;
   agent_count?: number;
   open_issue_count?: number;
 };
