@@ -338,3 +338,130 @@ func TestWorkerStoreRetriesTransientFailure(t *testing.T) {
 		t.Fatalf("retry should not be claimable before next_retry_at ok=%v err=%v", ok, err)
 	}
 }
+
+func TestWorkerStoreRecordsStrippedNoiseAsRunEvent(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "NoiseLog",
+		Slug:             "noise-log",
+		IdentifierPrefix: "NSL",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "noise"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWorkerStore(st).ClaimNextRun(ctx, "worker"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdoutPath := filepath.Join(t.TempDir(), "run.log")
+	if err := os.WriteFile(stdoutPath, []byte("MCP issues detected. Run /mcp list for status.\n\n# Result\nbody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewWorkerStore(st).FinishRun(ctx, run.ID, worker.ExecutionResult{
+		RunID:      run.ID,
+		Runtime:    "codex",
+		ExitCode:   0,
+		StdoutPath: stdoutPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	comments, err := st.ListComments(ctx, run.IssueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, c := range comments {
+		if c.AuthorType == "agent" && c.RunID == run.ID {
+			body = c.Content
+			break
+		}
+	}
+	if !strings.HasPrefix(body, "# Result") {
+		t.Fatalf("agent comment not sanitized; got=%q", body)
+	}
+
+	events, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sanitized *store.RunEvent
+	for i := range events {
+		if events[i].EventType == store.RunEventStdoutSanitized {
+			sanitized = &events[i]
+			break
+		}
+	}
+	if sanitized == nil {
+		t.Fatalf("no stdout_sanitized event recorded; events=%v", events)
+	}
+	if got := sanitized.Severity; got != store.RunEventSeverityInfo {
+		t.Fatalf("event severity=%q, want info", got)
+	}
+	if got, ok := sanitized.Details["runtime"].(string); !ok || got != "codex" {
+		t.Fatalf("event runtime=%v, want codex", sanitized.Details["runtime"])
+	}
+	count, _ := sanitized.Details["count"].(float64)
+	if int(count) != 1 {
+		t.Fatalf("event count=%v, want 1", sanitized.Details["count"])
+	}
+	stripped, ok := sanitized.Details["stripped"].([]any)
+	if !ok || len(stripped) != 1 {
+		t.Fatalf("event stripped=%v, want []string of len 1", sanitized.Details["stripped"])
+	}
+	if first, _ := stripped[0].(string); first != "MCP issues detected. Run /mcp list for status." {
+		t.Fatalf("stripped[0]=%v, want known MCP line", stripped[0])
+	}
+}
+
+func TestWorkerStoreSkipsRunEventWhenNoNoise(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
+		Name:             "Clean",
+		Slug:             "clean-log",
+		IdentifierPrefix: "CLN",
+		MainAgent:        store.CreateAgentInput{Name: "Runner", Runtime: "codex", Instructions: "run"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := st.CreateIssueWithInitialRun(ctx, ws.ID, store.CreateIssueInput{Title: "clean"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWorkerStore(st).ClaimNextRun(ctx, "worker"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdoutPath := filepath.Join(t.TempDir(), "run.log")
+	if err := os.WriteFile(stdoutPath, []byte("# Clean Result\nno noise here"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewWorkerStore(st).FinishRun(ctx, run.ID, worker.ExecutionResult{
+		RunID:      run.ID,
+		Runtime:    "codex",
+		ExitCode:   0,
+		StdoutPath: stdoutPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.EventType == store.RunEventStdoutSanitized {
+			t.Fatalf("did not expect stdout_sanitized event for clean output; got=%#v", e)
+		}
+	}
+}

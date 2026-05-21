@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,7 +119,22 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 		exitCode = 1
 	}
 
-	content, truncated := readRunComment(result.StdoutPath, "/api/runs/"+runID+"/log", result.Runtime)
+	content, truncated, strippedNoise := readRunComment(result.StdoutPath, "/api/runs/"+runID+"/log", result.Runtime)
+	if len(strippedNoise) > 0 {
+		if _, eventErr := ws.store.AppendRunEvent(ctx, store.RunEventInput{
+			RunID:     runID,
+			EventType: store.RunEventStdoutSanitized,
+			Severity:  store.RunEventSeverityInfo,
+			Message:   "Stripped runtime CLI diagnostic lines from stdout",
+			Details: map[string]any{
+				"runtime":  result.Runtime,
+				"stripped": strippedNoise,
+				"count":    len(strippedNoise),
+			},
+		}); eventErr != nil {
+			slog.Default().Warn("record stdout_sanitized run_event failed", "run_id", runID, "error", eventErr)
+		}
+	}
 	errMsg := executionErrorMessage(result, exitCode)
 	terminalReason, failureKind := classifyExecutionFailure(result, exitCode)
 	if exitCode != 0 || terminalReason != store.TerminalReasonCompleted {
@@ -215,16 +231,17 @@ func promptSkillSnippets(skills []store.PromptSkill) []worker.PromptSkillSnippet
 	return out
 }
 
-func readRunComment(stdoutPath, logURL, runtime string) (string, bool) {
+func readRunComment(stdoutPath, logURL, runtime string) (string, bool, []string) {
 	if stdoutPath == "" {
-		return "", false
+		return "", false, nil
 	}
 	data, err := os.ReadFile(stdoutPath)
 	if err != nil || len(data) == 0 {
-		return "", false
+		return "", false, nil
 	}
-	cleaned, _ := workerruntime.SanitizeStdout(runtime, string(data))
-	return worker.CapCommentForLogWithStatus(cleaned, logURL)
+	cleaned, stripped := workerruntime.SanitizeStdout(runtime, string(data))
+	capped, truncated := worker.CapCommentForLogWithStatus(cleaned, logURL)
+	return capped, truncated, stripped
 }
 
 func executionErrorMessage(result worker.ExecutionResult, exitCode int) string {

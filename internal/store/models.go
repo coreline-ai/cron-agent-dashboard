@@ -246,9 +246,10 @@ const (
 	RunEventCancelled     = "run_cancelled"
 	RunEventCompleted     = "run_completed"
 	RunEventFailed        = "run_failed"
-	RunEventOrphan        = "orphan_recovered"
-	RunEventStale         = "stale_recovered"
-	RunEventSkillsLoaded  = "skills_loaded"
+	RunEventOrphan          = "orphan_recovered"
+	RunEventStale           = "stale_recovered"
+	RunEventSkillsLoaded    = "skills_loaded"
+	RunEventStdoutSanitized = "stdout_sanitized"
 
 	RunEventSeverityDebug = "debug"
 	RunEventSeverityInfo  = "info"

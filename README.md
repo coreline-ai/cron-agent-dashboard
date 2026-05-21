@@ -51,10 +51,10 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 ```
 
 > [!IMPORTANT]
-> **이 프로젝트는 현재 v0.1 안정화 단계입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 13 파일 / httpapi 9 파일), **47개 REST route**, **16개 SQLite migration**, sentinel 에러 14종, panic cooldown, heartbeat 기반 stale 회수, gopsutil 기반 process 검증, react-error-boundary, @xyflow/react 흐름 그래프, Agent Skills registry, workspace opt-in auto-chain guard(main agent PM hub 재진입 허용)까지 적용된 상태입니다. 2026-05-20 기준 `go test ./...`, `go test -race ./...`, `go vet ./...`, `pnpm --filter web build`, `pnpm --filter web test`, `make e2e-smoke`, `govulncheck ./...`, `pnpm audit --prod`를 통과했습니다.
+> **이 프로젝트는 현재 v0.1 안정화 단계입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 13 파일 / httpapi 9 파일), **47개 REST route**, **17개 SQLite migration**, sentinel 에러 14종, panic cooldown, heartbeat 기반 stale 회수, startup self-check 시 gopsutil 기반 orphan process 검증(평시 stale scan은 heartbeat-only), react-error-boundary, @xyflow/react 흐름 그래프, Agent Skills registry, workspace opt-in auto-chain guard(main agent PM hub 재진입 허용)까지 적용된 상태입니다. 2026-05-20 기준 `go test ./...`, `go test -race ./...`, `go vet ./...`, `pnpm --filter web build`, `pnpm --filter web test`, `make e2e-smoke`, `govulncheck ./...`, `pnpm audit --prod`를 통과했습니다.
 
 > [!TIP]
-> **품질 지표 (2026-05-20 기준)** — Go production **8,824 LOC** · Web production **5,620 LOC** · 자동화 테스트/스펙 **50 파일 / 7,214 LOC**(Go test 30 · Vitest 8 · Playwright 12) · `go test -race ./...` clean (10 packages) · TypeScript strict · sentinel 에러 14종 · single-direction migration **16개**.
+> **품질 지표 (2026-05-20 기준)** — Go production **8,824 LOC** · Web production **5,620 LOC** · 자동화 테스트/스펙 **50 파일 / 7,214 LOC**(Go test 30 · Vitest 8 · Playwright 12) · `go test -race ./...` clean (10 packages) · TypeScript strict · sentinel 에러 14종 · single-direction migration **17개**.
 
 ### 🔎 코드 레벨 전문가 분석 요약 (2026-05-20)
 

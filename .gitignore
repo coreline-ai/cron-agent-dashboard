@@ -22,3 +22,6 @@ runs/
 
 # OS / editor
 .DS_Store
+
+# Local Claude Code extension state (per-session lock, scheduled tasks)
+.claude/
