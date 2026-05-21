@@ -2,8 +2,11 @@
 
 > 페이즈별 개발 계획
 > Version: 0.1
-> Date: 2026-05-12
-> Status: Local MVP integrated
+> Date: 2026-05-12 (초안) · 2026-05-21 (현재화)
+> Status: Local MVP integrated · v0.1 안정화 후 사이클은 [`TODO.md`](../TODO.md) **Backlog — Phase 2+** 와 [`CHANGELOG.md`](../CHANGELOG.md) `[Unreleased]` 섹션 참조
+
+> [!IMPORTANT]
+> 본 문서는 **v0.1 출시 전 계획** 기록입니다. MVP / P0~P3 phase는 모두 완료됐고 P4~P7도 본 사이클 기준으로 출시 가능 수준입니다. 이후 사이클(per-run worktree / import-export / webhook / attachment / Auto-chain UI 후속 등)은 `TODO.md`의 Backlog 섹션을 정공으로 보세요. 이 ROADMAP의 unchecked 박스 중 일부(예: Tailwind/shadcn 전환)는 의도적으로 단순 CSS skeleton을 유지하는 결정으로 대체됐습니다.
 
 ---
 
@@ -325,7 +328,7 @@ cron 기반 자동 이슈 생성.
 - [x] Playwright browser smoke (`make e2e-smoke`)
 - [x] clean clone quick start 검증 (`make verify-clean-clone`)
 - [x] GitHub Release artifact upload workflow
-- [ ] 데모 워크스페이스 seed 옵션 (`--seed example`)
+- [x] 데모 워크스페이스 seed 명령 (`cron-agent-dashboard seed` — `e220913`)
 - [ ] 첫 사용자 시나리오 영상 / 스크린샷
 
 ### 완료 기준
