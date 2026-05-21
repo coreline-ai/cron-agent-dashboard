@@ -7,6 +7,16 @@ import (
 	"strings"
 )
 
+// issueExecutionStatusExpr is the SQL fragment that derives the
+// `execution_status` column from the latest run state. It must stay in sync
+// with the AS execution_status projection in issueSelectBase below so the
+// expression can also be referenced from WHERE clauses (e.g. ListIssues'
+// execution filter).
+const issueExecutionStatusExpr = `COALESCE((SELECT status FROM run WHERE issue_id=i.id AND status='running' LIMIT 1),
+                (SELECT status FROM run WHERE issue_id=i.id AND status='queued' ORDER BY enqueued_at ASC LIMIT 1),
+                (SELECT status FROM run WHERE issue_id=i.id ORDER BY enqueued_at DESC LIMIT 1),
+                'idle')`
+
 const issueSelectBase = `
 SELECT i.id, i.workspace_id, i.identifier, i.title, i.body, i.status,
        COALESCE(i.assignee_agent_id, '') AS assignee_agent_id,
@@ -15,10 +25,7 @@ SELECT i.id, i.workspace_id, i.identifier, i.title, i.body, i.status,
        i.created_by,
        COALESCE(i.autopilot_rule_id, '') AS autopilot_rule_id,
        i.timeout_seconds_override,
-       COALESCE((SELECT status FROM run WHERE issue_id=i.id AND status='running' LIMIT 1),
-                (SELECT status FROM run WHERE issue_id=i.id AND status='queued' ORDER BY enqueued_at ASC LIMIT 1),
-                (SELECT status FROM run WHERE issue_id=i.id ORDER BY enqueued_at DESC LIMIT 1),
-                'idle') AS execution_status,
+       ` + issueExecutionStatusExpr + ` AS execution_status,
        COALESCE((SELECT agent_id FROM run WHERE issue_id=i.id ORDER BY enqueued_at DESC LIMIT 1), '') AS last_run_agent_id,
        COALESCE((SELECT a2.name FROM run r2 JOIN agent a2 ON a2.id=r2.agent_id WHERE r2.issue_id=i.id ORDER BY r2.enqueued_at DESC LIMIT 1), '') AS last_run_agent_name,
        (SELECT COUNT(*) FROM comment c WHERE c.issue_id=i.id) AS comment_count,
@@ -141,26 +148,19 @@ func (s *Store) ListIssues(ctx context.Context, workspaceID string, f ListIssues
 		like := "%" + f.Query + "%"
 		args = append(args, like, like, like)
 	}
+	if len(f.Execution) > 0 {
+		where = append(where, issueExecutionStatusExpr+` IN (`+placeholders(len(f.Execution))+`)`)
+		for _, v := range f.Execution {
+			args = append(args, v)
+		}
+	}
 	q := issueSelectBase + ` WHERE ` + strings.Join(where, " AND ") + ` ORDER BY i.created_at DESC LIMIT ?`
 	args = append(args, f.Limit)
 	var out []Issue
 	if err := s.db.SelectContext(ctx, &out, q, args...); err != nil {
 		return nil, normalizeErr(err)
 	}
-	if len(f.Execution) == 0 {
-		return out, nil
-	}
-	keep := make(map[string]bool, len(f.Execution))
-	for _, e := range f.Execution {
-		keep[e] = true
-	}
-	filtered := out[:0]
-	for _, iss := range out {
-		if keep[iss.ExecutionStatus] {
-			filtered = append(filtered, iss)
-		}
-	}
-	return filtered, nil
+	return out, nil
 }
 
 func (s *Store) GetIssue(ctx context.Context, id string) (Issue, error) {
