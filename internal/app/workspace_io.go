@@ -18,9 +18,11 @@ const WorkspaceExportFormatVersion = 1
 
 // WorkspaceExport is the JSON envelope for a single workspace's operational
 // configuration: workspace + agents + skills + agent skill assignments +
-// autopilot rules. Issues, runs, comments, and run_events are deliberately
-// out of scope for this format — those have a separate plan because their
-// data volume and PII surface need different masking policy.
+// autopilot rules. History (issues / runs / comments / attachment metadata)
+// is included only when the exporter is invoked with
+// ExportWorkspaceOptions.IncludeHistory; the importer silently ignores those
+// fields so v1 and v2 payloads remain compatible without bumping
+// FormatVersion.
 type WorkspaceExport struct {
 	FormatVersion int                          `json:"format_version"`
 	ExportedAt    string                       `json:"exported_at"`
@@ -29,6 +31,14 @@ type WorkspaceExport struct {
 	Skills        []WorkspaceExportSkill       `json:"skills,omitempty"`
 	AgentSkills   []WorkspaceExportAgentSkill  `json:"agent_skills,omitempty"`
 	Autopilot     []WorkspaceExportAutopilot   `json:"autopilot_rules,omitempty"`
+
+	// History payload. Present only when ExportWorkspaceOptions.IncludeHistory
+	// is true. Importers ignore these fields today; they exist so operators
+	// can archive a complete workspace snapshot for compliance / migration.
+	Issues      []WorkspaceExportIssue      `json:"issues,omitempty"`
+	Comments    []WorkspaceExportComment    `json:"comments,omitempty"`
+	Runs        []WorkspaceExportRun        `json:"runs,omitempty"`
+	Attachments []WorkspaceExportAttachment `json:"attachments,omitempty"`
 }
 
 // WorkspaceExportWorkspace mirrors the operational settings on a workspace.
@@ -96,9 +106,85 @@ type WorkspaceExportAutopilot struct {
 	Enabled            bool   `json:"enabled"`
 }
 
+// WorkspaceExportIssue is a frozen historical snapshot of a single issue.
+// Fields are flattened (no nested runs/comments) so each slice in
+// WorkspaceExport can be inspected independently and so very large workspaces
+// stream cleanly when written to disk.
+type WorkspaceExportIssue struct {
+	Identifier        string `json:"identifier"`
+	Title             string `json:"title"`
+	Body              string `json:"body,omitempty"`
+	Status            string `json:"status"`
+	ExecutionStatus   string `json:"execution_status"`
+	AssigneeAgentName string `json:"assignee_agent_name,omitempty"`
+	CreatedBy         string `json:"created_by,omitempty"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at,omitempty"`
+}
+
+// WorkspaceExportComment carries the comment thread for an issue. IssueIdentifier
+// is the foreign key field exports use to relate rows because Issue.ID values
+// would not survive an import into a different database.
+type WorkspaceExportComment struct {
+	IssueIdentifier string `json:"issue_identifier"`
+	AuthorType      string `json:"author_type"`
+	AuthorAgentName string `json:"author_agent_name,omitempty"`
+	Content         string `json:"content"`
+	Truncated       bool   `json:"truncated,omitempty"`
+	CreatedAt       string `json:"created_at"`
+}
+
+// WorkspaceExportRun captures the operational metadata of a finished or
+// queued run. stdout file paths are NOT exported (they are local-disk only);
+// callers who need the log payload should archive the run log directory
+// separately.
+type WorkspaceExportRun struct {
+	IssueIdentifier string `json:"issue_identifier"`
+	AgentName       string `json:"agent_name,omitempty"`
+	Status          string `json:"status"`
+	TriggerType     string `json:"trigger_type,omitempty"`
+	ChainID         string `json:"chain_id,omitempty"`
+	ChainDepth      int    `json:"chain_depth,omitempty"`
+	EnqueuedAt      string `json:"enqueued_at,omitempty"`
+	StartedAt       string `json:"started_at,omitempty"`
+	FinishedAt      string `json:"finished_at,omitempty"`
+	ModelResolved   string `json:"model_resolved,omitempty"`
+	InputTokens     int64  `json:"input_tokens,omitempty"`
+	OutputTokens    int64  `json:"output_tokens,omitempty"`
+	TotalCostMicros int64  `json:"total_cost_micros,omitempty"`
+	TerminalReason  string `json:"terminal_reason,omitempty"`
+	FailureKind     string `json:"failure_kind,omitempty"`
+	ErrorMessage    string `json:"error_message,omitempty"`
+}
+
+// WorkspaceExportAttachment carries metadata only — binary content is omitted
+// (a separate bundling format will handle that). Operators who archive the
+// run logs / attachments directory alongside the JSON export can recombine the
+// payload by `filename` at restore time.
+type WorkspaceExportAttachment struct {
+	IssueIdentifier string `json:"issue_identifier"`
+	Filename        string `json:"filename"`
+	MIMEType        string `json:"mime_type,omitempty"`
+	SizeBytes       int64  `json:"size_bytes,omitempty"`
+	CreatedAt       string `json:"created_at"`
+}
+
+// ExportWorkspaceOptions controls v2-style history export and PII masking.
+type ExportWorkspaceOptions struct {
+	IncludeHistory bool
+	MaskPII        bool
+}
+
 // ExportWorkspace gathers the operational configuration for a single
-// workspace into a portable WorkspaceExport snapshot.
+// workspace. History (issues/runs/comments/attachments) is excluded; use
+// ExportWorkspaceWithOptions for v2-style snapshots.
 func ExportWorkspace(ctx context.Context, st *store.Store, slug string) (WorkspaceExport, error) {
+	return ExportWorkspaceWithOptions(ctx, st, slug, ExportWorkspaceOptions{})
+}
+
+// ExportWorkspaceWithOptions is the v2 entry point: caller chooses whether
+// to include history and whether to mask PII in user-visible text fields.
+func ExportWorkspaceWithOptions(ctx context.Context, st *store.Store, slug string, opts ExportWorkspaceOptions) (WorkspaceExport, error) {
 	if st == nil {
 		return WorkspaceExport{}, errors.New("export: store is nil")
 	}
@@ -193,7 +279,7 @@ func ExportWorkspace(ctx context.Context, st *store.Store, slug string) (Workspa
 		})
 	}
 
-	return WorkspaceExport{
+	out := WorkspaceExport{
 		FormatVersion: WorkspaceExportFormatVersion,
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339Nano),
 		Workspace: WorkspaceExportWorkspace{
@@ -215,7 +301,98 @@ func ExportWorkspace(ctx context.Context, st *store.Store, slug string) (Workspa
 		Skills:      exportSkills,
 		AgentSkills: exportAgentSkills,
 		Autopilot:   exportRules,
-	}, nil
+	}
+
+	if opts.IncludeHistory {
+		if err := appendWorkspaceHistory(ctx, st, ws.ID, agentByID, opts.MaskPII, &out); err != nil {
+			return WorkspaceExport{}, err
+		}
+	}
+
+	return out, nil
+}
+
+// appendWorkspaceHistory walks every issue under the workspace and populates
+// the v2 history fields. PII masking, if requested, is applied to user-visible
+// text fields (issue title/body, comment content, run trigger_content_snapshot
+// / error_message) using maskPII.
+func appendWorkspaceHistory(ctx context.Context, st *store.Store, workspaceID string, agentByID map[string]string, mask bool, out *WorkspaceExport) error {
+	issues, err := st.ListIssues(ctx, workspaceID, store.ListIssuesFilter{Limit: 1_000_000})
+	if err != nil {
+		return fmt.Errorf("export: list issues: %w", err)
+	}
+	for _, issue := range issues {
+		out.Issues = append(out.Issues, WorkspaceExportIssue{
+			Identifier:        issue.Identifier,
+			Title:             maybeMaskPII(issue.Title, mask),
+			Body:              maybeMaskPII(issue.Body, mask),
+			Status:            issue.Status,
+			ExecutionStatus:   issue.ExecutionStatus,
+			AssigneeAgentName: issue.AssigneeAgentName,
+			CreatedBy:         issue.CreatedBy,
+			CreatedAt:         issue.CreatedAt,
+			UpdatedAt:         issue.UpdatedAt,
+		})
+
+		comments, err := st.ListComments(ctx, issue.ID)
+		if err != nil {
+			return fmt.Errorf("export: list comments for %s: %w", issue.Identifier, err)
+		}
+		for _, c := range comments {
+			out.Comments = append(out.Comments, WorkspaceExportComment{
+				IssueIdentifier: issue.Identifier,
+				AuthorType:      c.AuthorType,
+				AuthorAgentName: c.AuthorAgentName,
+				Content:         maybeMaskPII(c.Content, mask),
+				Truncated:       c.Truncated,
+				CreatedAt:       c.CreatedAt,
+			})
+		}
+
+		runs, err := st.ListRuns(ctx, issue.ID)
+		if err != nil {
+			return fmt.Errorf("export: list runs for %s: %w", issue.Identifier, err)
+		}
+		for _, r := range runs {
+			out.Runs = append(out.Runs, WorkspaceExportRun{
+				IssueIdentifier: issue.Identifier,
+				AgentName:       r.AgentName,
+				Status:          r.Status,
+				TriggerType:     r.TriggerType,
+				ChainID:         r.ChainID,
+				ChainDepth:      r.ChainDepth,
+				EnqueuedAt:      r.EnqueuedAt,
+				StartedAt:       r.StartedAt,
+				FinishedAt:      r.FinishedAt,
+				ModelResolved:   r.ModelResolved,
+				InputTokens:     r.InputTokens,
+				OutputTokens:    r.OutputTokens,
+				TotalCostMicros: r.TotalCostMicros,
+				TerminalReason:  r.TerminalReason,
+				FailureKind:     r.FailureKind,
+				ErrorMessage:    maybeMaskPII(r.ErrorMessage, mask),
+			})
+		}
+
+		attachments, err := st.ListAttachments(ctx, issue.ID)
+		if err != nil {
+			return fmt.Errorf("export: list attachments for %s: %w", issue.Identifier, err)
+		}
+		for _, a := range attachments {
+			out.Attachments = append(out.Attachments, WorkspaceExportAttachment{
+				IssueIdentifier: issue.Identifier,
+				Filename:        a.Filename,
+				MIMEType:        a.ContentType,
+				SizeBytes:       a.SizeBytes,
+				CreatedAt:       a.CreatedAt,
+			})
+		}
+	}
+	// agentByID is reserved for future fields that need agent renaming
+	// (e.g. mention rewriting); keep it in the signature so callers do not
+	// reload the agent list when that lands.
+	_ = agentByID
+	return nil
 }
 
 // ImportOptions controls how an incoming WorkspaceExport is applied. DestSlug

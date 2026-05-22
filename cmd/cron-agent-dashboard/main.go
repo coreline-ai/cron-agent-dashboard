@@ -98,7 +98,10 @@ func workspaceExportCmd(cfg config.Config, st *store.Store) error {
 	if cfg.BackupTo == "" {
 		return fmt.Errorf("workspace-export: --to <file.json> is required")
 	}
-	export, err := app.ExportWorkspace(context.Background(), st, cfg.WorkspaceSlug)
+	export, err := app.ExportWorkspaceWithOptions(context.Background(), st, cfg.WorkspaceSlug, app.ExportWorkspaceOptions{
+		IncludeHistory: cfg.WorkspaceExportIncludeHistory,
+		MaskPII:        cfg.WorkspaceExportMaskPII,
+	})
 	if err != nil {
 		return err
 	}
@@ -109,9 +112,10 @@ func workspaceExportCmd(cfg config.Config, st *store.Store) error {
 	if err := os.WriteFile(cfg.BackupTo, data, 0o600); err != nil {
 		return fmt.Errorf("workspace-export: write %s: %w", cfg.BackupTo, err)
 	}
-	fmt.Printf("workspace %q exported to %s (%d agents, %d skills, %d autopilot rules)\n",
+	fmt.Printf("workspace %q exported to %s (%d agents, %d skills, %d autopilot rules, %d issues, %d comments, %d runs, %d attachments)\n",
 		export.Workspace.Slug, cfg.BackupTo,
 		len(export.Agents), len(export.Skills), len(export.Autopilot),
+		len(export.Issues), len(export.Comments), len(export.Runs), len(export.Attachments),
 	)
 	return nil
 }

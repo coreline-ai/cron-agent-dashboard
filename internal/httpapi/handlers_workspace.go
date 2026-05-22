@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/coreline-ai/cron-agent-dashboard/internal/app"
 	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -39,6 +41,7 @@ func (s *Server) registerWorkspaceRoutes(api chi.Router) {
 	api.Get("/api/workspaces/{workspace}", s.getWorkspace)
 	api.Put("/api/workspaces/{workspace}", s.updateWorkspace)
 	api.Delete("/api/workspaces/{workspace}", s.deleteWorkspace)
+	api.Get("/api/workspaces/{workspace}/export", s.exportWorkspace)
 }
 
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -96,4 +99,37 @@ func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "workspace")
 	err := s.store.DeleteWorkspace(r.Context(), id)
 	respond(w, map[string]any{"deleted": true, "id": id}, err, http.StatusOK)
+}
+
+// exportWorkspace streams the v2 JSON snapshot. `include_history=1` includes
+// the issue/run/comment/attachment slices; `mask_pii=1` redacts email and
+// phone fragments before writing them out. The response is streamed with a
+// Content-Disposition attachment header so operators can save it directly
+// from the browser.
+func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "workspace")
+	opts := app.ExportWorkspaceOptions{
+		IncludeHistory: parseBool(r.URL.Query().Get("include_history")),
+		MaskPII:        parseBool(r.URL.Query().Get("mask_pii")),
+	}
+	export, err := app.ExportWorkspaceWithOptions(r.Context(), s.store, slug, opts)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	filename := slug + ".workspace.json"
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(export)
+}
+
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }

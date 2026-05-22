@@ -31,6 +31,8 @@ type Config struct {
 	RestoreFrom                      string        `json:"-"`
 	WorkspaceSlug                    string        `json:"-"`
 	WorkspaceDestSlug                string        `json:"-"`
+	WorkspaceExportIncludeHistory    bool          `json:"-"`
+	WorkspaceExportMaskPII           bool          `json:"-"`
 	AllowArbitraryBackupPaths        bool          `json:"allow_arbitrary_backup_paths"`
 	AutoBackup                       bool          `json:"auto_backup"`
 	AutoBackupKeep                   int           `json:"auto_backup_keep"`
@@ -82,6 +84,8 @@ func Load(args []string) (Config, []string, error) {
 	fs.StringVar(&cfg.RestoreFrom, "from", cfg.RestoreFrom, "restore source path (also used by workspace-import)")
 	fs.StringVar(&cfg.WorkspaceSlug, "workspace", cfg.WorkspaceSlug, "workspace slug for workspace-export / workspace-import")
 	fs.StringVar(&cfg.WorkspaceDestSlug, "dest-slug", cfg.WorkspaceDestSlug, "destination workspace slug for workspace-import (defaults to the slug in the export)")
+	fs.BoolVar(&cfg.WorkspaceExportIncludeHistory, "include-history", cfg.WorkspaceExportIncludeHistory, "include issue/comment/run/attachment history in workspace-export")
+	fs.BoolVar(&cfg.WorkspaceExportMaskPII, "mask-pii", cfg.WorkspaceExportMaskPII, "mask email/phone fragments in workspace-export history")
 	fs.BoolVar(&cfg.AllowArbitraryBackupPaths, "allow-arbitrary-backup-paths", cfg.AllowArbitraryBackupPaths, "allow HTTP backup API destinations outside data-dir/backups")
 	fs.BoolVar(&cfg.AutoBackup, "auto-backup", cfg.AutoBackup, "enable automatic daily SQLite backups")
 	fs.IntVar(&cfg.AutoBackupKeep, "auto-backup-keep", cfg.AutoBackupKeep, "number of automatic backups to keep")
