@@ -1,8 +1,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import type { Run } from '../api/queries';
+import type { Run, WorkspaceSummary } from '../api/queries';
 import { summarizeChains, type ChainSummary } from '../lib/chainSummary';
 import { StatusPill } from './StatusPill';
+
+type GuardStatus = 'ok' | 'warn' | 'over';
+
+function classifyGuard(used: number, limit?: number, warnAt = 0.75): GuardStatus {
+  if (!limit || limit <= 0) return 'ok';
+  const ratio = used / limit;
+  if (ratio >= 1) return 'over';
+  if (ratio >= warnAt) return 'warn';
+  return 'ok';
+}
 
 function formatCostMicros(value: number): string {
   if (!value) return '$0.0000';
@@ -20,7 +30,15 @@ function shortDate(value?: string): string {
   return value.slice(0, 19).replace('T', ' ');
 }
 
-export function ChainSummaryPanel({ runs, issueID }: { runs: Run[]; issueID?: string }) {
+export function ChainSummaryPanel({
+  runs,
+  issueID,
+  workspace
+}: {
+  runs: Run[];
+  issueID?: string;
+  workspace?: WorkspaceSummary;
+}) {
   if (!runs.length) {
     return null;
   }
@@ -41,7 +59,7 @@ export function ChainSummaryPanel({ runs, issueID }: { runs: Run[]; issueID?: st
       <ul className="chain-summary-list">
         {summaries.map((s) => (
           <li key={s.chainID}>
-            <ChainSummaryRow summary={s} issueID={issueID} />
+            <ChainSummaryRow summary={s} issueID={issueID} workspace={workspace} />
           </li>
         ))}
       </ul>
@@ -49,7 +67,15 @@ export function ChainSummaryPanel({ runs, issueID }: { runs: Run[]; issueID?: st
   );
 }
 
-function ChainSummaryRow({ summary, issueID }: { summary: ChainSummary; issueID?: string }) {
+function ChainSummaryRow({
+  summary,
+  issueID,
+  workspace
+}: {
+  summary: ChainSummary;
+  issueID?: string;
+  workspace?: WorkspaceSummary;
+}) {
   const queryClient = useQueryClient();
   const cancelChain = useMutation({
     mutationFn: () => apiClient.post(`/runs/chain/${summary.chainID}/cancel`, {}),
@@ -63,8 +89,12 @@ function ChainSummaryRow({ summary, issueID }: { summary: ChainSummary; issueID?
   });
   const isCancellable =
     summary.lastStatus === 'queued' || summary.lastStatus === 'running';
+  const depthLimit = workspace?.auto_chain_max_depth;
+  const costLimitMicros = workspace?.auto_chain_daily_cost_micros;
+  const depthGuard = classifyGuard(summary.maxChainDepth, depthLimit);
+  const costGuard = classifyGuard(summary.totalCostMicros, costLimitMicros);
   return (
-    <div className="chain-summary-row">
+    <div className="chain-summary-row" data-guard={depthGuard === 'over' || costGuard === 'over' ? 'over' : depthGuard === 'warn' || costGuard === 'warn' ? 'warn' : 'ok'}>
       <div className="chain-summary-row__head">
         <code className="chain-summary-row__id">chain {summary.chainID.slice(0, 8)}</code>
         {summary.lastStatus ? <StatusPill kind="run" status={summary.lastStatus as never} /> : null}
@@ -89,9 +119,14 @@ function ChainSummaryRow({ summary, issueID }: { summary: ChainSummary; issueID?
           <dt>run</dt>
           <dd>{summary.totalRuns}</dd>
         </div>
-        <div>
-          <dt>max depth</dt>
-          <dd>{summary.maxChainDepth}</dd>
+        <div data-guard={depthGuard}>
+          <dt>max depth{depthLimit ? ` / ${depthLimit}` : ''}</dt>
+          <dd>
+            {summary.maxChainDepth}
+            {depthLimit && depthGuard !== 'ok' ? (
+              <span className="muted-copy"> ({depthGuard === 'over' ? '한도 초과' : '한도 근접'})</span>
+            ) : null}
+          </dd>
         </div>
         <div>
           <dt>token (in / out)</dt>
@@ -99,9 +134,14 @@ function ChainSummaryRow({ summary, issueID }: { summary: ChainSummary; issueID?
             {formatTokens(summary.totalInputTokens)} / {formatTokens(summary.totalOutputTokens)}
           </dd>
         </div>
-        <div>
-          <dt>cost</dt>
-          <dd>{formatCostMicros(summary.totalCostMicros)}</dd>
+        <div data-guard={costGuard}>
+          <dt>cost{costLimitMicros ? ` / ${formatCostMicros(costLimitMicros)}/일` : ''}</dt>
+          <dd>
+            {formatCostMicros(summary.totalCostMicros)}
+            {costLimitMicros && costGuard !== 'ok' ? (
+              <span className="muted-copy"> ({costGuard === 'over' ? '한도 초과' : '한도 근접'})</span>
+            ) : null}
+          </dd>
         </div>
         <div>
           <dt>시작</dt>

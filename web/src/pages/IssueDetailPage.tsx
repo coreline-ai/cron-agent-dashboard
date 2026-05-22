@@ -2,7 +2,7 @@ import { FormEvent, Suspense, lazy, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useSubIssuesQuery, useWorkspaceIssueQuery } from '../api/queries';
+import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useSubIssuesQuery, useWorkspaceIssueQuery, useWorkspaceQuery } from '../api/queries';
 import type { Comment, IssueStatus, Run, RunEvent } from '../api/queries';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DateTimeText } from '../components/DateTimeText';
@@ -40,6 +40,7 @@ type CommentResponse = {
 export function IssueDetailPage() {
   const { identifier, slug } = useParams();
   const issue = useWorkspaceIssueQuery(slug, identifier);
+  const workspace = useWorkspaceQuery(slug);
   const comments = useCommentsQuery(issue.data?.id, issue.data?.execution_status);
   const runs = useRunsQuery(issue.data?.id, issue.data?.execution_status);
   const subIssues = useSubIssuesQuery(issue.data?.id);
@@ -242,7 +243,7 @@ export function IssueDetailPage() {
             </article>
           ) : null}
 
-          <ChainSummaryPanel runs={runList} issueID={issue.data?.id} />
+          <ChainSummaryPanel runs={runList} issueID={issue.data?.id} workspace={workspace.data} />
 
           {issue.data ? <IssueAttachmentsPanel issueID={issue.data.id} /> : null}
 

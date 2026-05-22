@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ChainSummaryPanel } from './ChainSummaryPanel';
 import { apiClient } from '../api/client';
-import type { Run } from '../api/queries';
+import type { Run, WorkspaceSummary } from '../api/queries';
 
 function renderWithClient(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -42,10 +42,41 @@ const completedRun: Run = {
   chain_id: 'chain-different'
 };
 
+const workspaceWithGuards: WorkspaceSummary = {
+  id: 'ws-1',
+  slug: 'demo',
+  name: 'Demo',
+  description: '',
+  identifier_prefix: 'D',
+  auto_chain_max_depth: 5,
+  auto_chain_daily_cost_micros: 10_000_000
+};
+
 describe('ChainSummaryPanel', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('marks the row data-guard=warn when chain depth crosses 75% of the limit', () => {
+    const nearLimit: Run = { ...queuedRun, chain_depth: 4 } as Run;
+    const { container } = renderWithClient(
+      <ChainSummaryPanel runs={[nearLimit]} issueID="issue-1" workspace={workspaceWithGuards} />
+    );
+    const row = container.querySelector('.chain-summary-row');
+    expect(row?.getAttribute('data-guard')).toBe('warn');
+  });
+
+  it('marks the row data-guard=over when chain cost crosses the daily limit', () => {
+    const overCost: Run = {
+      ...queuedRun,
+      total_cost_micros: 15_000_000
+    } as Run;
+    const { container } = renderWithClient(
+      <ChainSummaryPanel runs={[overCost]} issueID="issue-1" workspace={workspaceWithGuards} />
+    );
+    const row = container.querySelector('.chain-summary-row');
+    expect(row?.getAttribute('data-guard')).toBe('over');
   });
 
   it('shows a 체인 취소 button when the chain has a queued or running last run', () => {

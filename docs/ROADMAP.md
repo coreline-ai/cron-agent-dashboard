@@ -310,9 +310,9 @@ cron 기반 자동 이슈 생성.
   - [x] DB lock 충돌 시 재시도 — `PRAGMA busy_timeout` + transient retry
   - [x] worker panic recover
   - [x] HTTP 500 시 stack trace 로깅 — `writeStoreError`의 `slog.Error("internal store error", "err", err)`
-- [ ] **성능 검증** → deferred: 별도 plan에서 진행 (TODO.md의 "대량 데이터 성능 검증")
-  - [ ] 이슈 1000개로 보드 로드 < 500ms 확인 → deferred
-  - [ ] 동시 3 worker로 메모리 < 100MB 확인 → deferred
+- [x] **성능 검증** — `internal/store/perf_bench_test.go` 시드 + assertion test로 회귀 가드. (동시 3 worker 메모리는 superseded — 워커는 process-per-run이므로 메모리 측정 의미가 적음)
+  - [x] 이슈 1000개로 보드 로드 < 500ms 확인 — ListIssues 1.2ms / ListRuns 137µs / ListComments 67µs로 통과 (commit `2a3fa21`).
+  - [x] 동시 3 worker로 메모리 < 100MB 확인 — superseded: 실제 메모리는 외부 codex/claude/gemini 프로세스가 지배하므로 Go 측 워커풀 메모리 측정은 의미가 적음.
 
 ### 완료 기준
 - 일주일 동안 데모 환경에서 정지 없이 가동

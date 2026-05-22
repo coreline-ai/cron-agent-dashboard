@@ -3516,3 +3516,21 @@ button.quick-action {
   font-size: 0.82rem;
   font-weight: 600;
 }
+
+.chain-summary-row[data-guard='warn'] {
+  border-left: 2px solid #d4a017;
+  padding-left: 0.55rem;
+}
+
+.chain-summary-row[data-guard='over'] {
+  border-left: 2px solid #c0392b;
+  padding-left: 0.55rem;
+}
+
+.chain-summary-row__stats div[data-guard='warn'] dd {
+  color: #d4a017;
+}
+
+.chain-summary-row__stats div[data-guard='over'] dd {
+  color: #c0392b;
+}
