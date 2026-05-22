@@ -312,6 +312,21 @@ func (s *Store) MarkWebhookDeliveryFailure(ctx context.Context, id string, statu
 	return normalizeErr(err)
 }
 
+// CountWebhookDeliveryFailed returns the number of terminally-failed
+// (dead-letter) deliveries for a webhook. The Settings UI shows this as a
+// badge so operators can spot a subscription that consistently 5xx-s its
+// receiver.
+func (s *Store) CountWebhookDeliveryFailed(ctx context.Context, webhookID string) (int, error) {
+	if strings.TrimSpace(webhookID) == "" {
+		return 0, ErrValidation
+	}
+	var n int
+	if err := s.db.GetContext(ctx, &n, `SELECT COUNT(*) FROM webhook_delivery WHERE webhook_id=? AND status='failed'`, webhookID); err != nil {
+		return 0, normalizeErr(err)
+	}
+	return n, nil
+}
+
 func capWebhookResponseBody(body string) string {
 	const max = 2048
 	if len(body) <= max {

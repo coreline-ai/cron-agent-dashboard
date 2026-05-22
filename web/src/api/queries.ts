@@ -348,6 +348,7 @@ export type Webhook = {
   events: string[];
   enabled: boolean;
   mask_pii: boolean;
+  failed_delivery_count: number;
   created_at: string;
   updated_at: string;
 };

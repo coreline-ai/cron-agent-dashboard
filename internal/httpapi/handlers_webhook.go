@@ -14,37 +14,31 @@ import (
 // clients. PUT callers must supply the secret again to keep it; sending an
 // empty string clears it.
 type webhookView struct {
-	ID          string   `json:"id"`
-	WorkspaceID string   `json:"workspace_id"`
-	URL         string   `json:"url"`
-	HasSecret   bool     `json:"has_secret"`
-	Events      []string `json:"events"`
-	Enabled     bool     `json:"enabled"`
-	MaskPII     bool     `json:"mask_pii"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
+	ID                   string   `json:"id"`
+	WorkspaceID          string   `json:"workspace_id"`
+	URL                  string   `json:"url"`
+	HasSecret            bool     `json:"has_secret"`
+	Events               []string `json:"events"`
+	Enabled              bool     `json:"enabled"`
+	MaskPII              bool     `json:"mask_pii"`
+	FailedDeliveryCount  int      `json:"failed_delivery_count"`
+	CreatedAt            string   `json:"created_at"`
+	UpdatedAt            string   `json:"updated_at"`
 }
 
-func newWebhookView(w store.Webhook) webhookView {
+func newWebhookView(w store.Webhook, failed int) webhookView {
 	return webhookView{
-		ID:          w.ID,
-		WorkspaceID: w.WorkspaceID,
-		URL:         w.URL,
-		HasSecret:   w.Secret != "",
-		Events:      w.Events,
-		Enabled:     w.Enabled,
-		MaskPII:     w.MaskPII,
-		CreatedAt:   w.CreatedAt,
-		UpdatedAt:   w.UpdatedAt,
+		ID:                  w.ID,
+		WorkspaceID:         w.WorkspaceID,
+		URL:                 w.URL,
+		HasSecret:           w.Secret != "",
+		Events:              w.Events,
+		Enabled:             w.Enabled,
+		MaskPII:             w.MaskPII,
+		FailedDeliveryCount: failed,
+		CreatedAt:           w.CreatedAt,
+		UpdatedAt:           w.UpdatedAt,
 	}
-}
-
-func newWebhookViewList(in []store.Webhook) []webhookView {
-	out := make([]webhookView, 0, len(in))
-	for _, w := range in {
-		out = append(out, newWebhookView(w))
-	}
-	return out
 }
 
 func (s *Server) registerWebhookRoutes(api chi.Router) {
@@ -67,7 +61,12 @@ func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
-	respond(w, map[string]any{"webhooks": newWebhookViewList(hooks)}, nil, http.StatusOK)
+	out := make([]webhookView, 0, len(hooks))
+	for _, h := range hooks {
+		failed, _ := s.store.CountWebhookDeliveryFailed(r.Context(), h.ID)
+		out = append(out, newWebhookView(h, failed))
+	}
+	respond(w, map[string]any{"webhooks": out}, nil, http.StatusOK)
 }
 
 func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +84,8 @@ func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
-	respond(w, map[string]any{"webhook": newWebhookView(hook)}, nil, http.StatusCreated)
+	failed, _ := s.store.CountWebhookDeliveryFailed(r.Context(), hook.ID)
+	respond(w, map[string]any{"webhook": newWebhookView(hook, failed)}, nil, http.StatusCreated)
 }
 
 func (s *Server) getWebhook(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +94,8 @@ func (s *Server) getWebhook(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
-	respond(w, map[string]any{"webhook": newWebhookView(hook)}, nil, http.StatusOK)
+	failed, _ := s.store.CountWebhookDeliveryFailed(r.Context(), hook.ID)
+	respond(w, map[string]any{"webhook": newWebhookView(hook, failed)}, nil, http.StatusOK)
 }
 
 func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +108,8 @@ func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
-	respond(w, map[string]any{"webhook": newWebhookView(hook)}, nil, http.StatusOK)
+	failed, _ := s.store.CountWebhookDeliveryFailed(r.Context(), hook.ID)
+	respond(w, map[string]any{"webhook": newWebhookView(hook, failed)}, nil, http.StatusOK)
 }
 
 func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request) {

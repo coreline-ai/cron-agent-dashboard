@@ -43,6 +43,7 @@ describe('WorkspaceWebhookSection', () => {
       events: ['run.completed', 'issue.done'],
       enabled: true,
       mask_pii: false,
+      failed_delivery_count: 0,
       created_at: '2026-05-21T22:00:00Z',
       updated_at: '2026-05-21T22:00:00Z'
     };

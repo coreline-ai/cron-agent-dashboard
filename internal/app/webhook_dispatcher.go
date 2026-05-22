@@ -24,11 +24,23 @@ type WebhookDispatcher struct {
 	store         *store.Store
 	httpClient    *http.Client
 	pollInterval  time.Duration
-	retryBackoff  time.Duration
+	retryBackoffs []time.Duration
 	maxAttempts   int
 	log           *slog.Logger
 	cancel        context.CancelFunc
 	done          chan struct{}
+}
+
+// DefaultWebhookRetryBackoffs are applied per-failure index: the i-th failure
+// schedules the next attempt this many seconds later. With the default 6
+// maxAttempts (initial + 5 retries) the chain is 30s → 2m → 8m → 30m → 2h,
+// reaching ≈2h40m total before the delivery is marked dead-letter.
+var DefaultWebhookRetryBackoffs = []time.Duration{
+	30 * time.Second,
+	2 * time.Minute,
+	8 * time.Minute,
+	30 * time.Minute,
+	2 * time.Hour,
 }
 
 // WebhookDispatcherOption configures a WebhookDispatcher.
@@ -43,17 +55,32 @@ func WithWebhookPollInterval(d time.Duration) WebhookDispatcherOption {
 	}
 }
 
-// WithWebhookRetryBackoff overrides the retry delay between attempts.
+// WithWebhookRetryBackoff overrides the retry delay between attempts with a
+// fixed duration. Equivalent to passing a single-element slice to
+// WithWebhookRetryBackoffs; preserved for backwards compatibility with the
+// v0.1 single-retry policy.
 func WithWebhookRetryBackoff(d time.Duration) WebhookDispatcherOption {
 	return func(w *WebhookDispatcher) {
 		if d > 0 {
-			w.retryBackoff = d
+			w.retryBackoffs = []time.Duration{d}
+		}
+	}
+}
+
+// WithWebhookRetryBackoffs overrides the per-failure retry schedule. The i-th
+// failure of a delivery schedules the next attempt using backoffs[i]. When
+// the failure count exceeds len(backoffs), the last entry is repeated until
+// maxAttempts is reached.
+func WithWebhookRetryBackoffs(backoffs []time.Duration) WebhookDispatcherOption {
+	return func(w *WebhookDispatcher) {
+		if len(backoffs) > 0 {
+			w.retryBackoffs = append([]time.Duration(nil), backoffs...)
 		}
 	}
 }
 
 // WithWebhookMaxAttempts overrides the total attempts before a delivery is
-// marked 'failed'. The default is 2 (initial + one retry).
+// marked 'failed'. The default is 6 (initial + five retries).
 func WithWebhookMaxAttempts(n int) WebhookDispatcherOption {
 	return func(w *WebhookDispatcher) {
 		if n > 0 {
@@ -73,16 +100,17 @@ func WithWebhookHTTPClient(c *http.Client) WebhookDispatcherOption {
 }
 
 // NewWebhookDispatcher constructs a WebhookDispatcher with default polling
-// every 30s, 10s per-request timeout, retry backoff 30s, and at most two
-// attempts per delivery.
+// every 30s, 10s per-request timeout, the DefaultWebhookRetryBackoffs
+// exponential schedule, and at most six total attempts per delivery (initial
+// + five retries).
 func NewWebhookDispatcher(st *store.Store, opts ...WebhookDispatcherOption) *WebhookDispatcher {
 	d := &WebhookDispatcher{
-		store:        st,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
-		pollInterval: 30 * time.Second,
-		retryBackoff: 30 * time.Second,
-		maxAttempts:  2,
-		log:          slog.Default(),
+		store:         st,
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		pollInterval:  30 * time.Second,
+		retryBackoffs: append([]time.Duration(nil), DefaultWebhookRetryBackoffs...),
+		maxAttempts:   6,
+		log:           slog.Default(),
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -161,7 +189,7 @@ func (d *WebhookDispatcher) tick(ctx context.Context) error {
 func (d *WebhookDispatcher) attempt(ctx context.Context, delivery store.WebhookDelivery, hook store.Webhook) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hook.URL, bytes.NewReader([]byte(delivery.PayloadJSON)))
 	if err != nil {
-		d.recordFailure(ctx, delivery.ID, 0, "", "build request: "+err.Error())
+		d.recordFailure(ctx, delivery, 0, "", "build request: "+err.Error())
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -174,7 +202,7 @@ func (d *WebhookDispatcher) attempt(ctx context.Context, delivery store.WebhookD
 	}
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
-		d.recordFailure(ctx, delivery.ID, 0, "", err.Error())
+		d.recordFailure(ctx, delivery, 0, "", err.Error())
 		return
 	}
 	defer resp.Body.Close()
@@ -186,12 +214,32 @@ func (d *WebhookDispatcher) attempt(ctx context.Context, delivery store.WebhookD
 		}
 		return
 	}
-	d.recordFailure(ctx, delivery.ID, resp.StatusCode, body, "non-2xx status")
+	d.recordFailure(ctx, delivery, resp.StatusCode, body, "non-2xx status")
 }
 
-func (d *WebhookDispatcher) recordFailure(ctx context.Context, deliveryID string, statusCode int, body, errMsg string) {
-	retryAt := time.Now().UTC().Add(d.retryBackoff).Format(time.RFC3339Nano)
-	if err := d.store.MarkWebhookDeliveryFailure(ctx, deliveryID, statusCode, body, errMsg, retryAt, d.maxAttempts); err != nil {
-		d.log.Warn("mark webhook failure failed", "delivery_id", deliveryID, "error", err)
+func (d *WebhookDispatcher) recordFailure(ctx context.Context, delivery store.WebhookDelivery, statusCode int, body, errMsg string) {
+	backoff := d.backoffForAttempt(delivery.Attempt)
+	retryAt := time.Now().UTC().Add(backoff).Format(time.RFC3339Nano)
+	if err := d.store.MarkWebhookDeliveryFailure(ctx, delivery.ID, statusCode, body, errMsg, retryAt, d.maxAttempts); err != nil {
+		d.log.Warn("mark webhook failure failed", "delivery_id", delivery.ID, "error", err)
 	}
+}
+
+// backoffForAttempt picks the backoff for the next attempt given that
+// `failedAttempts` calls have already failed. The schedule is clamped to
+// len(retryBackoffs); when more failures pile up than the schedule has
+// entries, the last duration is reused (so the retry cadence keeps slowing
+// down rather than wrapping back to 30s).
+func (d *WebhookDispatcher) backoffForAttempt(failedAttempts int) time.Duration {
+	if len(d.retryBackoffs) == 0 {
+		return 30 * time.Second
+	}
+	idx := failedAttempts
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(d.retryBackoffs) {
+		idx = len(d.retryBackoffs) - 1
+	}
+	return d.retryBackoffs[idx]
 }

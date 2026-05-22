@@ -158,6 +158,9 @@ function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void })
           <code>{hook.url}</code>
           {hook.has_secret && <span className="badge">서명 사용</span>}
           {hook.mask_pii && <span className="badge">PII 마스킹</span>}
+          {hook.failed_delivery_count > 0 && (
+            <span className="badge danger">dead-letter {hook.failed_delivery_count}건</span>
+          )}
           {hook.enabled ? null : <span className="badge muted">비활성</span>}
         </div>
         <button className="button danger ghost" type="button" onClick={onDelete}>
