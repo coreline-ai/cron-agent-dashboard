@@ -1,9 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -241,6 +245,113 @@ func TestCreateWorkspaceRespectsAutoCloseTrue(t *testing.T) {
 func jsonEscape(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// TestIssueAttachmentUploadListDownloadDelete pins the multipart upload
+// path: POST creates a stored row + writes the body, GET returns metadata
+// (with download_url), GET .../download streams the body verbatim, and
+// DELETE removes both the row and the on-disk file.
+func TestIssueAttachmentUploadListDownloadDelete(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	wsBody := `{"name":"Att","slug":"att-http","identifier_prefix":"AHT","main_agent":{"name":"Lead","runtime":"codex","instructions":"lead"}}`
+	if res := do(t, h, http.MethodPost, "/api/workspaces", wsBody); res.Code != http.StatusCreated {
+		t.Fatalf("seed workspace: %s", res.Body.String())
+	}
+	issueRes := do(t, h, http.MethodPost, "/api/workspaces/att-http/issues", `{"title":"attach me"}`)
+	if issueRes.Code != http.StatusCreated {
+		t.Fatalf("seed issue: %s", issueRes.Body.String())
+	}
+	var issueResp struct {
+		Issue store.Issue `json:"issue"`
+	}
+	if err := json.NewDecoder(issueRes.Body).Decode(&issueResp); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a small multipart body with a single "file" part.
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	hdr := make(textproto.MIMEHeader)
+	hdr.Set("Content-Disposition", `form-data; name="file"; filename="rfp.txt"`)
+	hdr.Set("Content-Type", "text/plain")
+	part, err := writer.CreatePart(hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const payload = "hello attachment\n"
+	if _, err := part.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/"+issueResp.Issue.ID+"/attachments", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var uploaded struct {
+		Attachment struct {
+			ID          string `json:"id"`
+			Filename    string `json:"filename"`
+			ContentType string `json:"content_type"`
+			SizeBytes   int64  `json:"size_bytes"`
+			SHA256      string `json:"sha256"`
+			DownloadURL string `json:"download_url"`
+		} `json:"attachment"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.Attachment.Filename != "rfp.txt" || uploaded.Attachment.SizeBytes != int64(len(payload)) {
+		t.Fatalf("uploaded metadata mismatch: %#v", uploaded.Attachment)
+	}
+	if uploaded.Attachment.DownloadURL != "/api/attachments/"+uploaded.Attachment.ID+"/download" {
+		t.Fatalf("download_url mismatch: %q", uploaded.Attachment.DownloadURL)
+	}
+
+	// LIST should return one attachment.
+	listRes := do(t, h, http.MethodGet, "/api/issues/"+issueResp.Issue.ID+"/attachments", "")
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", listRes.Code, listRes.Body.String())
+	}
+	if !strings.Contains(listRes.Body.String(), uploaded.Attachment.ID) {
+		t.Fatalf("list did not include uploaded id: %s", listRes.Body.String())
+	}
+
+	// DOWNLOAD streams the same bytes back.
+	dlRes := do(t, h, http.MethodGet, "/api/attachments/"+uploaded.Attachment.ID+"/download", "")
+	if dlRes.Code != http.StatusOK {
+		t.Fatalf("download status=%d body=%q", dlRes.Code, dlRes.Body.String())
+	}
+	if dlRes.Body.String() != payload {
+		t.Fatalf("download body=%q want %q", dlRes.Body.String(), payload)
+	}
+	if got := dlRes.Header().Get("Content-Disposition"); !strings.Contains(got, `filename="rfp.txt"`) {
+		t.Fatalf("content-disposition=%q want to include filename", got)
+	}
+
+	// DELETE removes both row and file.
+	delRes := do(t, h, http.MethodDelete, "/api/attachments/"+uploaded.Attachment.ID, "")
+	if delRes.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", delRes.Code, delRes.Body.String())
+	}
+	if dlAfter := do(t, h, http.MethodGet, "/api/attachments/"+uploaded.Attachment.ID+"/download", ""); dlAfter.Code != http.StatusNotFound {
+		t.Fatalf("download after delete should be 404, got %d", dlAfter.Code)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "attachments", uploaded.Attachment.ID)); !os.IsNotExist(statErr) {
+		t.Fatalf("file should be removed after DELETE: err=%v", statErr)
+	}
 }
 
 // TestWebhookHTTPCRUDMasksSecretAndExposesEvents pins the HTTP contract for
