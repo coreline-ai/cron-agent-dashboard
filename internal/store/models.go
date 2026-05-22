@@ -385,6 +385,36 @@ type WebhookDelivery struct {
 	CreatedAt     string         `db:"created_at" json:"created_at"`
 }
 
+// Attachment is a single file attached to an issue. The body lives on disk
+// under StoragePath (typically <data_dir>/attachments/<id>); this row only
+// tracks metadata. ContentType is whatever the client provided (no deep
+// sniff) but the API normalizes empty strings to application/octet-stream.
+type Attachment struct {
+	ID          string `db:"id" json:"id"`
+	IssueID     string `db:"issue_id" json:"issue_id"`
+	UploadedBy  string `db:"uploaded_by" json:"uploaded_by"`
+	Filename    string `db:"filename" json:"filename"`
+	ContentType string `db:"content_type" json:"content_type"`
+	SizeBytes   int64  `db:"size_bytes" json:"size_bytes"`
+	SHA256      string `db:"sha256" json:"sha256"`
+	StoragePath string `db:"storage_path" json:"-"`
+	CreatedAt   string `db:"created_at" json:"created_at"`
+}
+
+// CreateAttachmentInput is what the store needs to record a successfully
+// written attachment. Callers (typically the HTTP layer) must write the file
+// body to disk first, compute SHA256, and then call CreateAttachment with the
+// resulting metadata.
+type CreateAttachmentInput struct {
+	IssueID     string
+	UploadedBy  string
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	SHA256      string
+	StoragePath string
+}
+
 // UpsertWebhookInput is the request shape for Create / Update.
 type UpsertWebhookInput struct {
 	URL     string   `json:"url"`
