@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -46,7 +48,18 @@ func (s *Server) registerAttachmentRoutes(api chi.Router) {
 	api.Post("/api/issues/{id}/attachments", s.uploadAttachment)
 	api.Get("/api/issues/{id}/attachments", s.listAttachments)
 	api.Get("/api/attachments/{id}/download", s.downloadAttachment)
+	api.Get("/api/attachments/{id}/audit", s.listAttachmentAudit)
 	api.Delete("/api/attachments/{id}", s.deleteAttachment)
+}
+
+func (s *Server) listAttachmentAudit(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := s.store.GetAttachment(r.Context(), id); err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	entries, err := s.store.ListAttachmentAudit(r.Context(), id, 0)
+	respond(w, map[string]any{"entries": entries}, err, http.StatusOK)
 }
 
 func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +91,26 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	contentType := header.Header.Get("Content-Type")
 
+	// Deep-sniff the first 512 bytes: http.DetectContentType is the canonical
+	// magic-byte matcher in the stdlib. We do not reject on mismatch (too
+	// aggressive — uploaders routinely send octet-stream as a placeholder);
+	// we only override when the sniff actually identifies something other
+	// than the generic application/octet-stream fallback.
+	head := make([]byte, 512)
+	n, readErr := io.ReadFull(file, head)
+	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+		respond(w, nil, readErr, 0)
+		return
+	}
+	head = head[:n]
+	sniffed := http.DetectContentType(head)
+	if sniffed != "" && sniffed != "application/octet-stream" {
+		contentType = sniffed
+	}
+	// Re-attach the head we just consumed in front of the rest of the body so
+	// SaveAttachmentFile sees the original byte stream.
+	bodyReader := io.MultiReader(bytes.NewReader(head), file)
+
 	// Two-step write: insert a metadata row first (so we own a stable ID and
 	// can roll back on disk-write failure), then stream the body to disk
 	// under that ID, then patch the row's size/sha/storage_path. The
@@ -94,7 +127,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
-	path, size, sha, err := app.SaveAttachmentFile(s.cfg.DataDir, created.ID, file)
+	path, size, sha, err := app.SaveAttachmentFile(s.cfg.DataDir, created.ID, bodyReader)
 	if err != nil {
 		_ = s.store.DeleteAttachment(r.Context(), created.ID)
 		if errors.Is(err, app.ErrAttachmentTooLarge) {
@@ -115,6 +148,11 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	created.SizeBytes = size
 	created.SHA256 = sha
 	created.StoragePath = path
+	// Audit upload. Failures are warn-only — the attachment itself is committed.
+	if auditErr := s.store.RecordAttachmentAudit(r.Context(), created.ID, issueID, store.AttachmentAuditActionUploaded, "user"); auditErr != nil {
+		// non-fatal: continue with the response
+		_ = auditErr
+	}
 	respond(w, map[string]any{"attachment": newAttachmentView(created)}, nil, http.StatusCreated)
 }
 
@@ -149,6 +187,10 @@ func (s *Server) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	// Audit before streaming. The audit row is the only durable record of
+	// this access, so we want it on disk regardless of whether the client
+	// actually finishes reading the body.
+	_ = s.store.RecordAttachmentAudit(r.Context(), a.ID, a.IssueID, store.AttachmentAuditActionDownloaded, "user")
 	w.Header().Set("Content-Type", a.ContentType)
 	// RFC 6266 / 5987 — URL-encode the filename for the filename* form so
 	// non-ASCII (e.g. Korean) names survive intermediaries cleanly.

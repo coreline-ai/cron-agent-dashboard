@@ -76,3 +76,63 @@ func (s *Store) DeleteAttachment(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// AttachmentAuditAction enumerates the actions logged in attachment_audit.
+const (
+	AttachmentAuditActionUploaded   = "uploaded"
+	AttachmentAuditActionDownloaded = "downloaded"
+	AttachmentAuditActionDeleted    = "deleted"
+)
+
+// AttachmentAuditEntry is one row of the per-attachment audit trail.
+type AttachmentAuditEntry struct {
+	ID           string `db:"id" json:"id"`
+	AttachmentID string `db:"attachment_id" json:"attachment_id"`
+	IssueID      string `db:"issue_id" json:"issue_id"`
+	Action       string `db:"action" json:"action"`
+	Actor        string `db:"actor" json:"actor"`
+	CreatedAt    string `db:"created_at" json:"created_at"`
+}
+
+// RecordAttachmentAudit appends an audit row for an attachment lifecycle
+// event. issueID is duplicated onto the row (rather than joined through the
+// attachment row at read time) so the trail survives an attachment delete
+// cascade if we ever flip that — today the cascade still wipes the trail
+// alongside the attachment, which is the correct behaviour for tenant
+// removal.
+func (s *Store) RecordAttachmentAudit(ctx context.Context, attachmentID, issueID, action, actor string) error {
+	if strings.TrimSpace(attachmentID) == "" || strings.TrimSpace(issueID) == "" {
+		return ErrValidation
+	}
+	switch action {
+	case AttachmentAuditActionUploaded, AttachmentAuditActionDownloaded, AttachmentAuditActionDeleted:
+	default:
+		return ErrValidation
+	}
+	if strings.TrimSpace(actor) == "" {
+		actor = "user"
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO attachment_audit(id, attachment_id, issue_id, action, actor, created_at) VALUES(?,?,?,?,?,?)`,
+		newID(), attachmentID, issueID, action, actor, now(),
+	); err != nil {
+		return normalizeErr(err)
+	}
+	return nil
+}
+
+// ListAttachmentAudit returns the audit trail for a single attachment,
+// newest first. Limit clamps to a sane default to keep the response cheap.
+func (s *Store) ListAttachmentAudit(ctx context.Context, attachmentID string, limit int) ([]AttachmentAuditEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var rows []AttachmentAuditEntry
+	if err := s.db.SelectContext(ctx, &rows,
+		`SELECT id, attachment_id, issue_id, action, actor, created_at FROM attachment_audit WHERE attachment_id=? ORDER BY created_at DESC, id DESC LIMIT ?`,
+		attachmentID, limit,
+	); err != nil {
+		return nil, normalizeErr(err)
+	}
+	return rows, nil
+}
