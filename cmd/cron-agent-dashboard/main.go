@@ -233,6 +233,17 @@ func serve(cfg config.Config, st *store.Store) error {
 		AutoBackupKeep:     cfg.AutoBackupKeep,
 		AutoCleanupLogDays: cfg.AutoCleanupLogDays,
 		Interval:           cfg.MaintenanceInterval,
+		OnReport: func(report app.MaintenanceReport, _ error) {
+			// Persist the log-cleanup tally so the Settings UI can show
+			// "마지막 log cleanup at <time> — <files>개 / <bytes>". A timeout
+			// keeps the maintenance loop from stalling if the DB is busy.
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			at := time.Now().UTC().Format(time.RFC3339)
+			_ = st.SetSystemState(ctx, store.SystemStateLastLogCleanupAt, at)
+			_ = st.SetSystemState(ctx, store.SystemStateLastLogCleanupFiles, fmt.Sprintf("%d", report.DeletedLogFiles))
+			_ = st.SetSystemState(ctx, store.SystemStateLastLogCleanupBytes, fmt.Sprintf("%d", report.FreedLogBytes))
+		},
 	})
 	maintenance.Start(runCtx)
 

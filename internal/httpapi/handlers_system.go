@@ -37,6 +37,9 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	usage, _ := s.store.RunUsageSummary(r.Context(), time.Now().Add(-7*24*time.Hour).UTC().Format(time.RFC3339Nano))
 	migrationFailures, _ := dbmeta.RecentMigrationFailures(r.Context(), s.store.DB(), 5)
+	lastCleanupAt, _ := s.store.GetSystemState(r.Context(), store.SystemStateLastLogCleanupAt)
+	lastCleanupFiles, _ := s.store.GetSystemState(r.Context(), store.SystemStateLastLogCleanupFiles)
+	lastCleanupBytes, _ := s.store.GetSystemState(r.Context(), store.SystemStateLastLogCleanupBytes)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":              Version,
 		"data_dir":             s.cfg.DataDir,
@@ -53,6 +56,9 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			"auto_cleanup_log_days":               s.cfg.AutoCleanupLogDays,
 			"interval_seconds":                    int64(s.cfg.MaintenanceInterval / time.Second),
 			"autopilot_failure_disable_threshold": s.cfg.AutopilotFailureDisableThreshold,
+			"last_log_cleanup_at":                 lastCleanupAt,
+			"last_log_cleanup_files":              lastCleanupFiles,
+			"last_log_cleanup_bytes":              lastCleanupBytes,
 		},
 		"run_lifecycle": map[string]any{
 			"heartbeat_interval_seconds":  int(worker.DefaultHeartbeatInterval / time.Second),
@@ -161,6 +167,13 @@ func (s *Server) cleanupLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	cutoff := time.Now().Add(-time.Duration(req.Days) * 24 * time.Hour)
 	report, err := app.CleanupRunLogs(s.cfg.DataDir, cutoff)
+	// Mirror the persistent state writes so manual cleanup also updates the
+	// Settings UI's "last log cleanup at" card. Failures are non-fatal; the
+	// caller already sees the report in the HTTP response.
+	now := time.Now().UTC().Format(time.RFC3339)
+	_ = s.store.SetSystemState(r.Context(), store.SystemStateLastLogCleanupAt, now)
+	_ = s.store.SetSystemState(r.Context(), store.SystemStateLastLogCleanupFiles, strconv.Itoa(report.DeletedFiles))
+	_ = s.store.SetSystemState(r.Context(), store.SystemStateLastLogCleanupBytes, strconv.FormatInt(report.FreedBytes, 10))
 	respond(w, map[string]any{"deleted_files": report.DeletedFiles, "freed_bytes": report.FreedBytes}, err, http.StatusOK)
 }
 

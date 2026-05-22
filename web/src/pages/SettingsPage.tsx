@@ -34,6 +34,17 @@ function formatBytes(value?: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function formatLastLogCleanup(m?: { last_log_cleanup_at?: string; last_log_cleanup_files?: string; last_log_cleanup_bytes?: string }) {
+  const at = m?.last_log_cleanup_at?.trim();
+  if (!at) {
+    return '아직 실행되지 않음';
+  }
+  const stamp = at.slice(0, 19).replace('T', ' ');
+  const files = Number(m?.last_log_cleanup_files ?? 0);
+  const bytes = Number(m?.last_log_cleanup_bytes ?? 0);
+  return `${stamp} UTC — 파일 ${files}개 / ${formatBytes(bytes)}`;
+}
+
 function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
   const queryClient = useQueryClient();
   const [timeoutSeconds, setTimeoutSeconds] = useState(String(workspace.default_timeout_seconds ?? 600));
@@ -186,6 +197,8 @@ export function SettingsPage() {
           </dd>
           <dt>자동 로그 정리</dt>
           <dd>{data?.maintenance?.auto_cleanup_log_days ? `${data.maintenance.auto_cleanup_log_days}일 초과 run 로그 자동 삭제` : 'OFF'}</dd>
+          <dt>마지막 로그 정리</dt>
+          <dd>{formatLastLogCleanup(data?.maintenance)}</dd>
           <dt>마이그레이션 실패</dt>
           <dd>{data?.migration_fail_count ? `${data.migration_fail_count}건 이력 있음 · 로그/DB 확인 권장` : '없음'}</dd>
         </dl>

@@ -23,6 +23,13 @@ type MaintenanceConfig struct {
 	Interval           time.Duration
 	Now                func() time.Time
 	Log                *slog.Logger
+
+	// OnReport is invoked after every successful or partial maintenance pass
+	// so the caller can persist the report (e.g. into the system_state table
+	// for the Settings UI). The hook is called even when the underlying run
+	// returned an error so callers can still record what happened — the err
+	// argument is the joined error from the pass.
+	OnReport func(report MaintenanceReport, err error)
 }
 
 type MaintenanceReport struct {
@@ -106,6 +113,9 @@ func (r *MaintenanceRunner) runAndLog(ctx context.Context) {
 	log := r.cfg.Log
 	if log == nil {
 		log = slog.Default()
+	}
+	if r.cfg.OnReport != nil {
+		r.cfg.OnReport(report, err)
 	}
 	if err != nil {
 		log.Warn("automatic maintenance failed", "error", err)

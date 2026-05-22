@@ -225,6 +225,9 @@ export type SettingsResponse = {
     auto_backup_keep: number;
     auto_cleanup_log_days: number;
     interval_seconds: number;
+    last_log_cleanup_at?: string;
+    last_log_cleanup_files?: string;
+    last_log_cleanup_bytes?: string;
   };
   run_lifecycle?: {
     heartbeat_interval_seconds: number;
