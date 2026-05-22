@@ -3420,3 +3420,42 @@ button.quick-action {
   background: color-mix(in oklab, var(--muted-foreground) 16%, transparent);
   color: var(--muted-foreground);
 }
+
+/* ───────────────────────────── Issue attachments panel ───────────────────────────── */
+
+.attachment-panel__upload {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.attachment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.6rem;
+}
+
+.attachment-row__name {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--brand);
+}
+
+.attachment-row__name:hover {
+  text-decoration: underline;
+}

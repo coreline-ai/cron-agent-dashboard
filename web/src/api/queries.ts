@@ -316,6 +316,27 @@ export function useAgentInstructionVersionsQuery(id: string | undefined) {
   });
 }
 
+export type Attachment = {
+  id: string;
+  issue_id: string;
+  uploaded_by: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  download_url: string;
+  created_at: string;
+};
+
+export function useIssueAttachmentsQuery(issueID: string | undefined) {
+  return useQuery({
+    enabled: Boolean(issueID),
+    queryKey: ['attachments', issueID],
+    queryFn: async () =>
+      (await apiClient.get<{ attachments: Attachment[] | null }>(`/issues/${issueID}/attachments`)).attachments ?? []
+  });
+}
+
 export type Webhook = {
   id: string;
   workspace_id: string;

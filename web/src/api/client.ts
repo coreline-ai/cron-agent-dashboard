@@ -123,7 +123,35 @@ export const apiClient = {
   delete: <T>(path: string) =>
     request<T>(path, {
       method: 'DELETE'
-    })
+    }),
+  // postMultipart streams a FormData body. We can't reuse request() because
+  // the JSON Content-Type default would prevent the browser from emitting
+  // the multipart boundary.
+  postMultipart: async <T>(path: string, body: FormData): Promise<T> => {
+    const headers = new Headers();
+    const token = readToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      body,
+      headers
+    });
+    if (!response.ok) {
+      let parsed: ApiErrorBody | null = null;
+      try {
+        parsed = (await response.json()) as ApiErrorBody;
+      } catch {
+        parsed = null;
+      }
+      throw new ApiError(response.status, parsed);
+    }
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
+  }
 };
 
 export const apiAuth = {

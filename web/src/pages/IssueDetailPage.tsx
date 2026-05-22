@@ -6,6 +6,7 @@ import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useS
 import type { Comment, IssueStatus, Run, RunEvent } from '../api/queries';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DateTimeText } from '../components/DateTimeText';
+import { IssueAttachmentsPanel } from '../components/IssueAttachmentsPanel';
 import { IssueSummaryRail } from '../components/IssueSummaryRail';
 import { MarkdownText } from '../components/MarkdownText';
 import { MentionAutocomplete } from '../components/MentionAutocomplete';
@@ -239,6 +240,8 @@ export function IssueDetailPage() {
               </Suspense>
             </article>
           ) : null}
+
+          {issue.data ? <IssueAttachmentsPanel issueID={issue.data.id} /> : null}
 
           <article className="panel">
             <div className="section-heading compact">
