@@ -77,18 +77,23 @@ function ChainSummaryRow({
   workspace?: WorkspaceSummary;
 }) {
   const queryClient = useQueryClient();
+  const invalidateIssue = () => {
+    if (!issueID) return;
+    queryClient.invalidateQueries({ queryKey: ['issue', issueID] });
+    queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
+    queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
+  };
   const cancelChain = useMutation({
     mutationFn: () => apiClient.post(`/runs/chain/${summary.chainID}/cancel`, {}),
-    onSuccess: () => {
-      if (issueID) {
-        queryClient.invalidateQueries({ queryKey: ['issue', issueID] });
-        queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
-        queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
-      }
-    }
+    onSuccess: invalidateIssue
+  });
+  const retryChain = useMutation({
+    mutationFn: () => apiClient.post(`/runs/chain/${summary.chainID}/retry`, {}),
+    onSuccess: invalidateIssue
   });
   const isCancellable =
     summary.lastStatus === 'queued' || summary.lastStatus === 'running';
+  const isRetryable = summary.lastStatus === 'failed';
   const depthLimit = workspace?.auto_chain_max_depth;
   const costLimitMicros = workspace?.auto_chain_daily_cost_micros;
   const depthGuard = classifyGuard(summary.maxChainDepth, depthLimit);
@@ -111,6 +116,16 @@ function ChainSummaryRow({
             disabled={cancelChain.isPending}
           >
             {cancelChain.isPending ? '취소 중' : '체인 취소'}
+          </button>
+        ) : null}
+        {isRetryable ? (
+          <button
+            type="button"
+            className="button secondary ghost chain-summary-row__retry"
+            onClick={() => retryChain.mutate()}
+            disabled={retryChain.isPending}
+          >
+            {retryChain.isPending ? '재시작 중' : '체인 재시작'}
           </button>
         ) : null}
       </div>

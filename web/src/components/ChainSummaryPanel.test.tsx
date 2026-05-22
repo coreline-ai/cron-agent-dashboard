@@ -42,6 +42,13 @@ const completedRun: Run = {
   chain_id: 'chain-different'
 };
 
+const failedRun: Run = {
+  ...queuedRun,
+  id: 'run-3',
+  status: 'failed',
+  chain_id: 'chain-failed12'
+};
+
 const workspaceWithGuards: WorkspaceSummary = {
   id: 'ws-1',
   slug: 'demo',
@@ -105,5 +112,24 @@ describe('ChainSummaryPanel', () => {
     renderWithClient(<ChainSummaryPanel runs={[queuedRun]} issueID="issue-1" />);
     fireEvent.click(screen.getByRole('button', { name: /체인 취소/ }));
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('does not show 체인 재시작 for chains whose last run is queued', () => {
+    renderWithClient(<ChainSummaryPanel runs={[queuedRun]} issueID="issue-1" />);
+    expect(screen.queryByRole('button', { name: /체인 재시작/ })).not.toBeInTheDocument();
+  });
+
+  it('shows 체인 재시작 for chains whose last run failed', () => {
+    renderWithClient(<ChainSummaryPanel runs={[failedRun]} issueID="issue-1" />);
+    expect(screen.getByRole('button', { name: /체인 재시작/ })).toBeInTheDocument();
+  });
+
+  it('calls POST /runs/chain/<id>/retry when 체인 재시작 is clicked', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ run: { id: 'new-run', status: 'queued' } } as any);
+    renderWithClient(<ChainSummaryPanel runs={[failedRun]} issueID="issue-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /체인 재시작/ }));
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledWith(`/runs/chain/${failedRun.chain_id}/retry`, {});
+    });
   });
 });

@@ -14,6 +14,17 @@ func (s *Server) registerRunRoutes(api chi.Router) {
 	api.Get("/api/runs/{id}/events", s.listRunEvents)
 	api.Get("/api/runs/{id}/log", s.runLog)
 	api.Post("/api/runs/chain/{chain}/cancel", s.cancelChain)
+	api.Post("/api/runs/chain/{chain}/retry", s.retryChain)
+}
+
+// retryChain finds the most recent failed run in the chain and enqueues a
+// new run on the same agent with the same chain_id / chain_depth. Returns
+// 404 when the chain has no failed run, 409 when the chain still has
+// queued/running runs (the operator must cancel first).
+func (s *Server) retryChain(w http.ResponseWriter, r *http.Request) {
+	chainID := chi.URLParam(r, "chain")
+	run, err := s.store.RetryFailedRunInChain(r.Context(), chainID)
+	respond(w, map[string]any{"run": run}, err, http.StatusCreated)
 }
 
 func (s *Server) cancelChain(w http.ResponseWriter, r *http.Request) {
