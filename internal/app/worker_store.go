@@ -297,6 +297,12 @@ func readRunComment(stdoutPath, logURL, runtime string) (string, bool, []string)
 	if err != nil || len(data) == 0 {
 		return "", false, nil
 	}
+	if strings.EqualFold(runtime, workerruntime.RuntimeCodex) {
+		if cleaned, _, ok := workerruntime.ParseCodexJSONL(string(data)); ok {
+			capped, truncated := worker.CapCommentForLogWithStatus(cleaned, logURL)
+			return capped, truncated, nil
+		}
+	}
 	cleaned, stripped := workerruntime.SanitizeStdout(runtime, string(data))
 	capped, truncated := worker.CapCommentForLogWithStatus(cleaned, logURL)
 	return capped, truncated, stripped

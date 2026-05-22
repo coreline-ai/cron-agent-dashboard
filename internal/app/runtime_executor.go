@@ -103,10 +103,14 @@ func (e *RuntimeExecutor) Execute(ctx context.Context, run worker.ExecutionConte
 		OnProcessStart: e.recordProcessStart,
 	}
 	result := executor.Execute(ctx, run)
-	if parser, ok := adapter.(workerruntime.MetricsParser); ok {
+	if parser, ok := adapter.(workerruntime.StdoutFileMetricsParser); ok {
+		// Adapter opted into reading its own structured stdout stream
+		// (codex --json today). The recorded log file path is on the result.
+		result.Metrics = parser.ParseMetricsFromFile(result.StdoutPath, result.StderrTail)
+	} else if parser, ok := adapter.(workerruntime.MetricsParser); ok {
 		// Treat agent stdout as untrusted user-controlled content. Runtime usage
-		// metrics are parsed only from stderr/side-channel output until adapters
-		// provide a dedicated structured metrics stream.
+		// metrics are parsed only from stderr/side-channel output for adapters
+		// that have not opted into StdoutFileMetricsParser.
 		result.Metrics = parser.ParseMetrics("", result.StderrTail)
 	}
 	return result

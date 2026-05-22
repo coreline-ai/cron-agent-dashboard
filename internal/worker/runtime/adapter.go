@@ -132,6 +132,15 @@ type MetricsParser interface {
 	ParseMetrics(stdout, stderr string) RunMetrics
 }
 
+// StdoutFileMetricsParser is a richer alternative an adapter may opt into when
+// it owns a trustworthy structured output stream (codex --json today). The
+// executor passes the recorded stdout log path so the adapter can read the
+// full stream instead of the stderr-only view the conservative MetricsParser
+// contract enforces.
+type StdoutFileMetricsParser interface {
+	ParseMetricsFromFile(stdoutPath, stderrTail string) RunMetrics
+}
+
 // DefaultAdapters returns the built-in CLI adapters.
 func DefaultAdapters() []RuntimeAdapter {
 	return []RuntimeAdapter{CodexAdapter{}, ClaudeAdapter{}, GeminiAdapter{}}

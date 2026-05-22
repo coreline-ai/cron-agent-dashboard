@@ -17,7 +17,9 @@ func TestCodexAdapterBuildCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{"codex-test", "exec", "--model", "gpt-5.4", "--cd", "/tmp/workspace", "-"}
+	// --json pins the JSONL output contract so ParseCodexJSONL can extract
+	// agent_message text and turn.completed usage from the structured stream.
+	wantArgs := []string{"codex-test", "exec", "--json", "--model", "gpt-5.4", "--cd", "/tmp/workspace", "-"}
 	if !reflect.DeepEqual(cmd.Args, wantArgs) {
 		t.Fatalf("args=%#v, want %#v", cmd.Args, wantArgs)
 	}

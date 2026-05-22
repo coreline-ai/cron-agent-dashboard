@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"019e4f0b-73cc-7c12-868d-861ead582433"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"안녕! 진행 상황을 정리해두었어."}}
+{"type":"item.completed","item":{"id":"item_1","type":"tool_call","name":"write_file"}}
+not-json-noise-line
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"\n\n다음 단계는 @QA 에게 넘기겠다."}}
+{"type":"turn.completed","usage":{"input_tokens":15929,"cached_input_tokens":7552,"output_tokens":42,"reasoning_output_tokens":0}}
