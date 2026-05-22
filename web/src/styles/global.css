@@ -3460,6 +3460,22 @@ button.quick-action {
   text-decoration: underline;
 }
 
+.attachment-row__preview {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 4rem;
+  height: 4rem;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.attachment-row__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 /* ───────────────────────────── Chain summary panel ───────────────────────────── */
 
 .chain-summary-list {

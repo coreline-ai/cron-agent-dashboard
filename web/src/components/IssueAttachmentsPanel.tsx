@@ -89,8 +89,14 @@ export function IssueAttachmentsPanel({ issueID }: { issueID: string }) {
 }
 
 function AttachmentRow({ attachment, onDelete }: { attachment: Attachment; onDelete: () => void }) {
+  const isImage = attachment.content_type.startsWith('image/');
   return (
     <li className="attachment-row">
+      {isImage ? (
+        <a className="attachment-row__preview" href={attachment.download_url} target="_blank" rel="noreferrer">
+          <img src={attachment.download_url} alt={attachment.filename} loading="lazy" />
+        </a>
+      ) : null}
       <a className="attachment-row__name" href={attachment.download_url} target="_blank" rel="noreferrer">
         {attachment.filename}
       </a>
