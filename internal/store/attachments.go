@@ -2,10 +2,18 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 )
 
-const attachmentSelectBase = `SELECT id,issue_id,uploaded_by,filename,content_type,size_bytes,sha256,storage_path,created_at FROM attachment`
+func nullableString(s string) sql.NullString {
+	if strings.TrimSpace(s) == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
+const attachmentSelectBase = `SELECT id,issue_id,comment_id,uploaded_by,filename,content_type,size_bytes,sha256,storage_path,created_at FROM attachment`
 
 // CreateAttachment inserts an attachment metadata row after the HTTP layer
 // has already written the body to disk. It is intentionally split from the
@@ -28,6 +36,7 @@ func (s *Store) CreateAttachment(ctx context.Context, in CreateAttachmentInput) 
 	a := Attachment{
 		ID:          newID(),
 		IssueID:     in.IssueID,
+		CommentID:   nullableString(in.CommentID),
 		UploadedBy:  uploadedBy,
 		Filename:    in.Filename,
 		ContentType: contentType,
@@ -37,12 +46,31 @@ func (s *Store) CreateAttachment(ctx context.Context, in CreateAttachmentInput) 
 		CreatedAt:   now(),
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO attachment(id,issue_id,uploaded_by,filename,content_type,size_bytes,sha256,storage_path,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		a.ID, a.IssueID, a.UploadedBy, a.Filename, a.ContentType, a.SizeBytes, a.SHA256, a.StoragePath, a.CreatedAt,
+		`INSERT INTO attachment(id,issue_id,comment_id,uploaded_by,filename,content_type,size_bytes,sha256,storage_path,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.IssueID, a.CommentID, a.UploadedBy, a.Filename, a.ContentType, a.SizeBytes, a.SHA256, a.StoragePath, a.CreatedAt,
 	); err != nil {
 		return Attachment{}, normalizeErr(err)
 	}
 	return a, nil
+}
+
+// LinkAttachmentToComment associates an existing attachment with a comment.
+// Used by the comment-with-attachment HTTP path: the attachment is created
+// first (so its body lives on disk and the storage_path is owned by the row),
+// then the comment is created, then this links them together. Calling with
+// commentID="" detaches the attachment.
+func (s *Store) LinkAttachmentToComment(ctx context.Context, attachmentID, commentID string) error {
+	if strings.TrimSpace(attachmentID) == "" {
+		return ErrValidation
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE attachment SET comment_id=? WHERE id=?`, nullableString(commentID), attachmentID)
+	if err != nil {
+		return normalizeErr(err)
+	}
+	if aff, _ := res.RowsAffected(); aff == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) ListAttachments(ctx context.Context, issueID string) ([]Attachment, error) {

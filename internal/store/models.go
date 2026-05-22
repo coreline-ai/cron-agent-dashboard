@@ -391,15 +391,24 @@ type WebhookDelivery struct {
 // tracks metadata. ContentType is whatever the client provided (no deep
 // sniff) but the API normalizes empty strings to application/octet-stream.
 type Attachment struct {
-	ID          string `db:"id" json:"id"`
-	IssueID     string `db:"issue_id" json:"issue_id"`
-	UploadedBy  string `db:"uploaded_by" json:"uploaded_by"`
-	Filename    string `db:"filename" json:"filename"`
-	ContentType string `db:"content_type" json:"content_type"`
-	SizeBytes   int64  `db:"size_bytes" json:"size_bytes"`
-	SHA256      string `db:"sha256" json:"sha256"`
-	StoragePath string `db:"storage_path" json:"-"`
-	CreatedAt   string `db:"created_at" json:"created_at"`
+	ID          string         `db:"id" json:"id"`
+	IssueID     string         `db:"issue_id" json:"issue_id"`
+	CommentID   sql.NullString `db:"comment_id" json:"-"`
+	UploadedBy  string         `db:"uploaded_by" json:"uploaded_by"`
+	Filename    string         `db:"filename" json:"filename"`
+	ContentType string         `db:"content_type" json:"content_type"`
+	SizeBytes   int64          `db:"size_bytes" json:"size_bytes"`
+	SHA256      string         `db:"sha256" json:"sha256"`
+	StoragePath string         `db:"storage_path" json:"-"`
+	CreatedAt   string         `db:"created_at" json:"created_at"`
+}
+
+// CommentIDString unwraps the NullString comment_id for JSON / view emission.
+func (a Attachment) CommentIDString() string {
+	if a.CommentID.Valid {
+		return a.CommentID.String
+	}
+	return ""
 }
 
 // CreateAttachmentInput is what the store needs to record a successfully
@@ -408,6 +417,7 @@ type Attachment struct {
 // resulting metadata.
 type CreateAttachmentInput struct {
 	IssueID     string
+	CommentID   string
 	UploadedBy  string
 	Filename    string
 	ContentType string

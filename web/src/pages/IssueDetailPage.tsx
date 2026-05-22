@@ -48,6 +48,7 @@ export function IssueDetailPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [content, setContent] = useState('');
+  const [commentFiles, setCommentFiles] = useState<File[]>([]);
   const [subIssueForm, setSubIssueForm] = useState({ title: '', body: '', assignee_agent_id: '' });
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const runList = useMemo(() => runs.data ?? [], [runs.data]);
@@ -65,10 +66,28 @@ export function IssueDetailPage() {
   };
 
   const addComment = useMutation({
-    mutationFn: () => apiClient.post<CommentResponse>(`/issues/${issue.data?.id}/comments`, { content }),
+    mutationFn: async () => {
+      const data = await apiClient.post<CommentResponse>(`/issues/${issue.data?.id}/comments`, { content });
+      // Upload any attached files after the comment exists so the rows can
+      // record comment_id. Each upload is best-effort; a failure on one
+      // file should not block the others or the comment itself.
+      for (const file of commentFiles) {
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          form.append('comment_id', data.comment.id);
+          await apiClient.postMultipart(`/issues/${issue.data?.id}/attachments`, form);
+        } catch (err) {
+          toast.error('첨부 업로드 실패', { description: file.name + ': ' + errorMessage(err) });
+        }
+      }
+      return data;
+    },
     onSuccess: (data) => {
       setContent('');
+      setCommentFiles([]);
       invalidateIssue();
+      queryClient.invalidateQueries({ queryKey: ['attachments', issue.data?.id] });
       if (data.dispatched_run) {
         toast.success('멘션 실행을 큐에 등록했습니다.', { description: `run ${data.dispatched_run.id.slice(0, 8)}` });
       } else {
@@ -308,6 +327,16 @@ export function IssueDetailPage() {
                 onChange={setContent}
                 required
               />
+              <div className="comment-form__attach">
+                <input
+                  type="file"
+                  multiple
+                  onChange={(e) => setCommentFiles(Array.from(e.target.files ?? []))}
+                />
+                {commentFiles.length > 0 ? (
+                  <span className="muted-copy">{commentFiles.length}개 파일을 댓글 등록 후 함께 업로드합니다.</span>
+                ) : null}
+              </div>
               <button className="button" type="submit" disabled={!issue.data || addComment.isPending || !content.trim()}>
                 {addComment.isPending ? '등록 중' : '댓글 등록'}
               </button>

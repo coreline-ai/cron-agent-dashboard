@@ -322,6 +322,7 @@ export function useAgentInstructionVersionsQuery(id: string | undefined) {
 export type Attachment = {
   id: string;
   issue_id: string;
+  comment_id?: string;
   uploaded_by: string;
   filename: string;
   content_type: string;

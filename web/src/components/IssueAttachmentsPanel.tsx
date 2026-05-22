@@ -78,13 +78,44 @@ export function IssueAttachmentsPanel({ issueID }: { issueID: string }) {
       {(attachments.data ?? []).length === 0 ? (
         <p className="muted-copy">첨부된 파일이 없습니다. 위 입력으로 파일을 추가하세요 (최대 10 MB).</p>
       ) : (
-        <ul className="attachment-list">
-          {(attachments.data ?? []).map((a) => (
-            <AttachmentRow key={a.id} attachment={a} onDelete={() => remove.mutate(a.id)} />
-          ))}
-        </ul>
+        <AttachmentGroups attachments={attachments.data ?? []} onDelete={(id) => remove.mutate(id)} />
       )}
     </article>
+  );
+}
+
+function AttachmentGroups({ attachments, onDelete }: { attachments: Attachment[]; onDelete: (id: string) => void }) {
+  // Group by comment_id so comment-linked attachments cluster under a
+  // sub-heading. The "이슈 첨부" group renders first because it carries the
+  // documents that apply to the whole issue rather than to a single comment.
+  const issueAttachments = attachments.filter((a) => !a.comment_id);
+  const byComment = new Map<string, Attachment[]>();
+  for (const a of attachments) {
+    if (!a.comment_id) continue;
+    const arr = byComment.get(a.comment_id) ?? [];
+    arr.push(a);
+    byComment.set(a.comment_id, arr);
+  }
+  return (
+    <>
+      {issueAttachments.length > 0 ? (
+        <ul className="attachment-list">
+          {issueAttachments.map((a) => (
+            <AttachmentRow key={a.id} attachment={a} onDelete={() => onDelete(a.id)} />
+          ))}
+        </ul>
+      ) : null}
+      {Array.from(byComment.entries()).map(([commentID, rows]) => (
+        <section key={commentID} className="attachment-comment-group">
+          <p className="muted-copy">댓글 첨부 · <code>{commentID.slice(0, 8)}</code></p>
+          <ul className="attachment-list">
+            {rows.map((a) => (
+              <AttachmentRow key={a.id} attachment={a} onDelete={() => onDelete(a.id)} />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </>
   );
 }
 

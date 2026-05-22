@@ -21,6 +21,7 @@ import (
 type attachmentView struct {
 	ID          string `json:"id"`
 	IssueID     string `json:"issue_id"`
+	CommentID   string `json:"comment_id,omitempty"`
 	UploadedBy  string `json:"uploaded_by"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
@@ -34,6 +35,7 @@ func newAttachmentView(a store.Attachment) attachmentView {
 	return attachmentView{
 		ID:          a.ID,
 		IssueID:     a.IssueID,
+		CommentID:   a.CommentIDString(),
 		UploadedBy:  a.UploadedBy,
 		Filename:    a.Filename,
 		ContentType: a.ContentType,
@@ -49,7 +51,24 @@ func (s *Server) registerAttachmentRoutes(api chi.Router) {
 	api.Get("/api/issues/{id}/attachments", s.listAttachments)
 	api.Get("/api/attachments/{id}/download", s.downloadAttachment)
 	api.Get("/api/attachments/{id}/audit", s.listAttachmentAudit)
+	api.Post("/api/attachments/{id}/link-comment", s.linkAttachmentToComment)
 	api.Delete("/api/attachments/{id}", s.deleteAttachment)
+}
+
+func (s *Server) linkAttachmentToComment(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req struct {
+		CommentID string `json:"comment_id"`
+	}
+	if !decodeOptional(w, r, &req) {
+		return
+	}
+	if err := s.store.LinkAttachmentToComment(r.Context(), id, req.CommentID); err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	updated, err := s.store.GetAttachment(r.Context(), id)
+	respond(w, map[string]any{"attachment": newAttachmentView(updated)}, err, http.StatusOK)
 }
 
 func (s *Server) listAttachmentAudit(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +137,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	// dereference it.
 	created, err := s.store.CreateAttachment(r.Context(), store.CreateAttachmentInput{
 		IssueID:     issueID,
+		CommentID:   strings.TrimSpace(r.FormValue("comment_id")),
 		UploadedBy:  "user",
 		Filename:    filename,
 		ContentType: contentType,
