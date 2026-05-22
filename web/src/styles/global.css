@@ -3459,3 +3459,60 @@ button.quick-action {
 .attachment-row__name:hover {
   text-decoration: underline;
 }
+
+/* ───────────────────────────── Chain summary panel ───────────────────────────── */
+
+.chain-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chain-summary-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chain-summary-row__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.chain-summary-row__id {
+  font-size: 0.78rem;
+  background: color-mix(in oklab, var(--muted-foreground) 14%, transparent);
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+}
+
+.chain-summary-row__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.4rem 1rem;
+  margin: 0;
+}
+
+.chain-summary-row__stats div {
+  display: flex;
+  flex-direction: column;
+}
+
+.chain-summary-row__stats dt {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+}
+
+.chain-summary-row__stats dd {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+}

@@ -6,6 +6,7 @@ import { useAgentsQuery, useCommentsQuery, useRunEventsQuery, useRunsQuery, useS
 import type { Comment, IssueStatus, Run, RunEvent } from '../api/queries';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DateTimeText } from '../components/DateTimeText';
+import { ChainSummaryPanel } from '../components/ChainSummaryPanel';
 import { IssueAttachmentsPanel } from '../components/IssueAttachmentsPanel';
 import { IssueSummaryRail } from '../components/IssueSummaryRail';
 import { MarkdownText } from '../components/MarkdownText';
@@ -240,6 +241,8 @@ export function IssueDetailPage() {
               </Suspense>
             </article>
           ) : null}
+
+          <ChainSummaryPanel runs={runList} />
 
           {issue.data ? <IssueAttachmentsPanel issueID={issue.data.id} /> : null}
 
