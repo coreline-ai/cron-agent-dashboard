@@ -12,7 +12,7 @@ func TestAllocateRunWorktreeCreatesIsolatedDirectoryAndCleansUp(t *testing.T) {
 	const slug = "demo-studio"
 	const runID = "11111111-2222-3333-4444-555555555555"
 
-	path, cleanup, err := AllocateRunWorktree(dataDir, slug, runID)
+	path, cleanup, err := AllocateRunWorktree(dataDir, slug, runID, "")
 	if err != nil {
 		t.Fatalf("allocate: %v", err)
 	}
@@ -41,14 +41,14 @@ func TestAllocateRunWorktreeCreatesIsolatedDirectoryAndCleansUp(t *testing.T) {
 
 func TestAllocateRunWorktreeIsIdempotentBeforeCleanup(t *testing.T) {
 	dataDir := t.TempDir()
-	first, _, err := AllocateRunWorktree(dataDir, "ws", "run-1")
+	first, _, err := AllocateRunWorktree(dataDir, "ws", "run-1", "")
 	if err != nil {
 		t.Fatalf("first allocate: %v", err)
 	}
 	if f, err := os.Create(filepath.Join(first, "scratch.txt")); err == nil {
 		f.Close()
 	}
-	second, cleanup, err := AllocateRunWorktree(dataDir, "ws", "run-1")
+	second, cleanup, err := AllocateRunWorktree(dataDir, "ws", "run-1", "")
 	if err != nil {
 		t.Fatalf("second allocate: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestAllocateRunWorktreeRejectsEmptyInputs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, _, err := AllocateRunWorktree(c.dataDir, c.slug, c.runID)
+			_, _, err := AllocateRunWorktree(c.dataDir, c.slug, c.runID, "")
 			if !errors.Is(err, ErrWorktreeInvalidInput) {
 				t.Fatalf("expected ErrWorktreeInvalidInput, got %v", err)
 			}

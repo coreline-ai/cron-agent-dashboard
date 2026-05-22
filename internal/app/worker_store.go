@@ -87,7 +87,10 @@ func (ws *WorkerStore) ClaimNextRun(ctx context.Context, workerID string) (*work
 	// without trampling on each other's working directory. Cleanup happens
 	// in FinishRun (success / failure / cancel).
 	if workspace.PerRunWorktree && ws.dataDir != "" {
-		worktreePath, _, err := AllocateRunWorktree(ws.dataDir, workspace.Slug, run.ID)
+		// Pass workingDir so AllocateRunWorktree can use `git worktree add`
+		// when working_dir is a git repository, isolating the run on a
+		// detached HEAD without sharing index state with sibling claims.
+		worktreePath, _, err := AllocateRunWorktree(ws.dataDir, workspace.Slug, run.ID, workingDir)
 		if err != nil {
 			return ws.cancelClaimed(ctx, run.ID, err)
 		}
@@ -194,9 +197,12 @@ func (ws *WorkerStore) FinishRun(ctx context.Context, runID string, result worke
 }
 
 // cleanupWorktreeIfOptedIn removes the run's per_run_worktree directory when
-// the workspace opted in. Failures are warn-only — the run is already
-// terminal at this point and the worktree path lives under data-dir, so the
-// maintenance routine can sweep it up later if RemoveAll trips on EBUSY.
+// the workspace opted in. When working_dir is a git repository, the cleanup
+// also runs `git worktree remove --force <path>` so the parent repo's
+// worktree registry stays in sync. Failures are warn-only — the run is
+// already terminal at this point and the worktree path lives under data-dir,
+// so the maintenance routine can sweep it up later if RemoveAll trips on
+// EBUSY.
 func (ws *WorkerStore) cleanupWorktreeIfOptedIn(ctx context.Context, runID string) {
 	if ws.dataDir == "" {
 		return
@@ -214,6 +220,10 @@ func (ws *WorkerStore) cleanupWorktreeIfOptedIn(ctx context.Context, runID strin
 		return
 	}
 	path := filepath.Join(ws.dataDir, "worktrees", workspace.Slug, runID)
+	if shouldUseGitWorktree(workspace.WorkingDir) {
+		_ = makeGitWorktreeCleanup(workspace.WorkingDir, path)()
+		return
+	}
 	if err := os.RemoveAll(path); err != nil {
 		slog.Default().Warn("per_run_worktree cleanup failed", "run_id", runID, "path", path, "error", err)
 	}
