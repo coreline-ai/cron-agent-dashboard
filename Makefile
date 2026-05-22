@@ -3,7 +3,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 VERSION ?= 0.1.0
 LDFLAGS ?= -s -w -X github.com/coreline-ai/cron-agent-dashboard/internal/httpapi.Version=$(VERSION)
 
-.PHONY: install test build web-build prepare-static release-build e2e-smoke e2e-full screenshots verify-clean-clone check run tidy clean
+.PHONY: install test build web-build prepare-static release-build release-smoke e2e-smoke e2e-full screenshots verify-clean-clone check run tidy clean
 
 install:
 	pnpm install --frozen-lockfile --ignore-scripts
@@ -27,6 +27,9 @@ release-build: web-build prepare-static
 	for target in $(PLATFORMS); do \
 		GOOS=$${target%/*} GOARCH=$${target#*/} go build -trimpath -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-$${target%/*}-$${target#*/} ./cmd/cron-agent-dashboard; \
 	done
+
+release-smoke: build
+	./scripts/release-smoke.sh ./$(BINARY)
 
 e2e-smoke: build
 	pnpm exec playwright test --config playwright.config.ts tests/e2e/smoke.spec.ts

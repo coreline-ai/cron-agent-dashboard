@@ -1,0 +1,51 @@
+# Homebrew formula template for cron-agent-dashboard.
+#
+# This file is a TEMPLATE. To ship a real tap, copy it into
+# `Formula/cron-agent-dashboard.rb` of your tap repository (e.g.
+# `coreline-ai/homebrew-tap`), replace the {{VERSION}} / {{SHA256_*}}
+# placeholders for each artifact, and commit. Each release rebuilds the
+# sha256 sums via the Release workflow's SHA256SUMS file:
+#
+#   curl -sSL \
+#     https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/SHA256SUMS \
+#     | awk '{ print $1 " " $2 }'
+#
+# The artifact names match the release-build target in the project Makefile
+# (`cron-agent-dashboard-<os>-<arch>`), so no rename step is needed.
+class CronAgentDashboard < Formula
+  desc "Single-binary local AI agent task tracker (Go + React)"
+  homepage "https://github.com/coreline-ai/cron-agent-dashboard"
+  version "{{VERSION}}"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-darwin-arm64"
+      sha256 "{{SHA256_DARWIN_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-darwin-amd64"
+      sha256 "{{SHA256_DARWIN_AMD64}}"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-linux-arm64"
+      sha256 "{{SHA256_LINUX_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-linux-amd64"
+      sha256 "{{SHA256_LINUX_AMD64}}"
+    end
+  end
+
+  def install
+    bin.install Dir["cron-agent-dashboard-*"].first => "cron-agent-dashboard"
+  end
+
+  test do
+    assert_match "cron-agent-dashboard #{version}",
+                 shell_output("#{bin}/cron-agent-dashboard --version")
+  end
+end

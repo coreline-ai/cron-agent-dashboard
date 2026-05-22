@@ -57,6 +57,19 @@ jobs:
       - name: Build release artifacts
         run: make release-build VERSION=${{ steps.version.outputs.value }}
 
+      - name: Release artifact smoke
+        run: |
+          # Verify the host-architecture binary at least runs --version and
+          # the serve --help still lists the core flags before publishing.
+          arch=$(uname -m)
+          case "${arch}" in
+            x86_64) suffix=linux-amd64 ;;
+            aarch64|arm64) suffix=linux-arm64 ;;
+            *) echo "release-smoke: unsupported arch ${arch}" >&2; exit 1 ;;
+          esac
+          chmod +x dist/cron-agent-dashboard-${suffix}
+          ./scripts/release-smoke.sh dist/cron-agent-dashboard-${suffix}
+
       - name: Generate checksums
         run: |
           cd dist

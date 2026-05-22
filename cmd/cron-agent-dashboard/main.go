@@ -31,6 +31,15 @@ func main() {
 
 	cmd := "serve"
 	args := os.Args[1:]
+	// Surface the linker-injected version (httpapi.Version) so release
+	// pipelines can sanity-check the binary without booting the database.
+	if len(args) > 0 {
+		switch args[0] {
+		case "--version", "-v", "version":
+			fmt.Printf("cron-agent-dashboard %s\n", httpapi.Version)
+			return
+		}
+	}
 	if len(args) > 0 && args[0] != "--help" && args[0] != "-h" && args[0][0] != '-' {
 		cmd = args[0]
 		args = args[1:]
