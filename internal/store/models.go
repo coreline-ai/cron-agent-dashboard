@@ -363,6 +363,7 @@ type Webhook struct {
 	EventsJSON  string   `db:"events_json" json:"-"`
 	Events      []string `db:"-" json:"events"`
 	Enabled     bool     `db:"enabled" json:"enabled"`
+	MaskPII     bool     `db:"mask_pii" json:"mask_pii"`
 	CreatedAt   string   `db:"created_at" json:"created_at"`
 	UpdatedAt   string   `db:"updated_at" json:"updated_at"`
 }
@@ -421,6 +422,7 @@ type UpsertWebhookInput struct {
 	Secret  string   `json:"secret"`
 	Events  []string `json:"events"`
 	Enabled *bool    `json:"enabled"`
+	MaskPII *bool    `json:"mask_pii"`
 }
 
 type UpsertSkillInput struct {

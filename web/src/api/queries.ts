@@ -344,6 +344,7 @@ export type Webhook = {
   has_secret: boolean;
   events: string[];
   enabled: boolean;
+  mask_pii: boolean;
   created_at: string;
   updated_at: string;
 };

@@ -22,7 +22,7 @@ var KnownWebhookEvents = []string{
 	"issue.cancelled",
 }
 
-const webhookSelectBase = `SELECT id,workspace_id,url,secret,events_json,enabled,created_at,updated_at FROM webhook`
+const webhookSelectBase = `SELECT id,workspace_id,url,secret,events_json,enabled,mask_pii,created_at,updated_at FROM webhook`
 
 // CreateWebhook registers a new webhook subscription for a workspace.
 func (s *Store) CreateWebhook(ctx context.Context, workspaceID string, in UpsertWebhookInput) (Webhook, error) {
@@ -33,6 +33,10 @@ func (s *Store) CreateWebhook(ctx context.Context, workspaceID string, in Upsert
 	if err != nil {
 		return Webhook{}, err
 	}
+	maskPII := false
+	if in.MaskPII != nil {
+		maskPII = *in.MaskPII
+	}
 	t := now()
 	w := Webhook{
 		ID:          newID(),
@@ -41,12 +45,13 @@ func (s *Store) CreateWebhook(ctx context.Context, workspaceID string, in Upsert
 		Secret:      in.Secret,
 		EventsJSON:  eventsJSON,
 		Enabled:     enabled,
+		MaskPII:     maskPII,
 		CreatedAt:   t,
 		UpdatedAt:   t,
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO webhook(id,workspace_id,url,secret,events_json,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
-		w.ID, w.WorkspaceID, w.URL, w.Secret, w.EventsJSON, boolInt(w.Enabled), t, t,
+		`INSERT INTO webhook(id,workspace_id,url,secret,events_json,enabled,mask_pii,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		w.ID, w.WorkspaceID, w.URL, w.Secret, w.EventsJSON, boolInt(w.Enabled), boolInt(w.MaskPII), t, t,
 	); err != nil {
 		return Webhook{}, normalizeErr(err)
 	}
@@ -91,9 +96,13 @@ func (s *Store) UpdateWebhook(ctx context.Context, id string, in UpsertWebhookIn
 	if err != nil {
 		return Webhook{}, err
 	}
+	maskPII := existing.MaskPII
+	if in.MaskPII != nil {
+		maskPII = *in.MaskPII
+	}
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE webhook SET url=?,secret=?,events_json=?,enabled=?,updated_at=? WHERE id=?`,
-		normalizedURL, in.Secret, eventsJSON, boolInt(enabled), now(), existing.ID,
+		`UPDATE webhook SET url=?,secret=?,events_json=?,enabled=?,mask_pii=?,updated_at=? WHERE id=?`,
+		normalizedURL, in.Secret, eventsJSON, boolInt(enabled), boolInt(maskPII), now(), existing.ID,
 	); err != nil {
 		return Webhook{}, normalizeErr(err)
 	}
@@ -155,9 +164,15 @@ func (s *Store) EnqueueWebhookDeliveries(ctx context.Context, tx *sqlx.Tx, works
 		if !webhookEventMatches(hooks[i].Events, eventType) {
 			continue
 		}
+		// Per-subscription mask: each delivery row holds its own payload so
+		// the dispatcher can sign whatever this webhook will actually receive.
+		body := payload
+		if hooks[i].MaskPII {
+			body = maskPIIBytes(payload)
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO webhook_delivery(id,webhook_id,event_type,payload_json,status,next_attempt_at,created_at) VALUES(?,?,?,?, 'pending', ?, ?)`,
-			newID(), hooks[i].ID, eventType, string(payload), t, t,
+			newID(), hooks[i].ID, eventType, string(body), t, t,
 		); err != nil {
 			return queued, normalizeErr(err)
 		}

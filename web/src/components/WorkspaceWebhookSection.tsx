@@ -21,6 +21,7 @@ export function WorkspaceWebhookSection({ workspace }: WorkspaceWebhookSectionPr
   const [url, setUrl] = useState('');
   const [secret, setSecret] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [maskPII, setMaskPII] = useState(false);
   const [error, setError] = useState('');
 
   const create = useMutation({
@@ -28,12 +29,14 @@ export function WorkspaceWebhookSection({ workspace }: WorkspaceWebhookSectionPr
       apiClient.post(`/workspaces/${workspace.slug}/webhooks`, {
         url,
         secret,
-        events: Array.from(selected)
+        events: Array.from(selected),
+        mask_pii: maskPII
       }),
     onSuccess: () => {
       setUrl('');
       setSecret('');
       setSelected(new Set());
+      setMaskPII(false);
       setError('');
       queryClient.invalidateQueries({ queryKey: ['webhooks', workspace.slug] });
     },
@@ -110,6 +113,14 @@ export function WorkspaceWebhookSection({ workspace }: WorkspaceWebhookSectionPr
             </label>
           ))}
         </div>
+        <label className="webhook-section__event">
+          <input
+            type="checkbox"
+            checked={maskPII}
+            onChange={(e) => setMaskPII(e.target.checked)}
+          />
+          <span>payload에서 이메일/전화 PII 마스킹</span>
+        </label>
         <button className="button secondary" type="submit" disabled={create.isPending}>
           {create.isPending ? '추가 중' : 'Webhook 추가'}
         </button>
@@ -146,6 +157,7 @@ function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void })
         <div className="webhook-row__url">
           <code>{hook.url}</code>
           {hook.has_secret && <span className="badge">서명 사용</span>}
+          {hook.mask_pii && <span className="badge">PII 마스킹</span>}
           {hook.enabled ? null : <span className="badge muted">비활성</span>}
         </div>
         <button className="button danger ghost" type="button" onClick={onDelete}>

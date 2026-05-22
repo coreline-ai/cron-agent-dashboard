@@ -20,6 +20,7 @@ type webhookView struct {
 	HasSecret   bool     `json:"has_secret"`
 	Events      []string `json:"events"`
 	Enabled     bool     `json:"enabled"`
+	MaskPII     bool     `json:"mask_pii"`
 	CreatedAt   string   `json:"created_at"`
 	UpdatedAt   string   `json:"updated_at"`
 }
@@ -32,6 +33,7 @@ func newWebhookView(w store.Webhook) webhookView {
 		HasSecret:   w.Secret != "",
 		Events:      w.Events,
 		Enabled:     w.Enabled,
+		MaskPII:     w.MaskPII,
 		CreatedAt:   w.CreatedAt,
 		UpdatedAt:   w.UpdatedAt,
 	}

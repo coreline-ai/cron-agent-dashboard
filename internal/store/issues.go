@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/jmoiron/sqlx"
 	"strings"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // issueExecutionStatusExpr is the SQL fragment that derives the
@@ -293,11 +295,62 @@ func (s *Store) UpdateIssue(ctx context.Context, id string, in UpdateIssueInput)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO comment(id,issue_id,author_type,content,created_at) VALUES(?,?,'system','이슈가 취소되었습니다',?)`, newID(), id, t); err != nil {
 			return Issue{}, normalizeErr(err)
 		}
+		if err := s.enqueueIssueCancelledWebhookTx(ctx, tx, iss.WorkspaceID, id, title, t); err != nil {
+			return Issue{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Issue{}, err
 	}
 	return s.GetIssue(ctx, id)
+}
+
+// enqueueIssueCancelledWebhookTx fans out an "issue.cancelled" delivery for
+// every subscription that opted into the event. The payload mirrors the
+// schema used by enqueueRunLifecycleWebhookTx (workspace + issue) but
+// without a run block — the cancellation might preempt queued runs en masse,
+// none of which are the "trigger" for the event.
+func (s *Store) enqueueIssueCancelledWebhookTx(ctx context.Context, tx *sqlx.Tx, workspaceID, issueID, issueTitle, occurredAt string) error {
+	var ws struct {
+		ID   string `db:"id"`
+		Slug string `db:"slug"`
+		Name string `db:"name"`
+	}
+	if err := tx.QueryRowxContext(ctx,
+		`SELECT id, slug, name FROM workspace WHERE id=?`, workspaceID,
+	).Scan(&ws.ID, &ws.Slug, &ws.Name); err != nil {
+		return normalizeErr(err)
+	}
+	var issue struct {
+		ID         string `db:"id"`
+		Identifier string `db:"identifier"`
+	}
+	if err := tx.QueryRowxContext(ctx,
+		`SELECT id, identifier FROM issue WHERE id=?`, issueID,
+	).Scan(&issue.ID, &issue.Identifier); err != nil {
+		return normalizeErr(err)
+	}
+	payload := map[string]any{
+		"event":       "issue.cancelled",
+		"occurred_at": occurredAt,
+		"workspace": map[string]any{
+			"id":   ws.ID,
+			"slug": ws.Slug,
+			"name": ws.Name,
+		},
+		"issue": map[string]any{
+			"id":         issue.ID,
+			"identifier": issue.Identifier,
+			"title":      issueTitle,
+			"status":     "cancelled",
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.EnqueueWebhookDeliveries(ctx, tx, ws.ID, "issue.cancelled", body)
+	return err
 }
 
 func (s *Store) DeleteIssue(ctx context.Context, id string) error {
