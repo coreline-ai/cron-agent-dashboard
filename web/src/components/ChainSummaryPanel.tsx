@@ -1,3 +1,5 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '../api/client';
 import type { Run } from '../api/queries';
 import { summarizeChains, type ChainSummary } from '../lib/chainSummary';
 import { StatusPill } from './StatusPill';
@@ -18,7 +20,7 @@ function shortDate(value?: string): string {
   return value.slice(0, 19).replace('T', ' ');
 }
 
-export function ChainSummaryPanel({ runs }: { runs: Run[] }) {
+export function ChainSummaryPanel({ runs, issueID }: { runs: Run[]; issueID?: string }) {
   if (!runs.length) {
     return null;
   }
@@ -39,7 +41,7 @@ export function ChainSummaryPanel({ runs }: { runs: Run[] }) {
       <ul className="chain-summary-list">
         {summaries.map((s) => (
           <li key={s.chainID}>
-            <ChainSummaryRow summary={s} />
+            <ChainSummaryRow summary={s} issueID={issueID} />
           </li>
         ))}
       </ul>
@@ -47,13 +49,40 @@ export function ChainSummaryPanel({ runs }: { runs: Run[] }) {
   );
 }
 
-function ChainSummaryRow({ summary }: { summary: ChainSummary }) {
+function ChainSummaryRow({ summary, issueID }: { summary: ChainSummary; issueID?: string }) {
+  const queryClient = useQueryClient();
+  const cancelChain = useMutation({
+    mutationFn: () => apiClient.post(`/runs/chain/${summary.chainID}/cancel`, {}),
+    onSuccess: () => {
+      if (issueID) {
+        queryClient.invalidateQueries({ queryKey: ['issue', issueID] });
+        queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
+        queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
+      }
+    }
+  });
+  const isCancellable =
+    summary.lastStatus === 'queued' || summary.lastStatus === 'running';
   return (
     <div className="chain-summary-row">
       <div className="chain-summary-row__head">
         <code className="chain-summary-row__id">chain {summary.chainID.slice(0, 8)}</code>
         {summary.lastStatus ? <StatusPill kind="run" status={summary.lastStatus as never} /> : null}
         {summary.lastAgentName ? <span className="muted-copy">@{summary.lastAgentName}</span> : null}
+        {isCancellable ? (
+          <button
+            type="button"
+            className="button danger ghost chain-summary-row__cancel"
+            onClick={() => {
+              if (window.confirm('이 체인의 모든 queued/running run을 취소할까요?')) {
+                cancelChain.mutate();
+              }
+            }}
+            disabled={cancelChain.isPending}
+          >
+            {cancelChain.isPending ? '취소 중' : '체인 취소'}
+          </button>
+        ) : null}
       </div>
       <dl className="chain-summary-row__stats">
         <div>

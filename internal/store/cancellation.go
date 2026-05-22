@@ -145,6 +145,82 @@ func (s *Store) CancelRunWithReason(ctx context.Context, runID string, reason Ca
 	return s.GetRun(ctx, r.ID)
 }
 
+// CancelRunsByChain cancels every queued / running run that shares the given
+// chain_id. Already-terminal rows (done / failed / cancelled / completed) are
+// silently skipped so a partial chain that has finished does not raise
+// ErrState. Returns the number of rows it actually cancelled.
+//
+// Cancellation reason defaults to ('issue_cancelled', 'user') because the
+// operator initiates this from the chain summary panel; a richer per-row
+// reason classification (e.g. distinguishing chain-issued vs. user-issued)
+// is intentionally out of scope.
+func (s *Store) CancelRunsByChain(ctx context.Context, chainID string, reason CancelReasonInput) (int, error) {
+	if strings.TrimSpace(chainID) == "" {
+		return 0, ErrValidation
+	}
+	reason = normalizeCancelReason(reason)
+	if reason.Message == "" {
+		reason.Message = "Run cancelled because chain was cancelled"
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var rows []struct {
+		ID      string `db:"id"`
+		IssueID string `db:"issue_id"`
+	}
+	if err := tx.SelectContext(ctx, &rows,
+		`SELECT id, issue_id FROM run WHERE chain_id=? AND status IN ('queued','running') ORDER BY enqueued_at ASC`,
+		chainID,
+	); err != nil {
+		return 0, normalizeErr(err)
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	t := now()
+	cancelled := 0
+	for _, row := range rows {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE run SET status='cancelled', finished_at=?, exit_code=-1, error_message=?, terminal_reason=?, cancel_reason=? WHERE id=? AND status IN ('queued','running')`,
+			t, reason.Message, reason.TerminalReason, reason.CancelReason, row.ID,
+		)
+		if err != nil {
+			return cancelled, normalizeErr(err)
+		}
+		aff, _ := res.RowsAffected()
+		if aff == 0 {
+			continue
+		}
+		cancelled++
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO comment(id,issue_id,author_type,run_id,content,created_at) VALUES(?,?,'system',?,?,?)`,
+			newID(), row.IssueID, row.ID, cancelComment(reason), t,
+		); err != nil {
+			return cancelled, normalizeErr(err)
+		}
+		if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+			RunID:     row.ID,
+			IssueID:   row.IssueID,
+			EventType: RunEventCancelled,
+			Message:   "Run cancelled because chain was cancelled",
+			Details: map[string]any{
+				"chain_id":        chainID,
+				"terminal_reason": reason.TerminalReason,
+				"cancel_reason":   reason.CancelReason,
+			},
+		}); err != nil {
+			return cancelled, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return cancelled, nil
+}
+
 func (s *Store) RecoverOrphanRuns(ctx context.Context) (int64, error) {
 	var ids []struct {
 		ID      string `db:"id"`

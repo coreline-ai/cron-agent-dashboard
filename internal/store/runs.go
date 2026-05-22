@@ -47,6 +47,18 @@ func (s *Store) GetRun(ctx context.Context, id string) (Run, error) {
 	return r, nil
 }
 
+// ListRunsByChain returns every run sharing the given chain_id, ordered by
+// enqueue time. The HTTP cancel-chain handler reads the result to know
+// which still-running rows need a worker-side kill via RunCanceller in
+// addition to the store-side status update.
+func (s *Store) ListRunsByChain(ctx context.Context, chainID string) ([]Run, error) {
+	var xs []Run
+	if err := s.db.SelectContext(ctx, &xs, runSelectBase+` WHERE r.chain_id=? ORDER BY r.enqueued_at ASC, r.id ASC`, chainID); err != nil {
+		return nil, normalizeErr(err)
+	}
+	return xs, nil
+}
+
 func (s *Store) ListRuns(ctx context.Context, issueID string) ([]Run, error) {
 	var out []Run
 	err := s.db.SelectContext(ctx, &out, runSelectBase+` WHERE r.issue_id=? ORDER BY r.enqueued_at ASC`, issueID)

@@ -242,7 +242,7 @@ export function IssueDetailPage() {
             </article>
           ) : null}
 
-          <ChainSummaryPanel runs={runList} />
+          <ChainSummaryPanel runs={runList} issueID={issue.data?.id} />
 
           {issue.data ? <IssueAttachmentsPanel issueID={issue.data.id} /> : null}
 

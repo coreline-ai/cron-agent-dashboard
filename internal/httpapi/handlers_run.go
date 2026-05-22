@@ -5,12 +5,38 @@ import (
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
 )
 
 func (s *Server) registerRunRoutes(api chi.Router) {
 	api.Get("/api/issues/{id}/runs", s.listRuns)
 	api.Get("/api/runs/{id}/events", s.listRunEvents)
 	api.Get("/api/runs/{id}/log", s.runLog)
+	api.Post("/api/runs/chain/{chain}/cancel", s.cancelChain)
+}
+
+func (s *Server) cancelChain(w http.ResponseWriter, r *http.Request) {
+	chainID := chi.URLParam(r, "chain")
+	// Wake the worker pool first for any in-flight run on this chain so the
+	// process group exits before the store marks the row cancelled. Failures
+	// here are non-fatal — the store sweep below still cancels the row.
+	if s.runCanceller != nil {
+		runs, listErr := s.store.ListRunsByChain(r.Context(), chainID)
+		if listErr == nil {
+			for _, run := range runs {
+				if run.Status == "running" {
+					s.runCanceller.CancelRun(run.ID)
+				}
+			}
+		}
+	}
+	cancelled, err := s.store.CancelRunsByChain(r.Context(), chainID, store.CancelReasonInput{
+		Message:        "user cancelled the chain",
+		TerminalReason: store.TerminalReasonUserCancelled,
+		CancelReason:   store.CancelReasonUser,
+	})
+	respond(w, map[string]any{"chain_id": chainID, "cancelled": cancelled}, err, http.StatusOK)
 }
 
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
