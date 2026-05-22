@@ -59,6 +59,27 @@ func (s *Store) ListRunsByChain(ctx context.Context, chainID string) ([]Run, err
 	return xs, nil
 }
 
+// ListRecentRunsByWorkspace returns the most recent runs across every issue
+// in the workspace, newest first. The workspace chain dashboard groups the
+// flat result client-side to render per-chain summaries; we cap at `limit`
+// rows to keep the JSON small (the dashboard does not need older history).
+func (s *Store) ListRecentRunsByWorkspace(ctx context.Context, workspaceID string, limit int) ([]Run, error) {
+	if strings.TrimSpace(workspaceID) == "" {
+		return nil, ErrValidation
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 1000
+	}
+	var xs []Run
+	if err := s.db.SelectContext(ctx, &xs,
+		runSelectBase+` JOIN issue iws ON iws.id = r.issue_id WHERE iws.workspace_id=? ORDER BY r.enqueued_at DESC, r.id DESC LIMIT ?`,
+		workspaceID, limit,
+	); err != nil {
+		return nil, normalizeErr(err)
+	}
+	return xs, nil
+}
+
 func (s *Store) ListRuns(ctx context.Context, issueID string) ([]Run, error) {
 	var out []Run
 	err := s.db.SelectContext(ctx, &out, runSelectBase+` WHERE r.issue_id=? ORDER BY r.enqueued_at ASC`, issueID)

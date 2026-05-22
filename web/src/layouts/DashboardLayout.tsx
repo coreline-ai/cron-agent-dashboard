@@ -102,12 +102,14 @@ export function DashboardLayout() {
     ? [
         { to: `/w/${currentSlug}/board`, label: '이슈 보드', hint: currentWorkspace?.identifier_prefix ?? 'Issues' },
         { to: `/w/${currentSlug}/agents`, label: '에이전트', hint: `${currentWorkspace?.agent_count ?? 0} agents` },
-        { to: `/w/${currentSlug}/autopilot`, label: '오토파일럿', hint: 'Cron' }
+        { to: `/w/${currentSlug}/autopilot`, label: '오토파일럿', hint: 'Cron' },
+        { to: `/w/${currentSlug}/chains`, label: '체인 대시보드', hint: 'Auto-chain' }
       ]
     : [
         { to: '#', label: '이슈 보드', hint: '워크스페이스 필요', disabled: true },
         { to: '#', label: '에이전트', hint: '워크스페이스 필요', disabled: true },
-        { to: '#', label: '오토파일럿', hint: '워크스페이스 필요', disabled: true }
+        { to: '#', label: '오토파일럿', hint: '워크스페이스 필요', disabled: true },
+        { to: '#', label: '체인 대시보드', hint: '워크스페이스 필요', disabled: true }
       ];
   const nextTheme = theme === 'dark' ? 'light' : 'dark';
 

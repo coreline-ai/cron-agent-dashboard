@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"path/filepath"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -15,6 +16,40 @@ func (s *Server) registerRunRoutes(api chi.Router) {
 	api.Get("/api/runs/{id}/log", s.runLog)
 	api.Post("/api/runs/chain/{chain}/cancel", s.cancelChain)
 	api.Post("/api/runs/chain/{chain}/retry", s.retryChain)
+	api.Get("/api/workspaces/{workspace}/runs", s.listWorkspaceRuns)
+}
+
+// listWorkspaceRuns serves the workspace-wide chain dashboard. The handler
+// returns up to `limit` recent runs (default 500, capped at 5000) so the
+// browser can group them client-side via summarizeChains.
+func (s *Server) listWorkspaceRuns(w http.ResponseWriter, r *http.Request) {
+	ws, _, err := s.store.GetWorkspace(r.Context(), chi.URLParam(r, "workspace"))
+	if err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	limit := 500
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconvAtoiPositive(raw); err == nil {
+			limit = n
+		}
+	}
+	runs, err := s.store.ListRecentRunsByWorkspace(r.Context(), ws.ID, limit)
+	respond(w, map[string]any{"runs": runs}, err, http.StatusOK)
+}
+
+// strconvAtoiPositive parses a positive int; returns an error for any other
+// input. Locally scoped to this file so we do not collide with usage
+// elsewhere in the package.
+func strconvAtoiPositive(raw string) (int, error) {
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, http.ErrAbortHandler
+	}
+	return n, nil
 }
 
 // retryChain finds the most recent failed run in the chain and enqueues a
