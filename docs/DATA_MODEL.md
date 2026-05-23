@@ -2,7 +2,7 @@
 
 > SQLite 스키마 상세
 > Version: 0.1
-> Date: 2026-05-11
+> Date: 2026-05-23
 
 ---
 
@@ -15,7 +15,7 @@
 - DDL의 DEFAULT는 호환을 위해 `datetime('now')`로 두되, 애플리케이션 INSERT 시 명시적으로 RFC3339 값 전달
 - 마이그레이션: forward-only, `internal/db/migrations/NNNN_*.sql`
 
-총 **10 테이블** + 메타 테이블.
+총 **17 테이블**(운영 14 + 메타 3) 기준. 마이그레이션은 `0014~0024`까지 Phase 2/운영 확장을 누적한다.
 
 | 테이블 | 행 수 예상 | 목적 |
 |---|---|---|
@@ -25,10 +25,17 @@
 | `comment` | 이슈당 2~20 | 결과/사용자 메시지 |
 | `run` | 이슈당 1~3 | 실행 audit |
 | `autopilot_rule` | 워크스페이스당 0~5 | cron 자동화 |
-| `schema_migrations` | (메타) | 마이그레이션 이력 |
-| `schema_migration_failures` | (메타) | 실패한 마이그레이션 이력 |
+| `run_event` | run당 5~50 | 실행 lifecycle audit timeline |
+| `agent_instruction_version` | agent당 1~N | instructions 변경 이력 |
 | `skill` | 워크스페이스당 0~50 | `SKILL.md` 호환 재사용 지침 registry |
 | `agent_skill` | 에이전트당 0~20 | 에이전트별 skill 할당/활성화 정책 |
+| `webhook` | 워크스페이스당 0~20 | outbound webhook subscription |
+| `webhook_delivery` | webhook당 누적 N | delivery attempt/dead-letter 이력 |
+| `attachment` | 이슈당 0~N | 첨부 파일 metadata |
+| `attachment_audit` | 첨부당 누적 N | upload/download audit |
+| `schema_migrations` | (메타) | 마이그레이션 이력 |
+| `schema_migration_failures` | (메타) | 실패한 마이그레이션 이력 |
+| `system_state` | (메타) | maintenance/reporting key-value |
 
 ---
 
@@ -267,8 +274,8 @@ CREATE TABLE run (
   stdout_path    TEXT,                             -- runs/<run-id>.log (백엔드 내부용, API 응답에 노출 X)
   error_message  TEXT NOT NULL DEFAULT ''
   -- 참고: session_id / work_dir 컬럼 없음.
-  -- run은 stateless. cwd는 매번 workspace.working_dir 사용.
-  -- per-run worktree는 Phase 2 후보.
+  -- run은 stateless. 기본 cwd는 workspace.working_dir.
+  -- workspace.per_run_worktree=true이면 worker가 claim 시 run별 isolated cwd를 할당.
 );
 
 -- 큐 polling 최적화 (status='queued'인 행만 인덱스)
@@ -616,9 +623,9 @@ execution_status 도메인: `running | queued | done | failed | cancelled | idle
 
 **Phase 6 부팅 시 자가검진**:
 - [x] 워크스페이스마다 메인 에이전트 정확히 1개 (`startup self-check`에서 검증)
-- [ ] `issue.status='running'` 이슈는 진행 중 run (status='running') 보유
-- [ ] `comment.author_type='agent'` → `author_agent_id IS NOT NULL AND run_id IS NOT NULL`
-- [ ] run의 stdout_path 파일 존재 확인 (없으면 error_message에 "log file missing")
+- `issue.status='running'`은 존재하지 않는다. 진행 중 여부는 API `execution_status` derived field로만 표현한다.
+- `comment.author_type='agent'` → `author_agent_id IS NOT NULL AND run_id IS NOT NULL` 불변식은 write path에서 보장한다.
+- [x] run의 stdout_path 파일 존재 확인 — `Store.GetRunLogPath`가 `os.Stat`으로 파일 존재를 확인하고 누락이면 `ErrNotFound`를 반환해 `/api/runs/{id}/log`가 404로 surface. (디자인 변경: error_message 컬럼은 run 실행 실패용으로만 사용 — log-fetch 실패는 응답 코드로만 표현).
 
 ---
 
@@ -650,24 +657,33 @@ internal/db/migrations/
 ├── 0012_phase2_collaboration.sql
 ├── 0013_auto_chain_guards.sql
 ├── 0014_agent_instruction_history.sql
-└── 0015_agent_skills.sql
+├── 0015_agent_skills.sql
+├── 0016_workspace_auto_close.sql
+├── 0017_run_event_stdout_sanitized.sql
+├── 0018_workspace_per_run_worktree.sql
+├── 0019_webhook.sql
+├── 0020_issue_attachment.sql
+├── 0021_webhook_mask_pii.sql
+├── 0022_attachment_audit.sql
+├── 0023_system_state.sql
+└── 0024_attachment_comment.sql
 ```
 
-이후 변경은 `0016_*.sql` 등으로 누적. forward-only.
+이후 변경은 `0025_*.sql` 등으로 누적. forward-only.
 
 ### 0001_init.sql 핵심 포함 사항 체크리스트
-- [ ] `workspace.working_dir` 컬럼
-- [ ] `agent` 테이블에 `(workspace_id, lower(name))` UNIQUE INDEX
-- [ ] `issue.status` CHECK 제약: **`open | done | cancelled` 3개 값만**
-- [ ] `issue.created_by` CHECK: `user | autopilot` (mention 제외)
-- [ ] `issue.parent_issue_id` 컬럼 (Phase 2용 예약)
-- [ ] `idx_issue_workspace_identifier` 인덱스 (URL identifier 조회)
-- [ ] `run.status` CHECK: `queued | running | done | failed | cancelled`
-- [ ] `run.trigger_type` CHECK: `issue_created | mention | autopilot | rerun`
-- [ ] `run.trigger_comment_id / trigger_content_snapshot` 컬럼
-- [ ] `run.claimed_at / claimed_by / enqueued_at / started_at / finished_at` 컬럼
-- [ ] `run` partial 인덱스 3개: queue / per-issue running / **중복 queued 차단(UNIQUE)**
-- [ ] `comment.author_type` CHECK: `user | agent | system`
+- [x] `workspace.working_dir` 컬럼
+- [x] `agent` 테이블에 `(workspace_id, lower(name))` UNIQUE INDEX
+- [x] `issue.status` CHECK 제약: **`open | done | cancelled` 3개 값만**
+- [x] `issue.created_by` CHECK: `user | autopilot` (mention 제외)
+- [x] `issue.parent_issue_id` 컬럼 (Phase 2용 예약)
+- [x] `idx_issue_workspace_identifier` 인덱스 (URL identifier 조회)
+- [x] `run.status` CHECK: `queued | running | done | failed | cancelled`
+- [x] `run.trigger_type` CHECK: `issue_created | mention | autopilot | rerun`
+- [x] `run.trigger_comment_id / trigger_content_snapshot` 컬럼
+- [x] `run.claimed_at / claimed_by / enqueued_at / started_at / finished_at` 컬럼
+- [x] `run` partial 인덱스 3개: queue / per-issue running / **중복 queued 차단(UNIQUE)**
+- [x] `comment.author_type` CHECK: `user | agent | system`
 
 ---
 
@@ -691,15 +707,19 @@ cp ~/.cron-agent-dashboard/config.toml ~/backup/
 
 ---
 
-## 10. 향후 확장 (Phase 2+)
+## 10. 향후 확장 후보
 
-테이블 추가 후보:
-- `attachment` (issue_id, file_path, mime_type)
-- `webhook` (workspace_id, url, event, secret)
+이미 구현됨:
+- `attachment` / `attachment_audit`
+- `webhook` / `webhook_delivery`
+- `system_state`
+
+추가 후보:
 - `agent_token` (외부 봇 인증용)
 - `audit_log` (관리자 감사용 — 단일 사용자엔 비필수)
-
-지금은 추가하지 않음.
+- realtime event cursor / subscription state (SSE/WebSocket 도입 시)
+- worktree disk usage snapshot / GC state
+- workspace history import materialization state
 
 
 > 정책: `agent.model`은 사용자 선택값입니다. 빈 문자열은 runtime/CLI 기본 모델을 의미하며, 값이 있으면 해당 모델 ID를 adapter에 전달합니다.
