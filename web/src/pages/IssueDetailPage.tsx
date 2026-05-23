@@ -455,8 +455,50 @@ function RunHistoryCard({ run }: { run: Run }) {
           <pre>{message}</pre>
         </details>
       )}
+      <RunLiveLogPanel run={run} />
       <RunEventTimeline run={run} />
     </section>
+  );
+}
+
+// RunLiveLogPanel tails the run's stdout file via SSE while the run is
+// running. For terminal runs it still opens the stream (server sends the
+// final snapshot + done frame and closes), so the operator can read the
+// captured output inline without downloading the file. The panel stays
+// collapsed by default; opening it triggers the EventSource subscription.
+function RunLiveLogPanel({ run }: { run: Run }) {
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<string>('');
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!open) return undefined;
+    setLines('');
+    setDone(false);
+    const source = new EventSource(apiClient.url(`/runs/${run.id}/log/stream`));
+    const onChunk = (e: MessageEvent<string>) => {
+      setLines((prev) => prev + (prev && !prev.endsWith('\n') ? '\n' : '') + e.data);
+    };
+    const onDone = () => {
+      setDone(true);
+      source.close();
+    };
+    source.addEventListener('chunk', onChunk as EventListener);
+    source.addEventListener('done', onDone as EventListener);
+    return () => {
+      source.removeEventListener('chunk', onChunk as EventListener);
+      source.removeEventListener('done', onDone as EventListener);
+      source.close();
+    };
+  }, [open, run.id]);
+  return (
+    <details
+      className="run-live-log"
+      open={open}
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary>{run.status === 'running' ? '라이브 로그' : '실행 로그'}{done ? ' (스트림 종료)' : ''}</summary>
+      <pre className="run-live-log__pre">{lines || (open ? '대기 중...' : '')}</pre>
+    </details>
   );
 }
 

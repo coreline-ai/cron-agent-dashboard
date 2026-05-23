@@ -2261,6 +2261,31 @@ button.quick-action {
   margin-top: 0.9rem;
 }
 
+.run-live-log {
+  border-top: 1px solid var(--border);
+  padding-top: 0.55rem;
+}
+
+.run-live-log summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.run-live-log__pre {
+  margin: 0.5rem 0 0;
+  padding: 0.55rem 0.7rem;
+  max-height: 24rem;
+  overflow: auto;
+  background: var(--surface-muted);
+  border-radius: var(--radius);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .run-event-details {
   border-top: 1px solid var(--border);
   padding-top: 0.55rem;
