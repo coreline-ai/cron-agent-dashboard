@@ -69,3 +69,48 @@ jobs:
 
       - name: Browser smoke
         run: make e2e-smoke
+
+  e2e-full:
+    # Full Playwright suite. Runs in parallel with e2e-smoke but does not
+    # gate PRs yet — Track B of dev-plan/implement_20260523_092408.md is the
+    # promotion step; we leave continue-on-error true until the suite has
+    # stabilized on Linux runners.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.3'
+          cache: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser full suite
+        run: make e2e-full
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
