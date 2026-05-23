@@ -66,10 +66,10 @@ func TestAllocateRunWorktreeIsIdempotentBeforeCleanup(t *testing.T) {
 
 func TestAllocateRunWorktreeRejectsEmptyInputs(t *testing.T) {
 	cases := []struct {
-		name      string
-		dataDir   string
-		slug      string
-		runID     string
+		name    string
+		dataDir string
+		slug    string
+		runID   string
 	}{
 		{"empty data dir", "", "ws", "run"},
 		{"empty slug", "/tmp", "", "run"},

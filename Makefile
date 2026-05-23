@@ -3,7 +3,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 VERSION ?= 0.1.0
 LDFLAGS ?= -s -w -X github.com/coreline-ai/cron-agent-dashboard/internal/httpapi.Version=$(VERSION)
 
-.PHONY: install test build web-build prepare-static release-build release-smoke e2e-smoke e2e-full screenshots verify-clean-clone check run tidy clean
+.PHONY: install test build web-build prepare-static release-build release-smoke e2e-smoke e2e-full screenshots verify-clean-clone fmt-check check run tidy clean
 
 install:
 	pnpm install --frozen-lockfile --ignore-scripts
@@ -43,7 +43,15 @@ screenshots: build
 verify-clean-clone:
 	./scripts/verify-clean-clone.sh
 
-check: test web-build prepare-static
+fmt-check:
+	@out=$$(gofmt -l internal cmd); \
+	if [ -n "$$out" ]; then \
+		echo "gofmt drift in:"; echo "$$out"; \
+		echo "run 'gofmt -w internal cmd' to fix"; \
+		exit 1; \
+	fi
+
+check: fmt-check test web-build prepare-static
 	go build ./...
 
 run:

@@ -77,9 +77,9 @@ func ParseCodexJSONL(stdout string) (cleaned string, metrics RunMetrics, parsed 
 }
 
 type codexEnvelope struct {
-	Type  string         `json:"type"`
-	Item  *codexItem     `json:"item,omitempty"`
-	Usage *codexUsage    `json:"usage,omitempty"`
+	Type  string      `json:"type"`
+	Item  *codexItem  `json:"item,omitempty"`
+	Usage *codexUsage `json:"usage,omitempty"`
 }
 
 type codexItem struct {

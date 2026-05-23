@@ -14,16 +14,16 @@ import (
 // clients. PUT callers must supply the secret again to keep it; sending an
 // empty string clears it.
 type webhookView struct {
-	ID                   string   `json:"id"`
-	WorkspaceID          string   `json:"workspace_id"`
-	URL                  string   `json:"url"`
-	HasSecret            bool     `json:"has_secret"`
-	Events               []string `json:"events"`
-	Enabled              bool     `json:"enabled"`
-	MaskPII              bool     `json:"mask_pii"`
-	FailedDeliveryCount  int      `json:"failed_delivery_count"`
-	CreatedAt            string   `json:"created_at"`
-	UpdatedAt            string   `json:"updated_at"`
+	ID                  string   `json:"id"`
+	WorkspaceID         string   `json:"workspace_id"`
+	URL                 string   `json:"url"`
+	HasSecret           bool     `json:"has_secret"`
+	Events              []string `json:"events"`
+	Enabled             bool     `json:"enabled"`
+	MaskPII             bool     `json:"mask_pii"`
+	FailedDeliveryCount int      `json:"failed_delivery_count"`
+	CreatedAt           string   `json:"created_at"`
+	UpdatedAt           string   `json:"updated_at"`
 }
 
 func newWebhookView(w store.Webhook, failed int) webhookView {

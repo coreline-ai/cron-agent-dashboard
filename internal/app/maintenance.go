@@ -34,14 +34,14 @@ type MaintenanceConfig struct {
 }
 
 type MaintenanceReport struct {
-	BackupPath        string
-	BackupSizeBytes   int64
-	PrunedBackups     int
-	DeletedLogFiles   int
-	FreedLogBytes     int64
-	WorktreeBytes     int64
-	WorktreeDirCount  int64
-	PrunedWorktrees   int
+	BackupPath       string
+	BackupSizeBytes  int64
+	PrunedBackups    int
+	DeletedLogFiles  int
+	FreedLogBytes    int64
+	WorktreeBytes    int64
+	WorktreeDirCount int64
+	PrunedWorktrees  int
 }
 
 type MaintenanceRunner struct {

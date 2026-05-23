@@ -68,16 +68,16 @@ type AgentInstructionVersion struct {
 // the home Team Pulse widget can render at-a-glance state without pulling the
 // full run history for every issue. See Store.ListAgentActivity.
 type AgentActivity struct {
-	AgentID                string `db:"agent_id" json:"agent_id"`
-	AgentName              string `db:"agent_name" json:"agent_name"`
-	Runtime                string `db:"runtime" json:"runtime"`
-	IsMain                 bool   `db:"is_main" json:"is_main"`
-	LatestRunID            string `db:"latest_run_id" json:"latest_run_id,omitempty"`
-	LatestRunStatus        string `db:"latest_run_status" json:"latest_run_status,omitempty"`
-	LatestRunFinishedAt    string `db:"latest_run_finished_at" json:"latest_run_finished_at,omitempty"`
-	LatestRunEnqueuedAt    string `db:"latest_run_enqueued_at" json:"latest_run_enqueued_at,omitempty"`
-	LatestIssueID          string `db:"latest_issue_id" json:"latest_issue_id,omitempty"`
-	LatestIssueIdentifier  string `db:"latest_issue_identifier" json:"latest_issue_identifier,omitempty"`
+	AgentID               string `db:"agent_id" json:"agent_id"`
+	AgentName             string `db:"agent_name" json:"agent_name"`
+	Runtime               string `db:"runtime" json:"runtime"`
+	IsMain                bool   `db:"is_main" json:"is_main"`
+	LatestRunID           string `db:"latest_run_id" json:"latest_run_id,omitempty"`
+	LatestRunStatus       string `db:"latest_run_status" json:"latest_run_status,omitempty"`
+	LatestRunFinishedAt   string `db:"latest_run_finished_at" json:"latest_run_finished_at,omitempty"`
+	LatestRunEnqueuedAt   string `db:"latest_run_enqueued_at" json:"latest_run_enqueued_at,omitempty"`
+	LatestIssueID         string `db:"latest_issue_id" json:"latest_issue_id,omitempty"`
+	LatestIssueIdentifier string `db:"latest_issue_identifier" json:"latest_issue_identifier,omitempty"`
 }
 
 type Skill struct {
@@ -238,15 +238,15 @@ const (
 	CancelReasonOrphan   = "orphan"
 	CancelReasonStale    = "stale"
 
-	RunEventQueued        = "run_queued"
-	RunEventClaimed       = "run_claimed"
-	RunEventPrepareFailed = "run_prepare_failed"
-	RunEventStarting      = "executor_starting"
-	RunEventStdoutTrunc   = "stdout_truncated"
-	RunEventCancelRequest = "cancel_requested"
-	RunEventCancelled     = "run_cancelled"
-	RunEventCompleted     = "run_completed"
-	RunEventFailed        = "run_failed"
+	RunEventQueued          = "run_queued"
+	RunEventClaimed         = "run_claimed"
+	RunEventPrepareFailed   = "run_prepare_failed"
+	RunEventStarting        = "executor_starting"
+	RunEventStdoutTrunc     = "stdout_truncated"
+	RunEventCancelRequest   = "cancel_requested"
+	RunEventCancelled       = "run_cancelled"
+	RunEventCompleted       = "run_completed"
+	RunEventFailed          = "run_failed"
 	RunEventOrphan          = "orphan_recovered"
 	RunEventStale           = "stale_recovered"
 	RunEventSkillsLoaded    = "skills_loaded"
