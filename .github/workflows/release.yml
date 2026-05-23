@@ -75,6 +75,13 @@ jobs:
           cd dist
           sha256sum cron-agent-dashboard-* > SHA256SUMS
 
+      - name: Render Homebrew formula
+        run: |
+          ./scripts/render-homebrew-formula.sh \
+            ${{ steps.version.outputs.value }} \
+            dist/SHA256SUMS \
+            dist/cron-agent-dashboard.rb
+
       - name: Upload GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -85,3 +92,39 @@ jobs:
           files: |
             dist/cron-agent-dashboard-*
             dist/SHA256SUMS
+            dist/cron-agent-dashboard.rb
+
+      - name: Publish Homebrew tap (optional)
+        # Operator opt-in. Set the HOMEBREW_TAP_REPO secret to a repo path
+        # like "coreline-ai/homebrew-tap" and HOMEBREW_TAP_TOKEN to a PAT
+        # with `repo` scope. The step copies the rendered formula into the
+        # tap repo's Formula/ directory and opens a PR. When the secrets
+        # are absent the step is a no-op and the rendered formula stays in
+        # the release artifacts for manual publish.
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_REPO: ${{ secrets.HOMEBREW_TAP_REPO }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${HOMEBREW_TAP_REPO}" || -z "${GH_TOKEN}" ]]; then
+            echo "skipping homebrew tap publish: HOMEBREW_TAP_REPO/HOMEBREW_TAP_TOKEN secret not set"
+            exit 0
+          fi
+          version="${{ steps.version.outputs.value }}"
+          branch="bump-cron-agent-dashboard-${version}"
+          workdir="$(mktemp -d)"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" "${workdir}"
+          mkdir -p "${workdir}/Formula"
+          cp dist/cron-agent-dashboard.rb "${workdir}/Formula/cron-agent-dashboard.rb"
+          cd "${workdir}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${branch}"
+          git add Formula/cron-agent-dashboard.rb
+          git commit -m "cron-agent-dashboard ${version}"
+          git push -u origin "${branch}"
+          gh pr create \
+            --title "cron-agent-dashboard ${version}" \
+            --body "Automated bump for cron-agent-dashboard ${version}." \
+            --head "${branch}" \
+            --base main || true
