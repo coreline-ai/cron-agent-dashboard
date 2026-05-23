@@ -232,7 +232,15 @@ func serve(cfg config.Config, st *store.Store) error {
 	// Wire the in-process IssueEventBus so AppendRunEvent commits wake the
 	// SSE handler directly instead of relying on the keep-alive poll. The
 	// bus also drives the HTTP layer's optional WithIssueEventBus hook.
-	issueEventBus := app.NewIssueEventBus()
+	// The workspace resolver lets workspace-scoped subscribers (Run feed,
+	// chain dashboard) wake on any issue's event in the same workspace.
+	issueEventBus := app.NewIssueEventBus(app.WithWorkspaceResolver(func(issueID string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var workspaceID string
+		_ = st.DB().GetContext(ctx, &workspaceID, `SELECT workspace_id FROM issue WHERE id=?`, issueID)
+		return workspaceID
+	}))
 	st.SetRunEventNotifier(issueEventBus)
 
 	maintenance := app.NewMaintenanceRunner(st.DB(), app.MaintenanceConfig{

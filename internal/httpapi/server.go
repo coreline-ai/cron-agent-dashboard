@@ -35,6 +35,7 @@ type Server struct {
 // nil-safe fake.
 type IssueEventSubscriber interface {
 	Subscribe(issueID string) (<-chan struct{}, func())
+	SubscribeWorkspace(workspaceID string) (<-chan struct{}, func())
 }
 
 type RunCanceller interface {

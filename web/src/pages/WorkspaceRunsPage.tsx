@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { type Run, useAgentsQuery } from '../api/queries';
@@ -15,6 +15,7 @@ import { StatusPill } from '../components/StatusPill';
 // worked on this week, etc.).
 export function WorkspaceRunsPage() {
   const { slug } = useParams<{ slug: string }>();
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [agentFilter, setAgentFilter] = useState<string>('');
   const [search, setSearch] = useState<string>('');
@@ -27,6 +28,27 @@ export function WorkspaceRunsPage() {
       (await apiClient.get<{ runs: Run[] | null }>(`/workspaces/${slug}/runs?limit=500`)).runs ?? []
   });
   const agents = useAgentsQuery(slug);
+
+  // Subscribe to the workspace SSE wake stream so any issue's run_event
+  // in this workspace refreshes the feed without waiting for the 8s
+  // polling tick.
+  useEffect(() => {
+    if (!slug) return undefined;
+    let source: EventSource;
+    try {
+      source = new EventSource(apiClient.url(`/workspaces/${slug}/runs/stream`));
+    } catch {
+      return undefined;
+    }
+    const onWake = () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace-runs-feed', slug] });
+    };
+    source.addEventListener('wake', onWake);
+    return () => {
+      source.removeEventListener('wake', onWake);
+      source.close();
+    };
+  }, [slug, queryClient]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();

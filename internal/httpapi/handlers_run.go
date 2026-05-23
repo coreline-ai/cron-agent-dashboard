@@ -22,6 +22,56 @@ func (s *Server) registerRunRoutes(api chi.Router) {
 	api.Post("/api/runs/chain/{chain}/cancel", s.cancelChain)
 	api.Post("/api/runs/chain/{chain}/retry", s.retryChain)
 	api.Get("/api/workspaces/{workspace}/runs", s.listWorkspaceRuns)
+	api.Get("/api/workspaces/{workspace}/runs/stream", s.streamWorkspaceRunEvents)
+}
+
+// streamWorkspaceRunEvents serves a coarse SSE wake-up stream for
+// workspace-level pages (Run feed, chain dashboard). Each frame carries
+// no payload — clients invalidate their query on receipt and re-fetch
+// the workspace's run list. This trades the per-issue payload for a
+// single stream that scales across the whole workspace.
+func (s *Server) streamWorkspaceRunEvents(w http.ResponseWriter, r *http.Request) {
+	ws, _, err := s.store.GetWorkspace(r.Context(), chi.URLParam(r, "workspace"))
+	if err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	var wake <-chan struct{}
+	var unsubscribe func()
+	if s.issueEventBus != nil {
+		wake, unsubscribe = s.issueEventBus.SubscribeWorkspace(ws.ID)
+		defer unsubscribe()
+	}
+
+	fmt.Fprint(w, ": stream open\n\n")
+	flusher.Flush()
+
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepAlive.C:
+			fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		case <-wake:
+			fmt.Fprint(w, "event: wake\ndata: {}\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 // streamIssueRunEvents serves a Server-Sent Events stream of run_event rows

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { type Run, useWorkspaceQuery } from '../api/queries';
@@ -12,6 +13,7 @@ import { ChainSummaryPanel } from '../components/ChainSummaryPanel';
 // and the retry button stay in lock-step with the per-issue view.
 export function WorkspaceChainsPage() {
   const { slug } = useParams<{ slug: string }>();
+  const queryClient = useQueryClient();
   const workspace = useWorkspaceQuery(slug);
   const runs = useQuery({
     enabled: Boolean(slug),
@@ -19,6 +21,27 @@ export function WorkspaceChainsPage() {
     refetchInterval: 8_000,
     queryFn: async () => (await apiClient.get<{ runs: Run[] | null }>(`/workspaces/${slug}/runs?limit=500`)).runs ?? []
   });
+
+  // Workspace SSE wake stream: invalidate the chain list whenever any
+  // issue in the workspace fires a run_event. The 8s poll stays as a
+  // fallback.
+  useEffect(() => {
+    if (!slug) return undefined;
+    let source: EventSource;
+    try {
+      source = new EventSource(apiClient.url(`/workspaces/${slug}/runs/stream`));
+    } catch {
+      return undefined;
+    }
+    const onWake = () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace-runs', slug] });
+    };
+    source.addEventListener('wake', onWake);
+    return () => {
+      source.removeEventListener('wake', onWake);
+      source.close();
+    };
+  }, [slug, queryClient]);
 
   return (
     <section className="content-grid">

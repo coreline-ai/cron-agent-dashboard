@@ -69,6 +69,61 @@ func TestIssueEventBusUnsubscribeRemovesEntry(t *testing.T) {
 	}
 }
 
+func TestIssueEventBusWorkspaceSubscribersWakeOnAnyIssue(t *testing.T) {
+	resolver := func(issueID string) string {
+		if issueID == "issue-1" || issueID == "issue-2" {
+			return "ws-A"
+		}
+		return ""
+	}
+	bus := NewIssueEventBus(WithWorkspaceResolver(resolver))
+	workspaceCh, unsubscribeWS := bus.SubscribeWorkspace("ws-A")
+	defer unsubscribeWS()
+	issueCh, unsubscribeIss := bus.Subscribe("issue-1")
+	defer unsubscribeIss()
+
+	bus.OnRunEvent("issue-2", "run-x")
+	select {
+	case <-workspaceCh:
+	case <-time.After(time.Second):
+		t.Fatalf("workspace subscriber did not wake on sibling issue event")
+	}
+	select {
+	case <-issueCh:
+		t.Fatalf("issue-1 subscriber woken on issue-2 event")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestIssueEventBusWorkspaceResolverCaches(t *testing.T) {
+	var lookupCalls int
+	resolver := func(issueID string) string {
+		lookupCalls++
+		return "ws-CACHE"
+	}
+	bus := NewIssueEventBus(WithWorkspaceResolver(resolver))
+	_, unsub := bus.SubscribeWorkspace("ws-CACHE")
+	defer unsub()
+	for i := 0; i < 5; i++ {
+		bus.OnRunEvent("issue-cached", "run-x")
+	}
+	if lookupCalls != 1 {
+		t.Fatalf("expected resolver to be called exactly once after cache warm, got %d", lookupCalls)
+	}
+}
+
+func TestIssueEventBusWorkspaceSubscribersWithoutResolverNoOp(t *testing.T) {
+	bus := NewIssueEventBus()
+	ch, unsub := bus.SubscribeWorkspace("ws-orphan")
+	defer unsub()
+	bus.OnRunEvent("issue-detached", "run-x")
+	select {
+	case <-ch:
+		t.Fatalf("workspace channel should not wake without a resolver")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestIssueEventBusConcurrentSubscribers(t *testing.T) {
 	bus := NewIssueEventBus()
 	var wg sync.WaitGroup
