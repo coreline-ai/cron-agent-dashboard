@@ -141,7 +141,10 @@ func workspaceImportCmd(cfg config.Config, st *store.Store) error {
 	if err := json.Unmarshal(data, &export); err != nil {
 		return fmt.Errorf("workspace-import: parse %s: %w", cfg.RestoreFrom, err)
 	}
-	ws, err := app.ImportWorkspace(context.Background(), st, export, app.ImportOptions{DestSlug: cfg.WorkspaceDestSlug})
+	ws, err := app.ImportWorkspace(context.Background(), st, export, app.ImportOptions{
+		DestSlug:       cfg.WorkspaceDestSlug,
+		IncludeHistory: cfg.WorkspaceExportIncludeHistory,
+	})
 	if err != nil {
 		return err
 	}

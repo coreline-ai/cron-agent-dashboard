@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
+	"github.com/google/uuid"
 )
 
 // WorkspaceExportFormatVersion bumps when the on-disk schema changes in a way
@@ -401,6 +402,11 @@ func appendWorkspaceHistory(ctx context.Context, st *store.Store, workspaceID st
 // is empty the export's slug is used.
 type ImportOptions struct {
 	DestSlug string
+	// IncludeHistory rebuilds the issues / comments / runs / attachment
+	// metadata that the v2 export emits. Identifiers and timestamps survive
+	// the round-trip; runs that were still in flight at export time are
+	// forced to 'cancelled' so they do not become permanent ghosts.
+	IncludeHistory bool
 }
 
 // ImportWorkspace creates a fresh workspace from the WorkspaceExport snapshot.
@@ -558,7 +564,200 @@ func ImportWorkspace(ctx context.Context, st *store.Store, export WorkspaceExpor
 		}
 	}
 
+	if opts.IncludeHistory {
+		if err := restoreWorkspaceHistory(ctx, st, ws.ID, agentIDByName, export); err != nil {
+			return store.Workspace{}, fmt.Errorf("import: restore history: %w", err)
+		}
+	}
+
 	return ws, nil
+}
+
+// restoreWorkspaceHistory inserts the v2 export's issues / comments / runs
+// straight into the destination workspace. The path bypasses
+// CreateIssueWithInitialRun (and the trigger pipeline it carries) because
+// the rows already represent historical state that needs to land verbatim,
+// not new work that needs to fan out into the worker pool. Identifiers are
+// preserved, and workspace.next_issue_seq is advanced past the highest
+// imported suffix so fresh issues on the destination workspace do not
+// collide.
+func restoreWorkspaceHistory(ctx context.Context, st *store.Store, workspaceID string, agentIDByName map[string]string, export WorkspaceExport) error {
+	if len(export.Issues) == 0 && len(export.Comments) == 0 && len(export.Runs) == 0 {
+		return nil
+	}
+	db := st.DB()
+	// Map exported identifier → newly minted issue id so comments / runs can
+	// resolve their FK.
+	issueIDByIdentifier := map[string]string{}
+	maxSeq := 0
+	for _, issue := range export.Issues {
+		newIssueID := newImportID()
+		assignee := agentIDByName[strings.ToLower(issue.AssigneeAgentName)]
+		createdBy := issue.CreatedBy
+		if createdBy == "" {
+			createdBy = "user"
+		}
+		status := issue.Status
+		if status == "" {
+			status = "open"
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO issue(id, workspace_id, identifier, title, body, status, assignee_agent_id, created_by, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			newIssueID, workspaceID, issue.Identifier, issue.Title, issue.Body, status,
+			nilIfEmpty(assignee), createdBy,
+			coalesceTS(issue.CreatedAt), coalesceTS(issue.UpdatedAt),
+		); err != nil {
+			return fmt.Errorf("insert issue %s: %w", issue.Identifier, err)
+		}
+		issueIDByIdentifier[issue.Identifier] = newIssueID
+		if seq := identifierSuffix(issue.Identifier); seq > maxSeq {
+			maxSeq = seq
+		}
+	}
+	if maxSeq > 0 {
+		if _, err := db.ExecContext(ctx, `UPDATE workspace SET next_issue_seq=? WHERE id=? AND next_issue_seq<=?`, maxSeq+1, workspaceID, maxSeq); err != nil {
+			return fmt.Errorf("advance next_issue_seq: %w", err)
+		}
+	}
+	for _, comment := range export.Comments {
+		issueID := issueIDByIdentifier[comment.IssueIdentifier]
+		if issueID == "" {
+			continue
+		}
+		author := agentIDByName[strings.ToLower(comment.AuthorAgentName)]
+		authorType := comment.AuthorType
+		if authorType == "" {
+			authorType = "user"
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO comment(id, issue_id, author_type, author_agent_id, content, truncated, created_at) VALUES(?,?,?,?,?,?,?)`,
+			newImportID(), issueID, authorType, nilIfEmpty(author), comment.Content, boolInt8(comment.Truncated), coalesceTS(comment.CreatedAt),
+		); err != nil {
+			return fmt.Errorf("insert comment for %s: %w", comment.IssueIdentifier, err)
+		}
+	}
+	for _, run := range export.Runs {
+		issueID := issueIDByIdentifier[run.IssueIdentifier]
+		if issueID == "" {
+			continue
+		}
+		agentID := agentIDByName[strings.ToLower(run.AgentName)]
+		if agentID == "" {
+			// An agent that was active at export time but never made it into
+			// the agents slice cannot be re-materialized; skip the run to
+			// avoid a dangling FK.
+			continue
+		}
+		status := run.Status
+		switch status {
+		case "done", "failed", "cancelled":
+		default:
+			status = "cancelled"
+		}
+		terminal := run.TerminalReason
+		if terminal == "" && status == "cancelled" {
+			terminal = "user_cancelled"
+		}
+		failureKind := run.FailureKind
+		if failureKind == "" && status == "failed" {
+			failureKind = "unknown"
+		}
+		enqueued := coalesceTS(run.EnqueuedAt)
+		finished := run.FinishedAt
+		if finished == "" {
+			finished = enqueued
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO run(
+                id, issue_id, agent_id, status, trigger_type, trigger_content_snapshot,
+                chain_id, chain_depth, agent_instructions_version,
+                enqueued_at, started_at, finished_at,
+                input_tokens, output_tokens, total_cost_micros, model_resolved,
+                max_attempts, attempt, error_message, terminal_reason, failure_kind, cancel_reason
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			newImportID(), issueID, agentID, status,
+			coalesceTrigger(run.TriggerType), "",
+			coalesceString(run.ChainID), run.ChainDepth, 1,
+			enqueued, coalesceString(run.StartedAt), finished,
+			run.InputTokens, run.OutputTokens, run.TotalCostMicros, run.ModelResolved,
+			1, 1, run.ErrorMessage, terminal, failureKind, "",
+		); err != nil {
+			return fmt.Errorf("insert run for %s: %w", run.IssueIdentifier, err)
+		}
+	}
+	// Attachment binaries are not part of the export, but the metadata rows
+	// are useful for audit. We insert them with a sentinel storage_path so
+	// the download endpoint will 5xx (file absent on disk) without leaking
+	// a real workspace path. Operators who archive the binaries separately
+	// can rewrite storage_path back to a real path post-import.
+	for _, a := range export.Attachments {
+		issueID := issueIDByIdentifier[a.IssueIdentifier]
+		if issueID == "" {
+			continue
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO attachment(id, issue_id, uploaded_by, filename, content_type, size_bytes, sha256, storage_path, created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+			newImportID(), issueID, "imported", a.Filename, a.MIMEType, a.SizeBytes, "", "imported-no-binary", coalesceTS(a.CreatedAt),
+		); err != nil {
+			return fmt.Errorf("insert attachment for %s: %w", a.IssueIdentifier, err)
+		}
+	}
+	return nil
+}
+
+func nilIfEmpty(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+func boolInt8(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func coalesceTS(ts string) string {
+	if strings.TrimSpace(ts) == "" {
+		return time.Now().UTC().Format(time.RFC3339)
+	}
+	return ts
+}
+
+func coalesceString(s string) string {
+	return strings.TrimSpace(s)
+}
+
+func coalesceTrigger(t string) string {
+	switch t {
+	case "issue_created", "mention", "autopilot", "rerun":
+		return t
+	}
+	return "rerun"
+}
+
+func identifierSuffix(identifier string) int {
+	idx := strings.LastIndex(identifier, "-")
+	if idx < 0 || idx == len(identifier)-1 {
+		return 0
+	}
+	n := 0
+	for _, r := range identifier[idx+1:] {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+// newImportID generates a UUIDv4 for history rows created during import.
+// Reaching across packages would require exporting store.newID(); a local
+// helper keeps the dependency direction one-way.
+func newImportID() string {
+	return uuid.NewString()
 }
 
 func intPtrIfPositive(v int) *int {
