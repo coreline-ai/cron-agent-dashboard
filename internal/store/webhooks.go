@@ -312,6 +312,51 @@ func (s *Store) MarkWebhookDeliveryFailure(ctx context.Context, id string, statu
 	return normalizeErr(err)
 }
 
+// ResubmitWebhookDelivery resets a dead-letter row to 'pending' so the
+// dispatcher picks it up on its next poll. Operators trigger this from the
+// Settings UI's webhook section when a receiver outage has been fixed and
+// they want to retry the missed deliveries without re-creating the
+// triggering event. Rows that are not in 'failed' state return ErrState
+// — re-running a successful or in-flight delivery would be confusing.
+//
+// The row keeps its existing payload_json so the receiver gets exactly
+// what it would have seen on the original attempt. attempt counter is
+// reset to 0 so the exponential backoff schedule restarts fresh; error
+// fields are cleared.
+func (s *Store) ResubmitWebhookDelivery(ctx context.Context, deliveryID string) error {
+	if strings.TrimSpace(deliveryID) == "" {
+		return ErrValidation
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE webhook_delivery
+		    SET status='pending',
+		        next_attempt_at=?,
+		        attempt=0,
+		        status_code=0,
+		        response_body='',
+		        error_message='',
+		        delivered_at=NULL
+		  WHERE id=? AND status='failed'`,
+		now(), deliveryID,
+	)
+	if err != nil {
+		return normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		// Either the id doesn't exist or the row is not in 'failed'.
+		var exists int
+		if err := s.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM webhook_delivery WHERE id=?`, deliveryID); err != nil {
+			return normalizeErr(err)
+		}
+		if exists == 0 {
+			return ErrNotFound
+		}
+		return ErrState
+	}
+	return nil
+}
+
 // CountWebhookDeliveryFailed returns the number of terminally-failed
 // (dead-letter) deliveries for a webhook. The Settings UI shows this as a
 // badge so operators can spot a subscription that consistently 5xx-s its

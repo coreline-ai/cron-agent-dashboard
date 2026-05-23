@@ -150,7 +150,16 @@ export function WorkspaceWebhookSection({ workspace }: WorkspaceWebhookSectionPr
 }
 
 function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void }) {
+  const queryClient = useQueryClient();
   const deliveries = useWebhookDeliveriesQuery(hook.id, 5);
+  const redeliver = useMutation({
+    mutationFn: (deliveryID: string) =>
+      apiClient.post(`/webhooks/${hook.id}/deliveries/${deliveryID}/redeliver`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhook-deliveries', hook.id] });
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+    }
+  });
   return (
     <div className="webhook-row">
       <div className="webhook-row__head">
@@ -187,6 +196,16 @@ function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void })
                 </span>
                 <code>{d.event_type}</code>
                 <span className="muted-copy">{d.created_at.slice(0, 19).replace('T', ' ')}</span>
+                {d.status === 'failed' ? (
+                  <button
+                    type="button"
+                    className="button secondary ghost webhook-delivery-redeliver"
+                    onClick={() => redeliver.mutate(d.id)}
+                    disabled={redeliver.isPending}
+                  >
+                    {redeliver.isPending ? '재전송 중' : '재전송'}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>

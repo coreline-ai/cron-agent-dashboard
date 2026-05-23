@@ -48,6 +48,21 @@ func (s *Server) registerWebhookRoutes(api chi.Router) {
 	api.Put("/api/webhooks/{id}", s.updateWebhook)
 	api.Delete("/api/webhooks/{id}", s.deleteWebhook)
 	api.Get("/api/webhooks/{id}/deliveries", s.listWebhookDeliveries)
+	api.Post("/api/webhooks/{id}/deliveries/{delivery}/redeliver", s.redeliverWebhookDelivery)
+}
+
+// redeliverWebhookDelivery flips a dead-letter row back to 'pending' so the
+// dispatcher retries it on the next poll. The `id` URL parameter is the
+// webhook ID and `delivery` is the delivery row ID; we resolve both so
+// the response can return the same shape listWebhookDeliveries already
+// emits and the UI does not need a second round-trip.
+func (s *Server) redeliverWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+	deliveryID := chi.URLParam(r, "delivery")
+	if err := s.store.ResubmitWebhookDelivery(r.Context(), deliveryID); err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	respond(w, map[string]any{"redelivered": true, "id": deliveryID}, nil, http.StatusOK)
 }
 
 func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request) {
