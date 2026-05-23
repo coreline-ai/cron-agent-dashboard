@@ -38,6 +38,38 @@ func (s *Store) AppendRunEvent(ctx context.Context, in RunEventInput) (RunEvent,
 	return event, nil
 }
 
+// ListIssueRunEventsSince returns run_event rows for an issue created after
+// the given watermark, ordered by created_at then seq so SSE clients can
+// stream incremental updates without re-receiving rows they already saw.
+// Pass an empty `since` to fetch the full history. `limit` clamps to a
+// sane default to keep the SSE poll lightweight.
+func (s *Store) ListIssueRunEventsSince(ctx context.Context, issueID, since string, limit int) ([]RunEvent, error) {
+	if strings.TrimSpace(issueID) == "" {
+		return nil, ErrValidation
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	args := []any{issueID}
+	q := runEventSelectBase + ` WHERE issue_id=?`
+	if strings.TrimSpace(since) != "" {
+		q += ` AND created_at > ?`
+		args = append(args, since)
+	}
+	q += ` ORDER BY created_at ASC, run_id ASC, seq ASC LIMIT ?`
+	args = append(args, limit)
+	var events []RunEvent
+	if err := s.db.SelectContext(ctx, &events, q, args...); err != nil {
+		return nil, normalizeErr(err)
+	}
+	for i := range events {
+		if err := decodeRunEventDetails(&events[i]); err != nil {
+			return nil, err
+		}
+	}
+	return events, nil
+}
+
 func (s *Store) ListRunEvents(ctx context.Context, runID string) ([]RunEvent, error) {
 	if strings.TrimSpace(runID) == "" {
 		return nil, ErrValidation

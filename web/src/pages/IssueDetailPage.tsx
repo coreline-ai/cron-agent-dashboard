@@ -1,4 +1,4 @@
-import { FormEvent, Suspense, lazy, useMemo, useState } from 'react';
+import { FormEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -64,6 +64,31 @@ export function IssueDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['run-events', run.id] });
     }
   };
+
+  // Subscribe to /api/issues/{id}/events/stream so new run_events trigger
+  // a query invalidation without waiting for the 3s polling tick. We pass
+  // the relative URL through apiClient.baseURL so the same EventSource
+  // works in dev (Vite proxy) and embedded (Go binary) modes.
+  useEffect(() => {
+    if (!issue.data?.id) return undefined;
+    const url = apiClient.url(`/issues/${issue.data.id}/events/stream`);
+    let source: EventSource;
+    try {
+      source = new EventSource(url);
+    } catch {
+      return undefined;
+    }
+    const onEvent = () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', issue.data?.id] });
+      queryClient.invalidateQueries({ queryKey: ['runs', issue.data?.id] });
+      queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
+    };
+    source.addEventListener('run_event', onEvent);
+    return () => {
+      source.removeEventListener('run_event', onEvent);
+      source.close();
+    };
+  }, [issue.data?.id, queryClient, slug, identifier]);
 
   const addComment = useMutation({
     mutationFn: async () => {

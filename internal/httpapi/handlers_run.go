@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -12,11 +15,79 @@ import (
 
 func (s *Server) registerRunRoutes(api chi.Router) {
 	api.Get("/api/issues/{id}/runs", s.listRuns)
+	api.Get("/api/issues/{id}/events/stream", s.streamIssueRunEvents)
 	api.Get("/api/runs/{id}/events", s.listRunEvents)
 	api.Get("/api/runs/{id}/log", s.runLog)
 	api.Post("/api/runs/chain/{chain}/cancel", s.cancelChain)
 	api.Post("/api/runs/chain/{chain}/retry", s.retryChain)
 	api.Get("/api/workspaces/{workspace}/runs", s.listWorkspaceRuns)
+}
+
+// streamIssueRunEvents serves a Server-Sent Events stream of run_event rows
+// scoped to one issue. The handler polls the store once a second for new
+// rows and writes each one as `event: run_event\ndata: <json>\n\n`. A
+// keep-alive comment is sent every 15s so intermediaries do not close idle
+// connections. Stream terminates when the client disconnects (ctx.Done()).
+func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
+	issueID := chi.URLParam(r, "id")
+	if _, err := s.store.GetIssue(r.Context(), issueID); err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	// Optional ?since= primes the watermark for clients that already have
+	// the historical rows from /api/runs/.../events.
+	watermark := r.URL.Query().Get("since")
+
+	// Emit a hello frame so the client knows the stream is alive even when
+	// the issue has no run_events yet.
+	fmt.Fprint(w, ": stream open\n\n")
+	flusher.Flush()
+
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepAlive.C:
+			fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		case <-tick.C:
+			events, err := s.store.ListIssueRunEventsSince(r.Context(), issueID, watermark, 100)
+			if err != nil {
+				// Surface the error as a single SSE event and stop. The
+				// client's EventSource will reconnect with its last
+				// watermark.
+				payload, _ := json.Marshal(map[string]string{"error": err.Error()})
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
+				flusher.Flush()
+				return
+			}
+			for _, e := range events {
+				payload, err := json.Marshal(e)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(w, "event: run_event\ndata: %s\n\n", payload)
+				flusher.Flush()
+				watermark = e.CreatedAt
+			}
+		}
+	}
 }
 
 // listWorkspaceRuns serves the workspace-wide chain dashboard. The handler

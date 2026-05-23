@@ -109,6 +109,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const apiClient = {
+  // url resolves a relative API path to the absolute URL the EventSource
+  // / fetch should hit. Reuses API_BASE_URL so SSE works in both Vite-dev
+  // (proxied) and embedded (Go binary) modes.
+  url: (path: string) => `${API_BASE_URL}${path}`,
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {
