@@ -2,11 +2,11 @@
 
 > 페이즈별 개발 계획
 > Version: 0.1
-> Date: 2026-05-12 (초안) · 2026-05-21 (현재화)
-> Status: Local MVP integrated · v0.1 안정화 후 사이클은 [`TODO.md`](../TODO.md) **Backlog — Phase 2+** 와 [`CHANGELOG.md`](../CHANGELOG.md) `[Unreleased]` 섹션 참조
+> Date: 2026-05-12 (초안) · 2026-05-23 (현재화)
+> Status: Local MVP integrated · Phase 2 핵심 기능(Auto-chain UI, attachments, per-run worktree, import/export, webhooks)까지 구현됨 · 후속은 [`TODO.md`](../TODO.md)와 [`CHANGELOG.md`](../CHANGELOG.md) `[Unreleased]` 섹션 참조
 
 > [!IMPORTANT]
-> 본 문서는 **v0.1 출시 전 계획** 기록입니다. MVP / P0~P3 phase는 모두 완료됐고 P4~P7도 본 사이클 기준으로 출시 가능 수준입니다. 이후 사이클(per-run worktree / import-export / webhook / attachment / Auto-chain UI 후속 등)은 `TODO.md`의 Backlog 섹션을 정공으로 보세요. 이 ROADMAP의 unchecked 박스 중 일부(예: Tailwind/shadcn 전환)는 의도적으로 단순 CSS skeleton을 유지하는 결정으로 대체됐습니다.
+> 본 문서는 **v0.1 출시 전 계획** 기록입니다. MVP / P0~P7은 완료됐고, 2026-05-21/22 Phase 2 핵심 후보(per-run worktree / import-export / webhook / attachment / Auto-chain UI 후속)도 `TODO.md` 기준 모두 닫혔습니다. 2026-05-23 사이클에서 추가로 SSE realtime streaming, Homebrew tap publish CI step, workspace history import materialization, worktree disk usage 관측 + GC, e2e-full CI 승격까지 모두 적용되어 운영 hardening 추천 후보 5개도 닫혔습니다. 이 ROADMAP의 오래된 unchecked 박스 중 일부(예: Tailwind/shadcn 전환)는 의도적으로 단순 CSS skeleton을 유지하는 결정으로 대체됐습니다.
 
 ---
 
@@ -25,14 +25,14 @@
 
 **총 예상**: Go ~1,500 LOC + Frontend ~3,000 LOC.
 
-**현재 구현 상태 (2026-05-12)**
+**현재 구현 상태 (2026-05-23)**
 
 - P0 골격, Go DB/API foundation, worker/runtime/scheduler foundation, Vite 7-route foundation 구현 완료.
 - Worker/store/main 실행 연결, DB-backed Autopilot scheduler reload 연결, Frontend read/write API action 연결 완료.
 - Go `embed.FS` static serving + SPA fallback, CLI backup/restore, startup self-check, release-build matrix 구현 완료.
 - `go test ./...`, `pnpm --filter web build`, `make check`, `make e2e-smoke`, `make verify-clean-clone`, `make release-build`로 검증한다.
-- 후속 polish: log retention 자동화, 성능 fixture, 스크린샷/데모 seed, 원격 CI green 확인.
-- 남은 항목은 [`TODO.md`](../TODO.md)와 [`dev-plan/implement_20260512_180648.md`](../dev-plan/implement_20260512_180648.md)에서 우선순위별로 추적한다.
+- 후속 polish 5건(realtime streaming, Homebrew tap publish, workspace history import materialization, worktree disk usage/GC, e2e-full CI 승격) 모두 2026-05-23 사이클에서 closed. 이후 추가 polish는 운영 중 발견되는 새 항목으로 시작한다.
+- Phase 2 구현 완료 이력은 [`TODO.md`](../TODO.md)와 `dev-plan/` 문서군에서 추적한다.
 
 ---
 
