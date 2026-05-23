@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -54,8 +55,21 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, ": stream open\n\n")
 	flusher.Flush()
 
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
+	// Subscribe to the in-process notifier so AppendRunEvent commits wake
+	// us up directly. When no bus is wired (e.g. test harness), the
+	// fallback poll on the keep-alive timer still catches new rows.
+	var wake <-chan struct{}
+	var unsubscribe func()
+	if s.issueEventBus != nil {
+		wake, unsubscribe = s.issueEventBus.Subscribe(issueID)
+		defer unsubscribe()
+	}
+	// Initial flush so subscribers that opened after a burst still get the
+	// rows they missed before the first wake-up arrives.
+	if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, &watermark); err != nil {
+		return
+	}
+
 	keepAlive := time.NewTicker(15 * time.Second)
 	defer keepAlive.Stop()
 
@@ -66,28 +80,46 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 		case <-keepAlive.C:
 			fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()
-		case <-tick.C:
-			events, err := s.store.ListIssueRunEventsSince(r.Context(), issueID, watermark, 100)
-			if err != nil {
-				// Surface the error as a single SSE event and stop. The
-				// client's EventSource will reconnect with its last
-				// watermark.
-				payload, _ := json.Marshal(map[string]string{"error": err.Error()})
-				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
-				flusher.Flush()
+			// Tx-batched paths (cancel / complete / orphan recovery) fire
+			// the notifier after their outer commit, but this idle tick
+			// double-checks at low frequency so the handler converges even
+			// when the bus was nil (test) or a notifier call was dropped
+			// due to a buffer race.
+			if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, &watermark); err != nil {
 				return
 			}
-			for _, e := range events {
-				payload, err := json.Marshal(e)
-				if err != nil {
-					continue
-				}
-				fmt.Fprintf(w, "event: run_event\ndata: %s\n\n", payload)
-				flusher.Flush()
-				watermark = e.CreatedAt
+		case <-wake:
+			if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, &watermark); err != nil {
+				return
 			}
 		}
 	}
+}
+
+// flushPendingRunEvents drains every run_event row newer than the
+// watermark and writes them to the SSE stream. The watermark is updated
+// in-place so the next call only picks up rows beyond what we just sent.
+// A store error is surfaced as a single SSE `event: error` frame and the
+// caller is expected to terminate the stream (EventSource reconnects with
+// its remembered watermark).
+func (s *Server) flushPendingRunEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, issueID string, watermark *string) error {
+	events, err := s.store.ListIssueRunEventsSince(ctx, issueID, *watermark, 100)
+	if err != nil {
+		payload, _ := json.Marshal(map[string]string{"error": err.Error()})
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
+		flusher.Flush()
+		return err
+	}
+	for _, e := range events {
+		payload, err := json.Marshal(e)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "event: run_event\ndata: %s\n\n", payload)
+		flusher.Flush()
+		*watermark = e.CreatedAt
+	}
+	return nil
 }
 
 // listWorkspaceRuns serves the workspace-wide chain dashboard. The handler

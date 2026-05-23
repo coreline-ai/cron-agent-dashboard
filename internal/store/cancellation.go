@@ -67,7 +67,7 @@ func (s *Store) MarkRunProcess(ctx context.Context, runID string, pid, pgid int)
 	if aff == 0 {
 		return ErrState
 	}
-	if _, err := appendRunEventTx(ctx, tx, RunEventInput{
+	event, err := appendRunEventTx(ctx, tx, RunEventInput{
 		RunID:     runID,
 		EventType: RunEventStarting,
 		Message:   "Executor process started",
@@ -75,10 +75,15 @@ func (s *Store) MarkRunProcess(ctx context.Context, runID string, pid, pgid int)
 			"pid":  pid,
 			"pgid": pgid,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.notifyRunEvent(event.IssueID, event.RunID)
+	return nil
 }
 
 func (s *Store) ListRunningProcessGroups(ctx context.Context) ([]RunningProcessGroup, error) {
@@ -142,6 +147,7 @@ func (s *Store) CancelRunWithReason(ctx context.Context, runID string, reason Ca
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
+	s.notifyRunEvent(r.IssueID, r.ID)
 	return s.GetRun(ctx, r.ID)
 }
 
@@ -218,6 +224,9 @@ func (s *Store) CancelRunsByChain(ctx context.Context, chainID string, reason Ca
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
+	for _, row := range rows {
+		s.notifyRunEvent(row.IssueID, row.ID)
+	}
 	return cancelled, nil
 }
 
@@ -261,6 +270,9 @@ func (s *Store) RecoverOrphanRuns(ctx context.Context) (int64, error) {
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
+	}
+	for _, row := range ids {
+		s.notifyRunEvent(row.IssueID, row.ID)
 	}
 	return int64(len(ids)), nil
 }
@@ -322,6 +334,9 @@ func (s *Store) RecoverStaleRuns(ctx context.Context, cutoff string, excludeRunI
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
+	}
+	for _, row := range ids {
+		s.notifyRunEvent(row.IssueID, row.ID)
 	}
 	return int64(len(ids)), nil
 }
@@ -393,5 +408,6 @@ WHERE id=? AND status='running' AND attempt<max_attempts`, nullIfEmpty(nextRetry
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
+	s.notifyRunEvent(run.IssueID, run.ID)
 	return s.GetRun(ctx, runID)
 }

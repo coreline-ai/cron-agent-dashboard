@@ -110,6 +110,9 @@ func (s *Store) AddUserComment(ctx context.Context, issueID, content string) (Ad
 	if err := tx.Commit(); err != nil {
 		return AddCommentResult{}, err
 	}
+	if runID != "" {
+		s.notifyRunEvent(issueID, runID)
+	}
 	comments, err := s.ListComments(ctx, issueID)
 	if err != nil {
 		return AddCommentResult{}, err

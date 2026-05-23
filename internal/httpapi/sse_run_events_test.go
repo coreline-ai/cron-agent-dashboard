@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coreline-ai/cron-agent-dashboard/internal/app"
 	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
 	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
 	"github.com/coreline-ai/cron-agent-dashboard/internal/store"
@@ -31,7 +32,12 @@ func TestStreamIssueRunEventsDeliversAppendedEvent(t *testing.T) {
 	}
 	defer database.Close()
 	st := store.New(database)
-	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+	bus := app.NewIssueEventBus()
+	st.SetRunEventNotifier(bus)
+	h := New(st,
+		config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"},
+		WithIssueEventBus(bus),
+	)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 

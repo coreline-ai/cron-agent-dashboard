@@ -27,6 +27,38 @@ type Option func(*Store)
 type Store struct {
 	db                               *sqlx.DB
 	autopilotFailureDisableThreshold int
+	runEventNotifier                 RunEventNotifier
+}
+
+// RunEventNotifier is invoked by the store after a successful run_event
+// INSERT so the HTTP SSE handler can push the new row to subscribers
+// instead of polling. Implementations must be goroutine-safe and must not
+// block — store.AppendRunEvent calls OnRunEvent from the transaction's
+// commit path.
+type RunEventNotifier interface {
+	OnRunEvent(issueID, runID string)
+}
+
+// SetRunEventNotifier wires an in-process notifier into the store. Passing
+// nil clears the previous notifier. Optional — when unset, store.AppendRunEvent
+// is a no-op on the notifier path and clients fall back to whatever polling
+// they were using.
+func (s *Store) SetRunEventNotifier(n RunEventNotifier) {
+	if s == nil {
+		return
+	}
+	s.runEventNotifier = n
+}
+
+// notifyRunEvent is the package-internal hook used by transactional code
+// paths (cancel, complete, infrastructure-fail, orphan-recover, auto-chain
+// dispatch, mention dispatch) to fire the notifier after their tx commit
+// succeeds. Nil-safe so call sites can invoke it unconditionally.
+func (s *Store) notifyRunEvent(issueID, runID string) {
+	if s == nil || s.runEventNotifier == nil {
+		return
+	}
+	s.runEventNotifier.OnRunEvent(issueID, runID)
 }
 
 func WithAutopilotFailureDisableThreshold(threshold int) Option {

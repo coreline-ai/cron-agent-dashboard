@@ -25,6 +25,16 @@ type Server struct {
 	startedAt        time.Time
 	runCanceller     RunCanceller
 	autopilotManager AutopilotManager
+	issueEventBus    IssueEventSubscriber
+}
+
+// IssueEventSubscriber lets the SSE handler park on a wake-up channel that
+// fires when AppendRunEvent commits. The subscribe contract returns the
+// wake-up channel and an unsubscribe callback the caller must defer.
+// Production wiring uses internal/app.IssueEventBus; tests can swap a
+// nil-safe fake.
+type IssueEventSubscriber interface {
+	Subscribe(issueID string) (<-chan struct{}, func())
 }
 
 type RunCanceller interface {
@@ -53,6 +63,15 @@ func WithRunCanceller(c RunCanceller) Option {
 func WithAutopilotReloader(r AutopilotManager) Option {
 	return func(s *Server) {
 		s.autopilotManager = r
+	}
+}
+
+// WithIssueEventBus wires the in-process notifier the SSE handler uses to
+// stream run_event rows without polling. Optional — when absent the SSE
+// handler falls back to its idle keep-alive cadence.
+func WithIssueEventBus(bus IssueEventSubscriber) Option {
+	return func(s *Server) {
+		s.issueEventBus = bus
 	}
 }
 

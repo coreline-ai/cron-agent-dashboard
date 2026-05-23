@@ -35,6 +35,9 @@ func (s *Store) AppendRunEvent(ctx context.Context, in RunEventInput) (RunEvent,
 	if err := tx.Commit(); err != nil {
 		return RunEvent{}, err
 	}
+	if s.runEventNotifier != nil {
+		s.runEventNotifier.OnRunEvent(event.IssueID, event.RunID)
+	}
 	return event, nil
 }
 

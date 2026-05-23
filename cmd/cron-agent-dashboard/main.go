@@ -229,13 +229,19 @@ func serve(cfg config.Config, st *store.Store) error {
 		return err
 	}
 
+	// Wire the in-process IssueEventBus so AppendRunEvent commits wake the
+	// SSE handler directly instead of relying on the keep-alive poll. The
+	// bus also drives the HTTP layer's optional WithIssueEventBus hook.
+	issueEventBus := app.NewIssueEventBus()
+	st.SetRunEventNotifier(issueEventBus)
+
 	maintenance := app.NewMaintenanceRunner(st.DB(), app.MaintenanceConfig{
 		DataDir:            cfg.DataDir,
 		DBPath:             cfg.DBPath,
 		AutoBackup:         cfg.AutoBackup,
 		AutoBackupKeep:     cfg.AutoBackupKeep,
 		AutoCleanupLogDays: cfg.AutoCleanupLogDays,
-		WorktreeGCAfter:    24 * time.Hour,
+		WorktreeGCAfter:    cfg.WorktreeGCAfter,
 		Interval:           cfg.MaintenanceInterval,
 		OnReport: func(report app.MaintenanceReport, _ error) {
 			// Persist the log-cleanup tally so the Settings UI can show
@@ -260,7 +266,7 @@ func serve(cfg config.Config, st *store.Store) error {
 
 	srv := &http.Server{
 		Addr:              cfg.Bind,
-		Handler:           httpapi.New(st, cfg, httpapi.WithRunCanceller(pool), httpapi.WithAutopilotReloader(autopilot)),
+		Handler:           httpapi.New(st, cfg, httpapi.WithRunCanceller(pool), httpapi.WithAutopilotReloader(autopilot), httpapi.WithIssueEventBus(issueEventBus)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      5 * time.Minute,

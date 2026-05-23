@@ -158,6 +158,7 @@ ORDER BY r.enqueued_at ASC, r.id ASC LIMIT 1`, now())
 		return Run{}, false, err
 	}
 	decorateRun(&r)
+	s.notifyRunEvent(r.IssueID, r.ID)
 	return r, true, nil
 }
 
@@ -248,6 +249,7 @@ func (s *Store) CompleteRunWithReason(ctx context.Context, runID string, in Fini
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
+	s.notifyRunEvent(run.IssueID, run.ID)
 	return s.GetRun(ctx, runID)
 }
 
@@ -493,6 +495,7 @@ func (s *Store) FailInfrastructureRun(ctx context.Context, runID, terminalReason
 	if err := tx.Commit(); err != nil {
 		return Run{}, err
 	}
+	s.notifyRunEvent(run.IssueID, run.ID)
 	return s.GetRun(ctx, runID)
 }
 
