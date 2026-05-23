@@ -108,3 +108,63 @@ func TestRedeliverWebhookDeliveryEndpointNotFound(t *testing.T) {
 		t.Fatalf("missing delivery id should be 404, got %d (%s)", res.Code, res.Body.String())
 	}
 }
+
+func TestRedeliverAllFailedEndpointResetsEveryFailedRow(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.OpenAndMigrate(filepath.Join(dir, "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	st := store.New(database)
+	h := New(st, config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul"})
+
+	if res := do(t, h, http.MethodPost, "/api/workspaces", `{"name":"WHBulkHTTP","slug":"wh-bulk-http","identifier_prefix":"WBH","main_agent":{"name":"Lead","runtime":"codex","instructions":"lead"}}`); res.Code != http.StatusCreated {
+		t.Fatalf("seed workspace: %s", res.Body.String())
+	}
+	whRes := do(t, h, http.MethodPost, "/api/workspaces/wh-bulk-http/webhooks", `{"url":"https://x.example/h","events":["issue.cancelled"]}`)
+	if whRes.Code != http.StatusCreated {
+		t.Fatalf("seed webhook: %s", whRes.Body.String())
+	}
+	var whCreated struct {
+		Webhook struct {
+			ID string `json:"id"`
+		} `json:"webhook"`
+	}
+	if err := json.NewDecoder(whRes.Body).Decode(&whCreated); err != nil {
+		t.Fatal(err)
+	}
+	// Trigger two deliveries, both forced to terminal failure.
+	for i := 0; i < 2; i++ {
+		if res := do(t, h, http.MethodPost, "/api/workspaces/wh-bulk-http/issues", `{"title":"x"}`); res.Code != http.StatusCreated {
+			t.Fatalf("seed issue: %s", res.Body.String())
+		}
+	}
+	ws, _, _ := st.GetWorkspace(context.Background(), "wh-bulk-http")
+	listed, _ := st.ListIssues(context.Background(), ws.ID, store.ListIssuesFilter{Limit: 5})
+	for _, issue := range listed {
+		status := "cancelled"
+		if _, err := st.UpdateIssue(context.Background(), issue.ID, store.UpdateIssueInput{Status: &status}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.DB().ExecContext(context.Background(),
+		`UPDATE webhook_delivery SET status='failed', attempt=6 WHERE webhook_id=?`, whCreated.Webhook.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	res := do(t, h, http.MethodPost, "/api/webhooks/"+whCreated.Webhook.ID+"/deliveries/redeliver-failed", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("bulk status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Redelivered int `json:"redelivered"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Redelivered != 2 {
+		t.Fatalf("redelivered=%d want 2", payload.Redelivered)
+	}
+}

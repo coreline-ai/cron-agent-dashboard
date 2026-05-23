@@ -357,6 +357,37 @@ func (s *Store) ResubmitWebhookDelivery(ctx context.Context, deliveryID string) 
 	return nil
 }
 
+// ResubmitAllFailedWebhookDeliveries flips every status='failed' row for
+// the given webhook back to 'pending'. The bulk variant is what the UI
+// fires from "모두 재전송" — one action covers the dead-letter pile that
+// accumulated while a receiver was down. Returns the number of rows
+// actually reset (zero is not an error).
+func (s *Store) ResubmitAllFailedWebhookDeliveries(ctx context.Context, webhookID string) (int, error) {
+	if strings.TrimSpace(webhookID) == "" {
+		return 0, ErrValidation
+	}
+	if _, err := s.GetWebhook(ctx, webhookID); err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE webhook_delivery
+		    SET status='pending',
+		        next_attempt_at=?,
+		        attempt=0,
+		        status_code=0,
+		        response_body='',
+		        error_message='',
+		        delivered_at=NULL
+		  WHERE webhook_id=? AND status='failed'`,
+		now(), webhookID,
+	)
+	if err != nil {
+		return 0, normalizeErr(err)
+	}
+	aff, _ := res.RowsAffected()
+	return int(aff), nil
+}
+
 // CountWebhookDeliveryFailed returns the number of terminally-failed
 // (dead-letter) deliveries for a webhook. The Settings UI shows this as a
 // badge so operators can spot a subscription that consistently 5xx-s its

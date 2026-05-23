@@ -95,3 +95,62 @@ func TestResubmitWebhookDeliveryMissingReturnsNotFound(t *testing.T) {
 		t.Fatalf("missing id err=%v want ErrNotFound", err)
 	}
 }
+
+func TestResubmitAllFailedWebhookDeliveriesResetsEveryFailedRow(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	ws, _, _ := st.CreateWorkspaceWithMainAgent(ctx, CreateWorkspaceInput{
+		Name:             "WHBulk",
+		Slug:             "wh-bulk",
+		IdentifierPrefix: "WHB",
+		MainAgent:        CreateAgentInput{Name: "Lead", Runtime: "codex", Instructions: "lead"},
+	})
+	hook, _ := st.CreateWebhook(ctx, ws.ID, UpsertWebhookInput{
+		URL:    "https://x.example/h",
+		Events: []string{"issue.cancelled"},
+	})
+	// Three failed deliveries + one delivered + one pending. Bulk reset
+	// should touch only the three failed rows.
+	created := []string{}
+	for i := 0; i < 5; i++ {
+		issue, _, _ := st.CreateIssueWithInitialRun(ctx, ws.ID, CreateIssueInput{Title: "x"})
+		status := "cancelled"
+		_, _ = st.UpdateIssue(ctx, issue.ID, UpdateIssueInput{Status: &status})
+		deliveries, _ := st.ListWebhookDeliveries(ctx, hook.ID, 10)
+		created = append(created, deliveries[0].ID)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := st.DB().ExecContext(ctx,
+			`UPDATE webhook_delivery SET status='failed', attempt=6 WHERE id=?`, created[i],
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE webhook_delivery SET status='delivered', attempt=1 WHERE id=?`, created[3],
+	); err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.ResubmitAllFailedWebhookDeliveries(ctx, hook.ID)
+	if err != nil {
+		t.Fatalf("bulk: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("bulk count=%d want 3", n)
+	}
+	var pending, delivered, failed int
+	_ = st.DB().GetContext(ctx, &pending, `SELECT COUNT(*) FROM webhook_delivery WHERE webhook_id=? AND status='pending'`, hook.ID)
+	_ = st.DB().GetContext(ctx, &delivered, `SELECT COUNT(*) FROM webhook_delivery WHERE webhook_id=? AND status='delivered'`, hook.ID)
+	_ = st.DB().GetContext(ctx, &failed, `SELECT COUNT(*) FROM webhook_delivery WHERE webhook_id=? AND status='failed'`, hook.ID)
+	if pending != 4 || delivered != 1 || failed != 0 {
+		t.Fatalf("counts after bulk: pending=%d delivered=%d failed=%d", pending, delivered, failed)
+	}
+}
+
+func TestResubmitAllFailedWebhookDeliveriesWithoutWebhookErr(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	if _, err := st.ResubmitAllFailedWebhookDeliveries(ctx, "missing-webhook"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing webhook err=%v want ErrNotFound", err)
+	}
+}

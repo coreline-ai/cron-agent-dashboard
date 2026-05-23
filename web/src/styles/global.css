@@ -3446,6 +3446,37 @@ button.quick-action {
   color: var(--muted-foreground);
 }
 
+.webhook-row__actions {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.webhook-delivery-row summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.webhook-delivery-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.webhook-delivery-payload {
+  margin: 0.4rem 0 0;
+  padding: 0.55rem 0.7rem;
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--surface-muted);
+  border-radius: var(--radius);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ───────────────────────────── Issue attachments panel ───────────────────────────── */
 
 .attachment-panel__upload {

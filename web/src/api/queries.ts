@@ -225,6 +225,7 @@ export type SettingsResponse = {
     auto_backup_keep: number;
     auto_cleanup_log_days: number;
     interval_seconds: number;
+    worktree_gc_after_seconds?: number;
     last_log_cleanup_at?: string;
     last_log_cleanup_files?: string;
     last_log_cleanup_bytes?: string;
@@ -362,6 +363,7 @@ export type WebhookDelivery = {
   id: string;
   webhook_id: string;
   event_type: string;
+  payload_json?: string;
   status: 'pending' | 'delivered' | 'failed';
   status_code: number;
   response_body?: string;

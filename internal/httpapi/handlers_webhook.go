@@ -49,6 +49,17 @@ func (s *Server) registerWebhookRoutes(api chi.Router) {
 	api.Delete("/api/webhooks/{id}", s.deleteWebhook)
 	api.Get("/api/webhooks/{id}/deliveries", s.listWebhookDeliveries)
 	api.Post("/api/webhooks/{id}/deliveries/{delivery}/redeliver", s.redeliverWebhookDelivery)
+	api.Post("/api/webhooks/{id}/deliveries/redeliver-failed", s.redeliverAllFailedWebhookDeliveries)
+}
+
+// redeliverAllFailedWebhookDeliveries resets every dead-letter delivery
+// for a single webhook back to 'pending'. Used by the Settings UI's
+// "모두 재전송" button so an operator does not have to click each row
+// individually after a receiver outage.
+func (s *Server) redeliverAllFailedWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	webhookID := chi.URLParam(r, "id")
+	count, err := s.store.ResubmitAllFailedWebhookDeliveries(r.Context(), webhookID)
+	respond(w, map[string]any{"redelivered": count}, err, http.StatusOK)
 }
 
 // redeliverWebhookDelivery flips a dead-letter row back to 'pending' so the

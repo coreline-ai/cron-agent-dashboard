@@ -160,6 +160,13 @@ function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void })
       queryClient.invalidateQueries({ queryKey: ['webhooks'] });
     }
   });
+  const redeliverAllFailed = useMutation({
+    mutationFn: () => apiClient.post(`/webhooks/${hook.id}/deliveries/redeliver-failed`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhook-deliveries', hook.id] });
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+    }
+  });
   return (
     <div className="webhook-row">
       <div className="webhook-row__head">
@@ -172,9 +179,25 @@ function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void })
           )}
           {hook.enabled ? null : <span className="badge muted">비활성</span>}
         </div>
-        <button className="button danger ghost" type="button" onClick={onDelete}>
-          삭제
-        </button>
+        <div className="webhook-row__actions">
+          {hook.failed_delivery_count > 0 ? (
+            <button
+              type="button"
+              className="button secondary ghost"
+              onClick={() => {
+                if (window.confirm(`${hook.failed_delivery_count}건의 dead-letter를 모두 재전송할까요?`)) {
+                  redeliverAllFailed.mutate();
+                }
+              }}
+              disabled={redeliverAllFailed.isPending}
+            >
+              {redeliverAllFailed.isPending ? '재전송 중' : '모두 재전송'}
+            </button>
+          ) : null}
+          <button className="button danger ghost" type="button" onClick={onDelete}>
+            삭제
+          </button>
+        </div>
       </div>
       <div className="webhook-row__events">
         {hook.events.length === 0 ? (
@@ -191,21 +214,30 @@ function WebhookRow({ hook, onDelete }: { hook: Webhook; onDelete: () => void })
           <ul>
             {(deliveries.data ?? []).map((d) => (
               <li key={d.id}>
-                <span data-status={d.status} className="webhook-delivery-status">
-                  {labelForStatus(d)}
-                </span>
-                <code>{d.event_type}</code>
-                <span className="muted-copy">{d.created_at.slice(0, 19).replace('T', ' ')}</span>
-                {d.status === 'failed' ? (
-                  <button
-                    type="button"
-                    className="button secondary ghost webhook-delivery-redeliver"
-                    onClick={() => redeliver.mutate(d.id)}
-                    disabled={redeliver.isPending}
-                  >
-                    {redeliver.isPending ? '재전송 중' : '재전송'}
-                  </button>
-                ) : null}
+                <details className="webhook-delivery-row">
+                  <summary>
+                    <span data-status={d.status} className="webhook-delivery-status">
+                      {labelForStatus(d)}
+                    </span>
+                    <code>{d.event_type}</code>
+                    <span className="muted-copy">{d.created_at.slice(0, 19).replace('T', ' ')}</span>
+                    {d.status === 'failed' ? (
+                      <button
+                        type="button"
+                        className="button secondary ghost webhook-delivery-redeliver"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          redeliver.mutate(d.id);
+                        }}
+                        disabled={redeliver.isPending}
+                      >
+                        {redeliver.isPending ? '재전송 중' : '재전송'}
+                      </button>
+                    ) : null}
+                  </summary>
+                  <pre className="webhook-delivery-payload">{formatPayload(d.payload_json)}</pre>
+                  {d.error_message ? <p className="error-text">{d.error_message}</p> : null}
+                </details>
               </li>
             ))}
           </ul>
@@ -219,4 +251,13 @@ function labelForStatus(d: WebhookDelivery): string {
   if (d.status === 'delivered') return `200 OK (시도 ${d.attempt})`;
   if (d.status === 'failed') return `실패 ${d.status_code || ''} (시도 ${d.attempt})`.trim();
   return `대기 중 (시도 ${d.attempt})`;
+}
+
+function formatPayload(raw?: string): string {
+  if (!raw) return '(payload 없음)';
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }
