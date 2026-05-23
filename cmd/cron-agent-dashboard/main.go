@@ -232,6 +232,7 @@ func serve(cfg config.Config, st *store.Store) error {
 		AutoBackup:         cfg.AutoBackup,
 		AutoBackupKeep:     cfg.AutoBackupKeep,
 		AutoCleanupLogDays: cfg.AutoCleanupLogDays,
+		WorktreeGCAfter:    24 * time.Hour,
 		Interval:           cfg.MaintenanceInterval,
 		OnReport: func(report app.MaintenanceReport, _ error) {
 			// Persist the log-cleanup tally so the Settings UI can show
@@ -243,6 +244,10 @@ func serve(cfg config.Config, st *store.Store) error {
 			_ = st.SetSystemState(ctx, store.SystemStateLastLogCleanupAt, at)
 			_ = st.SetSystemState(ctx, store.SystemStateLastLogCleanupFiles, fmt.Sprintf("%d", report.DeletedLogFiles))
 			_ = st.SetSystemState(ctx, store.SystemStateLastLogCleanupBytes, fmt.Sprintf("%d", report.FreedLogBytes))
+			_ = st.SetSystemState(ctx, store.SystemStateWorktreeBytes, fmt.Sprintf("%d", report.WorktreeBytes))
+			_ = st.SetSystemState(ctx, store.SystemStateWorktreeDirCount, fmt.Sprintf("%d", report.WorktreeDirCount))
+			_ = st.SetSystemState(ctx, store.SystemStateWorktreePruned, fmt.Sprintf("%d", report.PrunedWorktrees))
+			_ = st.SetSystemState(ctx, store.SystemStateWorktreeMeasuredAt, at)
 		},
 	})
 	maintenance.Start(runCtx)

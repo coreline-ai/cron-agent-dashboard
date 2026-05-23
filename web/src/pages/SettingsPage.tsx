@@ -34,6 +34,21 @@ function formatBytes(value?: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function formatWorktreeUsage(m?: { worktree_bytes?: string; worktree_dir_count?: string; worktree_pruned_last_pass?: string; worktree_measured_at?: string }) {
+  const at = m?.worktree_measured_at?.trim();
+  if (!at) {
+    return '아직 측정되지 않음';
+  }
+  const dirs = Number(m?.worktree_dir_count ?? 0);
+  if (dirs === 0) {
+    return '디렉터리 없음 (모두 정리됨)';
+  }
+  const bytes = Number(m?.worktree_bytes ?? 0);
+  const pruned = Number(m?.worktree_pruned_last_pass ?? 0);
+  const prunedSuffix = pruned > 0 ? ` · 직전 GC ${pruned}개 정리` : '';
+  return `${dirs}개 디렉터리 · ${formatBytes(bytes)}${prunedSuffix}`;
+}
+
 function formatLastLogCleanup(m?: { last_log_cleanup_at?: string; last_log_cleanup_files?: string; last_log_cleanup_bytes?: string }) {
   const at = m?.last_log_cleanup_at?.trim();
   if (!at) {
@@ -199,6 +214,8 @@ export function SettingsPage() {
           <dd>{data?.maintenance?.auto_cleanup_log_days ? `${data.maintenance.auto_cleanup_log_days}일 초과 run 로그 자동 삭제` : 'OFF'}</dd>
           <dt>마지막 로그 정리</dt>
           <dd>{formatLastLogCleanup(data?.maintenance)}</dd>
+          <dt>worktree 디스크</dt>
+          <dd>{formatWorktreeUsage(data?.maintenance)}</dd>
           <dt>마이그레이션 실패</dt>
           <dd>{data?.migration_fail_count ? `${data.migration_fail_count}건 이력 있음 · 로그/DB 확인 권장` : '없음'}</dd>
         </dl>

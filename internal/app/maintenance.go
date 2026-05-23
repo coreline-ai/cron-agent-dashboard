@@ -20,6 +20,7 @@ type MaintenanceConfig struct {
 	AutoBackup         bool
 	AutoBackupKeep     int
 	AutoCleanupLogDays int
+	WorktreeGCAfter    time.Duration
 	Interval           time.Duration
 	Now                func() time.Time
 	Log                *slog.Logger
@@ -33,11 +34,14 @@ type MaintenanceConfig struct {
 }
 
 type MaintenanceReport struct {
-	BackupPath      string
-	BackupSizeBytes int64
-	PrunedBackups   int
-	DeletedLogFiles int
-	FreedLogBytes   int64
+	BackupPath        string
+	BackupSizeBytes   int64
+	PrunedBackups     int
+	DeletedLogFiles   int
+	FreedLogBytes     int64
+	WorktreeBytes     int64
+	WorktreeDirCount  int64
+	PrunedWorktrees   int
 }
 
 type MaintenanceRunner struct {
@@ -158,7 +162,131 @@ func RunMaintenanceOnce(ctx context.Context, db backupops.Checkpointer, cfg Main
 			errs = append(errs, err)
 		}
 	}
+	if cfg.WorktreeGCAfter > 0 {
+		cutoff := cfg.now().Add(-cfg.WorktreeGCAfter)
+		pruned, err := PruneStaleWorktrees(cfg.DataDir, cutoff)
+		report.PrunedWorktrees = pruned
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if usage, dirCount, err := WorktreeDiskUsage(cfg.DataDir); err == nil {
+		report.WorktreeBytes = usage
+		report.WorktreeDirCount = dirCount
+	} else {
+		errs = append(errs, err)
+	}
 	return report, errors.Join(errs...)
+}
+
+// WorktreeDiskUsage walks <dataDir>/worktrees/<slug>/<runID>/ and reports the
+// total bytes used on disk along with the number of run-id sub-directories.
+// Used by the maintenance runner to record "현재 워크스페이스 N개에 걸쳐
+// M개의 worktree, 합계 X bytes" so the Settings UI can surface ongoing
+// disk pressure.
+func WorktreeDiskUsage(dataDir string) (int64, int64, error) {
+	root := filepath.Join(dataDir, "worktrees")
+	info, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if !info.IsDir() {
+		return 0, 0, nil
+	}
+	var totalBytes, dirCount int64
+	// One level under worktrees/ is the workspace slug; one level below that
+	// is the run-id directory whose tree we sum.
+	slugs, err := os.ReadDir(root)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, slug := range slugs {
+		if !slug.IsDir() {
+			continue
+		}
+		runDirs, err := os.ReadDir(filepath.Join(root, slug.Name()))
+		if err != nil {
+			continue
+		}
+		for _, run := range runDirs {
+			if !run.IsDir() {
+				continue
+			}
+			dirCount++
+			runPath := filepath.Join(root, slug.Name(), run.Name())
+			_ = filepath.Walk(runPath, func(_ string, fi os.FileInfo, walkErr error) error {
+				if walkErr != nil {
+					return nil
+				}
+				if fi != nil && !fi.IsDir() {
+					totalBytes += fi.Size()
+				}
+				return nil
+			})
+		}
+	}
+	return totalBytes, dirCount, nil
+}
+
+// PruneStaleWorktrees removes per-run worktree directories whose mtime is
+// older than the cutoff. Terminal runs do not touch their cwd, so an
+// untouched directory beyond the operator-configured GC horizon is a safe
+// candidate for cleanup. The function is deliberately git-agnostic — if the
+// directory was registered via `git worktree add`, the operator should run
+// `git worktree prune` from the parent repo afterwards to drop the stale
+// registry entry. The mtime-only check keeps maintenance free of any DB
+// dependency.
+func PruneStaleWorktrees(dataDir string, cutoff time.Time) (int, error) {
+	root := filepath.Join(dataDir, "worktrees")
+	info, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() {
+		return 0, nil
+	}
+	var pruned int
+	var errs []error
+	slugs, err := os.ReadDir(root)
+	if err != nil {
+		return 0, err
+	}
+	for _, slug := range slugs {
+		if !slug.IsDir() {
+			continue
+		}
+		runDirs, err := os.ReadDir(filepath.Join(root, slug.Name()))
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		for _, run := range runDirs {
+			if !run.IsDir() {
+				continue
+			}
+			runPath := filepath.Join(root, slug.Name(), run.Name())
+			fi, err := os.Stat(runPath)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if !fi.ModTime().Before(cutoff) {
+				continue
+			}
+			if err := os.RemoveAll(runPath); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			pruned++
+		}
+	}
+	return pruned, errors.Join(errs...)
 }
 
 type LogCleanupReport struct {

@@ -74,4 +74,8 @@ const (
 	SystemStateLastLogCleanupAt    = "last_log_cleanup_at"
 	SystemStateLastLogCleanupFiles = "last_log_cleanup_files"
 	SystemStateLastLogCleanupBytes = "last_log_cleanup_bytes"
+	SystemStateWorktreeBytes       = "worktree_bytes"
+	SystemStateWorktreeDirCount    = "worktree_dir_count"
+	SystemStateWorktreePruned      = "worktree_pruned_last_pass"
+	SystemStateWorktreeMeasuredAt  = "worktree_measured_at"
 )

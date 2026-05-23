@@ -228,6 +228,10 @@ export type SettingsResponse = {
     last_log_cleanup_at?: string;
     last_log_cleanup_files?: string;
     last_log_cleanup_bytes?: string;
+    worktree_bytes?: string;
+    worktree_dir_count?: string;
+    worktree_pruned_last_pass?: string;
+    worktree_measured_at?: string;
   };
   run_lifecycle?: {
     heartbeat_interval_seconds: number;

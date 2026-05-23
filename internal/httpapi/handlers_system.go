@@ -40,6 +40,10 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	lastCleanupAt, _ := s.store.GetSystemState(r.Context(), store.SystemStateLastLogCleanupAt)
 	lastCleanupFiles, _ := s.store.GetSystemState(r.Context(), store.SystemStateLastLogCleanupFiles)
 	lastCleanupBytes, _ := s.store.GetSystemState(r.Context(), store.SystemStateLastLogCleanupBytes)
+	worktreeBytes, _ := s.store.GetSystemState(r.Context(), store.SystemStateWorktreeBytes)
+	worktreeDirs, _ := s.store.GetSystemState(r.Context(), store.SystemStateWorktreeDirCount)
+	worktreePruned, _ := s.store.GetSystemState(r.Context(), store.SystemStateWorktreePruned)
+	worktreeAt, _ := s.store.GetSystemState(r.Context(), store.SystemStateWorktreeMeasuredAt)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":              Version,
 		"data_dir":             s.cfg.DataDir,
@@ -59,6 +63,10 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			"last_log_cleanup_at":                 lastCleanupAt,
 			"last_log_cleanup_files":              lastCleanupFiles,
 			"last_log_cleanup_bytes":              lastCleanupBytes,
+			"worktree_bytes":                      worktreeBytes,
+			"worktree_dir_count":                  worktreeDirs,
+			"worktree_pruned_last_pass":           worktreePruned,
+			"worktree_measured_at":                worktreeAt,
 		},
 		"run_lifecycle": map[string]any{
 			"heartbeat_interval_seconds":  int(worker.DefaultHeartbeatInterval / time.Second),
