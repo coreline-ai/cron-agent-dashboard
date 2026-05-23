@@ -3550,3 +3550,59 @@ button.quick-action {
 .chain-summary-row__stats div[data-guard='over'] dd {
   color: #c0392b;
 }
+
+/* ───────────────────────────── Runs feed ───────────────────────────── */
+
+.runs-feed-filters {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: end;
+}
+
+.runs-feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.runs-feed-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.runs-feed-row:last-child {
+  border-bottom: none;
+}
+
+.runs-feed-row__link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.3rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.runs-feed-row__link:hover {
+  background: var(--surface-muted);
+}
+
+.runs-feed-row__id {
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--brand);
+}
+
+.runs-feed-row__time {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.runs-feed-row__err {
+  width: 100%;
+  font-size: 0.78rem;
+  color: #c0392b;
+}
