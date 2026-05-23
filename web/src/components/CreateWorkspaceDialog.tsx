@@ -144,7 +144,7 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: CreateWorksp
           run마다 별도 worktree 사용 (워크스페이스 동시 실행 허용)
         </label>
         <p className="form-helper">
-          켜면 각 run이 <code>&lt;data_dir&gt;/worktrees/&lt;slug&gt;/&lt;run-id&gt;/</code>에서 실행되고, 같은 워크스페이스의 다른 이슈가 즉시 병렬 claim됩니다. 워커풀 크기(<code>--workers</code>)를 늘리는 것과 함께 쓰세요. 현재는 파일 시스템 격리만 — git worktree 통합은 별도 후속 작업입니다.
+          켜면 각 run이 <code>&lt;data_dir&gt;/worktrees/&lt;slug&gt;/&lt;run-id&gt;/</code>에서 실행되고, 같은 워크스페이스의 다른 이슈가 즉시 병렬 claim됩니다. 워커풀 크기(<code>--workers</code>)를 늘리는 것과 함께 쓰세요. <code>working_dir</code>이 git repo이면 <code>git worktree add --detach</code>/<code>remove --force</code>를 사용하고, 비-git 경로는 0700 isolated directory로 fallback합니다.
         </p>
         {createWorkspace.isError && <p className="error-text">워크스페이스 생성에 실패했습니다.</p>}
       </form>

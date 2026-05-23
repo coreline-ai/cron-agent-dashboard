@@ -21,7 +21,7 @@ import (
 //
 // /api/issues/{id}/events/stream emits Server-Sent Events for every new
 // run_event on the issue. The handler must (a) set the SSE content type,
-// (b) send a hello comment immediately so the client EventSource fires
+// (b) send a hello comment immediately so the client SSE subscriber fires
 // `onopen`, and (c) push the next event the dispatcher records within a
 // few poll ticks.
 func TestStreamIssueRunEventsDeliversAppendedEvent(t *testing.T) {

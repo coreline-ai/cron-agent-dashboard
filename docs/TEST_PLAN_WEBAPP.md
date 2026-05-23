@@ -1,7 +1,7 @@
 # Web App Test Plan: Cron Agent Dashboard
 
 > Vite SPA 메뉴에서 도달 가능한 **모든 페이지/기능**을 단계별로 검증하기 위한 통합 테스트 계획서.
-> Generated: 2026-05-16
+> Generated: 2026-05-16 · Refreshed: 2026-05-23
 > Project: cron-agent-dashboard (v0.1 stabilized)
 
 ---
@@ -12,11 +12,12 @@
 v0.1 안정화 단계에서 store/httpapi 리팩터, auto-chain guard, error boundary, lineage graph 등 광범위한 변경이 누적되어 있다. 기존 `tests/e2e/smoke.spec.ts`는 워크스페이스→이슈→댓글 1-line happy path만 검증하므로, 메뉴에서 도달 가능한 모든 기능을 회귀 검증할 수 있는 **재현 가능한 manual + Playwright 테스트 매트릭스**가 필요하다.
 
 ### 1.2 Current State (현재 상태)
-- E2E 자동화: `tests/e2e/smoke.spec.ts` 1개 (workspace + issue + comment XSS 방지)
-- Unit: 25개 Go test (`go test -race` clean), 6개 Vitest 컴포넌트 테스트
-- 페이지: 7개 (Home, Board, IssueDetail, Agents, AgentDetail, Autopilot, Settings)
+- E2E 자동화: `tests/e2e/*.spec.ts` 12개 + shared fixture 1개 (workspace/board/issue detail/agents/autopilot/settings/integration/screenshots 등)
+- Unit: 65개 Go test 파일, 15개 Vitest 컴포넌트/lib 테스트 파일 (`go test -race ./...`, `pnpm --filter web test` 검증 대상)
+- 페이지: 8개+ (Home, Board, IssueDetail, Agents, AgentDetail, Autopilot, Settings, WorkspaceChains)
 - 인터랙션: 워크스페이스 스위처, 테마 토글, 모달 4종(워크스페이스/에이전트/이슈/오토파일럿), 필터/검색/뷰토글, 상태 전이 버튼, lineage graph, 댓글 멘션 자동완성
-- 백엔드: REST 39 엔드포인트, polling 3초
+- 백엔드: REST/SSE 68 API route(+ `/healthz`), Issue Detail fetch 기반 SSE + React Query polling fallback
+- 2026-05-23 검증: `make e2e-full` 기준 52 tests 중 49 passed / 3 skipped. 아래 Phase별 체크박스는 원 계획/수동 QA 매트릭스 기록이며, 현재 구현 backlog의 source of truth는 `TODO.md`(open 구현 항목 0개)다.
 
 ### 1.3 Target State (목표 상태)
 - 페이지별 happy-path와 error-path 테스트 케이스가 **체크박스**로 정리되어 manual QA 또는 Playwright 추가 시 곧바로 참조 가능
@@ -25,7 +26,7 @@ v0.1 안정화 단계에서 store/httpapi 리팩터, auto-chain guard, error bou
 
 ### 1.4 Scope Boundary (범위)
 - **In scope**: 브라우저에서 사이드바를 통해 접근 가능한 모든 UI 동작, 모달 흐름, polling/refresh, error boundary, 토큰 인증 핸드오프
-- **Out of scope**: CLI 명령(`backup`/`restore`/`init`)의 비-UI 동작, Playwright 외부의 SSE/WebSocket, 모바일 viewport, 다국어 (한국어 단일)
+- **Out of scope**: CLI 명령(`backup`/`restore`/`init`)의 비-UI 동작, WebSocket hub, 모바일 viewport, 다국어 (한국어 단일)
 
 ---
 
@@ -135,8 +136,8 @@ Phase 2 (Workspace)
 - [ ] `tests/e2e/fixtures.ts`에 `createWorkspaceFixture(request, opts)` 함수 작성 — slug/prefix/main_agent 기본값과 cleanup 등록
 - [ ] `tests/e2e/fixtures.ts`에 `seedSecondAgent(request, workspaceSlug, name)` 헬퍼 추가 (`POST /api/workspaces/{slug}/agents`)
 - [ ] `playwright.config.ts`에 `webServer.command`가 `.tmp/e2e-data`를 별 dir로 사용하도록 환경변수 검토 (현 상태가 이미 격리됐는지 확인)
-- [ ] `Makefile`에 `e2e-full: build\n\tpnpm exec playwright test --config playwright.config.ts` 타깃 추가
-- [ ] README의 "검증 명령" 섹션에 `make e2e-full` 1줄 추가
+- [x] `Makefile`에 `e2e-full: build\n\tpnpm exec playwright test --config playwright.config.ts` 타깃 추가
+- [x] README의 "검증 명령" 섹션에 `make e2e-full` 1줄 추가
 
 #### Success Criteria
 - `pnpm exec playwright test tests/e2e/smoke.spec.ts`가 fixture를 사용해도 그대로 통과
@@ -481,7 +482,7 @@ pnpm exec playwright test
 
 ### 5.1 Integration Test Plan (통합 테스트)
 - [ ] 전체 spec 묶음 1회 실행: `pnpm exec playwright test` (8 spec, 약 60+ 케이스)
-- [ ] CI(GitHub Actions)에서 `make e2e-full` 실행 — `playwright-report/` artifact 업로드 검토
+- [x] CI(GitHub Actions)에서 `make e2e-full` 실행 — 실패 시 `playwright-report/` artifact 업로드
 - [ ] 매트릭: `pass / fail / flaky` 통계 → `test-results/` 산출물 확인
 - [ ] 회귀 가드: 새 PR마다 최소 `smoke + integration` spec 통과 의무
 

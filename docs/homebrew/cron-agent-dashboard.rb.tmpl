@@ -2,12 +2,13 @@
 #
 # This file is a TEMPLATE. To ship a real tap, copy it into
 # `Formula/cron-agent-dashboard.rb` of your tap repository (e.g.
-# `coreline-ai/homebrew-tap`), replace the {{VERSION}} / {{SHA256_*}}
-# placeholders for each artifact, and commit. Each release rebuilds the
+# `coreline-ai/homebrew-tap`), replace the {{TAG}} / {{VERSION}} /
+# {{CLI_VERSION}} / {{SHA256_*}} placeholders for each artifact, and commit.
+# Each release rebuilds the
 # sha256 sums via the Release workflow's SHA256SUMS file:
 #
 #   curl -sSL \
-#     https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/SHA256SUMS \
+#     https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{TAG}}/SHA256SUMS \
 #     | awk '{ print $1 " " $2 }'
 #
 # The artifact names match the release-build target in the project Makefile
@@ -20,22 +21,22 @@ class CronAgentDashboard < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-darwin-arm64"
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{TAG}}/cron-agent-dashboard-darwin-arm64"
       sha256 "{{SHA256_DARWIN_ARM64}}"
     end
     on_intel do
-      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-darwin-amd64"
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{TAG}}/cron-agent-dashboard-darwin-amd64"
       sha256 "{{SHA256_DARWIN_AMD64}}"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-linux-arm64"
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{TAG}}/cron-agent-dashboard-linux-arm64"
       sha256 "{{SHA256_LINUX_ARM64}}"
     end
     on_intel do
-      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{VERSION}}/cron-agent-dashboard-linux-amd64"
+      url "https://github.com/coreline-ai/cron-agent-dashboard/releases/download/{{TAG}}/cron-agent-dashboard-linux-amd64"
       sha256 "{{SHA256_LINUX_AMD64}}"
     end
   end
@@ -45,7 +46,7 @@ class CronAgentDashboard < Formula
   end
 
   test do
-    assert_match "cron-agent-dashboard #{version}",
+    assert_match "cron-agent-dashboard {{CLI_VERSION}}",
                  shell_output("#{bin}/cron-agent-dashboard --version")
   end
 end

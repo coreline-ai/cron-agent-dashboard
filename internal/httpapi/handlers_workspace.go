@@ -64,6 +64,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		AutoChainDailyCostMicros int64                  `json:"auto_chain_daily_cost_micros"`
 		AutoChainDryRun          bool                   `json:"auto_chain_dry_run"`
 		AutoCloseOnRunDone       *bool                  `json:"auto_close_on_run_done"`
+		PerRunWorktree           bool                   `json:"per_run_worktree"`
 		MainAgent                store.CreateAgentInput `json:"main_agent"`
 	}
 	if !decode(w, r, &req) {
@@ -77,7 +78,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.MainAgent.RetryPolicyJSON) == "" {
 		req.MainAgent.RetryPolicyJSON = defaultRetryPolicyJSON
 	}
-	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: workingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, AutoChainMaxDepth: req.AutoChainMaxDepth, AutoChainDailyRunLimit: req.AutoChainDailyRunLimit, AutoChainDailyCostMicros: req.AutoChainDailyCostMicros, AutoChainDryRun: req.AutoChainDryRun, AutoCloseOnRunDone: req.AutoCloseOnRunDone, MainAgent: req.MainAgent})
+	ws, agent, err := s.store.CreateWorkspaceWithMainAgent(r.Context(), store.CreateWorkspaceInput{Name: req.Name, Slug: req.Slug, Description: req.Description, IdentifierPrefix: req.IdentifierPrefix, WorkingDir: workingDir, OutputDir: req.OutputDir, DefaultTimeoutSeconds: req.DefaultTimeoutSeconds, AutoChainEnabled: req.AutoChainEnabled, AutoChainMaxDepth: req.AutoChainMaxDepth, AutoChainDailyRunLimit: req.AutoChainDailyRunLimit, AutoChainDailyCostMicros: req.AutoChainDailyCostMicros, AutoChainDryRun: req.AutoChainDryRun, AutoCloseOnRunDone: req.AutoCloseOnRunDone, PerRunWorktree: req.PerRunWorktree, MainAgent: req.MainAgent})
 	respond(w, map[string]any{"workspace": ws, "main_agent": agent}, err, http.StatusCreated)
 }
 

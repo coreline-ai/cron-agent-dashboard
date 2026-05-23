@@ -246,11 +246,11 @@
     - "재시작 중 진행 작업이 취소되었습니다" (orphan 정리)
 - 하단 댓글 입력 폼 (markdown, `@AgentName` 자동완성)
   - **힌트 텍스트**: "@에이전트 멘션은 같은 이슈에 새 실행을 추가합니다 (담당자는 바뀌지 않음)"
-  - **체이닝 정책 안내**: "현재는 사용자 댓글의 명시 멘션만 실행됩니다. agent 결과 댓글의 @멘션은 자동 실행되지 않습니다."
+  - **체이닝 정책 안내**: "사용자 댓글의 명시 멘션은 즉시 새 run을 만들고, agent 결과 댓글의 첫 @멘션은 workspace auto-chain이 켜져 있고 depth/run/cost/dry-run guard를 통과할 때만 자동 실행됩니다."
 
 **우측 사이드바 (요약)**:
 - 이슈 상태 / 실행 상태 / 담당 / 최근 실행 / 만든이 / 생성 시각
-- (Phase 2 후보) 부모 이슈 / 서브 이슈 트리
+- 부모 이슈 / 서브 이슈 트리 + run lineage graph
 - **마지막 오류 메시지** (execution_status가 failed/cancelled일 때만 표시)
 - 작업 버튼:
   - [재실행]: execution_status가 done/failed/cancelled/idle일 때만 활성. 대상 agent는 **마지막 run의 agent**.

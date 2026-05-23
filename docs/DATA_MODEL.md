@@ -717,9 +717,9 @@ cp ~/.cron-agent-dashboard/config.toml ~/backup/
 추가 후보:
 - `agent_token` (외부 봇 인증용)
 - `audit_log` (관리자 감사용 — 단일 사용자엔 비필수)
-- realtime event cursor / subscription state (SSE/WebSocket 도입 시)
-- worktree disk usage snapshot / GC state
-- workspace history import materialization state
+- WebSocket fan-out subscription state (SSE만으로 부족한 멀티 사용자 fork가 생길 때)
+
+현재 `system_state`는 run log cleanup과 per-run worktree disk usage/GC snapshot(`worktree_bytes`, `worktree_dir_count`, `worktree_pruned_last_pass`, `worktree_measured_at`)을 보관한다. Workspace history import materialization은 별도 상태 테이블 없이 export JSON을 기준으로 issue/comment/run/attachment metadata를 재생성한다.
 
 
 > 정책: `agent.model`은 사용자 선택값입니다. 빈 문자열은 runtime/CLI 기본 모델을 의미하며, 값이 있으면 해당 모델 ID를 adapter에 전달합니다.

@@ -92,6 +92,23 @@ func (s *Store) ListRuns(ctx context.Context, issueID string) ([]Run, error) {
 	return out, nil
 }
 
+// IsRunWorktreeGCProtected reports whether a per-run worktree directory for
+// runID is still needed by a queued/running run. Unknown or terminal run IDs
+// are not protected so maintenance can reclaim orphaned directories.
+func (s *Store) IsRunWorktreeGCProtected(ctx context.Context, runID string) (bool, error) {
+	if strings.TrimSpace(runID) == "" {
+		return false, nil
+	}
+	var status string
+	if err := s.db.GetContext(ctx, &status, `SELECT status FROM run WHERE id=?`, runID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, normalizeErr(err)
+	}
+	return status == "queued" || status == "running", nil
+}
+
 func (s *Store) ClaimNextRun(ctx context.Context, workerID string) (Run, bool, error) {
 	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{})
 	if err != nil {

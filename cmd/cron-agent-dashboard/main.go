@@ -250,6 +250,7 @@ func serve(cfg config.Config, st *store.Store) error {
 		AutoBackupKeep:     cfg.AutoBackupKeep,
 		AutoCleanupLogDays: cfg.AutoCleanupLogDays,
 		WorktreeGCAfter:    cfg.WorktreeGCAfter,
+		WorktreePruneGuard: st.IsRunWorktreeGCProtected,
 		Interval:           cfg.MaintenanceInterval,
 		OnReport: func(report app.MaintenanceReport, _ error) {
 			// Persist the log-cleanup tally so the Settings UI can show

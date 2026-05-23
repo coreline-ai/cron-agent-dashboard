@@ -11,6 +11,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 - **2026-05-20 chain stabilization**: workspace main agent (PM hub) can now re-enter the same auto-chain ([`294fe2e`](https://github.com/coreline-ai/cron-agent-dashboard/commit/294fe2e)); UTF-8 safe truncation through `capSnapshot` + `CapCommentForLogWithStatus` and runtime CLI diagnostic noise (`MCP issues detected. Run /mcp list for status.`) strip applied across codex / claude / gemini ([`25c1ec2`](https://github.com/coreline-ai/cron-agent-dashboard/commit/25c1ec2)); stripped diagnostic lines recorded as `stdout_sanitized` run_event via migration `0017` ([`e619548`](https://github.com/coreline-ai/cron-agent-dashboard/commit/e619548)).
 - **2026-05-21 quality cycle**: `ListIssues` execution filter moved to SQL WHERE so LIMIT does not drop matching rows ([`27021cc`](https://github.com/coreline-ai/cron-agent-dashboard/commit/27021cc)); Gemini adapter routes the prompt body through stdin (was argv) to keep prompts out of `/proc/<pid>/cmdline` ([`13bc9ed`](https://github.com/coreline-ai/cron-agent-dashboard/commit/13bc9ed)); Settings UI now exposes `auto_close_on_run_done` toggle per workspace ([`9770c05`](https://github.com/coreline-ai/cron-agent-dashboard/commit/9770c05)); auto-chain agent lookup splits `ErrNotFound` from transient store errors with distinct system comments ([`e458c05`](https://github.com/coreline-ai/cron-agent-dashboard/commit/e458c05)); `PUT /api/agents/:id` full-replace contract pinned in docs + test.
 - **2026-05-21 hub-PM + UX cycle**: main agent auto-chain re-entry no longer advances `chain_depth` so hub-PM workflows fit inside the default `max_depth=5` ([`1ff2b93`](https://github.com/coreline-ai/cron-agent-dashboard/commit/1ff2b93)); agent runtime selectors show recommendation/warning badges sourced from `available_runtimes` ([`a22abdb`](https://github.com/coreline-ai/cron-agent-dashboard/commit/a22abdb)); workspace create form exposes `auto_chain_enabled` toggle inline ([`89260cc`](https://github.com/coreline-ai/cron-agent-dashboard/commit/89260cc)); new `cron-agent-dashboard seed` example workspace command for fresh clones ([`e220913`](https://github.com/coreline-ai/cron-agent-dashboard/commit/e220913)); IssueFlowGraph now renders `chain_depth` and hub re-entry annotations + legend ([`06d3ef8`](https://github.com/coreline-ai/cron-agent-dashboard/commit/06d3ef8)); claude `--print` adapter passes `--input-format text` so stdin prompts no longer hang in interactive mode (this cycle).
+- **2026-05-22 Phase 2 closure cycle**: workspace chain dashboard at `/w/:slug/chains`, chain cancel/retry, depth/cost guard visualization, issue attachments with audit/image preview/comment linkage, workspace webhooks with HMAC-SHA256 + `mask_pii` + exponential retry/dead-letter counts, per-run worktree git integration, workspace export history + PII masking, release smoke automation, and run-log retention reporting are now implemented. README/TODO/API docs are synchronized so the active backlog shows no open implementation items.
+- **2026-05-23 hardening closure cycle**: issue run_event SSE streaming, Homebrew tap PR publish workflow, workspace history import materialization, per-run worktree disk usage/GC, and required `e2e-full` CI are implemented. Worktree GC is configurable with `--worktree-gc-after` / `CRON_AGENT_DASHBOARD_WORKTREE_GC_AFTER`, and workspace export/import now round-trips `per_run_worktree`.
 
 ### Changed (2026-05-21 cycle)
 
@@ -21,6 +23,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 ### Migration (2026-05-21 cycle)
 
 - `0017_run_event_stdout_sanitized.sql` — `run_event.event_type` CHECK enum extended with `stdout_sanitized` (table-rebuild pattern, matches `0015`).
+
+### Current limitations / follow-up
+
+- WebSocket hub is intentionally not implemented; the current single-user UI uses SSE for issue detail run_event refresh plus React Query polling fallback.
+- Homebrew tap publishing is opt-in: set `HOMEBREW_TAP_REPO` and `HOMEBREW_TAP_TOKEN` secrets to create tap PRs automatically, otherwise the rendered formula remains a GitHub Release artifact.
+- Workspace history import restores metadata only. Attachment binaries and run stdout payloads still need an external archive if operators want byte-for-byte restoration.
 
 ### Added
 
@@ -73,8 +81,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 - Binding outside localhost requires token mode, preventing accidental unauthenticated LAN exposure.
 - Agent result comments and run stdout are capped to prevent browser lockups and pipe blocking.
 
-### Known limitations
+### Known limitations in 0.1.0
 
-- Auto-chain from agent result mentions is not implemented; only direct user comments can dispatch a mention run.
-- Run stdout cleanup is manual through settings or `POST /api/system/cleanup-logs`.
-- Homebrew distribution, workspace import/export, per-run worktrees, and realtime streaming are future work.
+- Auto-chain from agent result mentions was not implemented in the initial `0.1.0` release; it is implemented in the current `[Unreleased]` line as workspace opt-in auto-chain.
+- Run stdout cleanup was manual in `0.1.0`; the current line adds automatic retention reporting and settings visibility.
+- Homebrew distribution, workspace import/export, per-run worktrees, attachments, webhooks, and realtime streaming were future work in `0.1.0`. The current line implements all of them for the single-user scope; Homebrew tap PR publishing remains secret-gated by the operator.

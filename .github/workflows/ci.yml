@@ -71,12 +71,9 @@ jobs:
         run: make e2e-smoke
 
   e2e-full:
-    # Full Playwright suite. Runs in parallel with e2e-smoke but does not
-    # gate PRs yet — Track B of dev-plan/implement_20260523_092408.md is the
-    # promotion step; we leave continue-on-error true until the suite has
-    # stabilized on Linux runners.
+    # Full Playwright suite. This is now a required CI signal; failures upload
+    # the Playwright report artifact for debugging.
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

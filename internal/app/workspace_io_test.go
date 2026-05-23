@@ -75,13 +75,38 @@ func TestExportWorkspaceUnknownSlugReturnsNotFound(t *testing.T) {
 func TestExportImportRoundtripReproducesOperationalConfig(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	if _, err := SeedExample(ctx, st); err != nil {
+	seeded, err := SeedExample(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perRunWorktree := true
+	timeoutSeconds := seeded.Workspace.DefaultTimeoutSeconds
+	autoChainMaxDepth := seeded.Workspace.AutoChainMaxDepth
+	autoChainDailyRunLimit := seeded.Workspace.AutoChainDailyRunLimit
+	autoChainDailyCostMicros := seeded.Workspace.AutoChainDailyCostMicros
+	if _, err := st.UpdateWorkspace(ctx, seeded.Workspace.ID, store.UpdateWorkspaceInput{
+		Name:                     seeded.Workspace.Name,
+		Description:              seeded.Workspace.Description,
+		WorkingDir:               seeded.Workspace.WorkingDir,
+		OutputDir:                seeded.Workspace.OutputDir,
+		DefaultTimeoutSeconds:    &timeoutSeconds,
+		AutoChainEnabled:         &seeded.Workspace.AutoChainEnabled,
+		AutoChainMaxDepth:        &autoChainMaxDepth,
+		AutoChainDailyRunLimit:   &autoChainDailyRunLimit,
+		AutoChainDailyCostMicros: &autoChainDailyCostMicros,
+		AutoChainDryRun:          &seeded.Workspace.AutoChainDryRun,
+		AutoCloseOnRunDone:       &seeded.Workspace.AutoCloseOnRunDone,
+		PerRunWorktree:           &perRunWorktree,
+	}); err != nil {
 		t.Fatal(err)
 	}
 
 	export, err := ExportWorkspace(ctx, st, "demo-studio")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !export.Workspace.PerRunWorktree {
+		t.Fatalf("export should preserve per_run_worktree=true")
 	}
 
 	imported, err := ImportWorkspace(ctx, st, export, ImportOptions{DestSlug: "demo-studio-clone"})
@@ -93,6 +118,9 @@ func TestExportImportRoundtripReproducesOperationalConfig(t *testing.T) {
 	}
 	if imported.AutoChainEnabled != export.Workspace.AutoChainEnabled {
 		t.Fatalf("auto_chain_enabled drift: %v vs %v", imported.AutoChainEnabled, export.Workspace.AutoChainEnabled)
+	}
+	if imported.PerRunWorktree != export.Workspace.PerRunWorktree {
+		t.Fatalf("per_run_worktree drift: %v vs %v", imported.PerRunWorktree, export.Workspace.PerRunWorktree)
 	}
 
 	agents, err := st.ListAgents(ctx, imported.ID)

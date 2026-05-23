@@ -23,24 +23,19 @@ export function WorkspaceChainsPage() {
   });
 
   // Workspace SSE wake stream: invalidate the chain list whenever any
-  // issue in the workspace fires a run_event. The 8s poll stays as a
-  // fallback.
+  // issue in the workspace fires a run_event. The API helper uses fetch
+  // streaming so token mode can attach Authorization; the 8s poll stays
+  // as a fallback.
   useEffect(() => {
     if (!slug) return undefined;
-    let source: EventSource;
-    try {
-      source = new EventSource(apiClient.url(`/workspaces/${slug}/runs/stream`));
-    } catch {
-      return undefined;
-    }
-    const onWake = () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-runs', slug] });
-    };
-    source.addEventListener('wake', onWake);
-    return () => {
-      source.removeEventListener('wake', onWake);
-      source.close();
-    };
+    return apiClient.streamSSE(`/workspaces/${slug}/runs/stream`, {
+      reconnect: true,
+      onEvent: (event) => {
+        if (event === 'wake') {
+          queryClient.invalidateQueries({ queryKey: ['workspace-runs', slug] });
+        }
+      }
+    });
   }, [slug, queryClient]);
 
   return (

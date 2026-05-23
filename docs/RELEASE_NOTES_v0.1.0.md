@@ -73,12 +73,11 @@ make release-build VERSION=v0.1.0
 
 The GitHub Release workflow runs the build/check path and uploads checksummed artifacts. Run the Vitest command locally when validating frontend component behavior.
 
-## Known limitations
+## Known limitations in v0.1.0
 
-- Homebrew installation is planned but not part of this release.
-- Realtime streaming is not implemented; the UI uses polling.
-- Auto-chain from agent-written mentions is not implemented; only explicit user comments dispatch mention runs.
-- Per-run worktrees, workspace import/export, attachments, and webhooks are future work.
-- Run stdout cleanup is manual in v0.1.0.
+- Homebrew installation was planned but not part of the initial v0.1.0 release. Current `[Unreleased]` builds add release formula rendering and secret-gated Homebrew tap PR automation.
+- Realtime streaming was not implemented in the initial v0.1.0 release; the UI used polling. Current `[Unreleased]` builds add token-compatible fetch-based SSE subscribers for issue run events, run logs, and workspace run wake-ups.
+- Auto-chain from agent-written mentions, per-run worktrees, workspace import/export history materialization, attachments, webhooks, SSE realtime streaming, and Homebrew release/tap automation were future work in the initial v0.1.0 release; they are now implemented in `[Unreleased]` for the single-user scope.
+- Run stdout cleanup was manual in v0.1.0; current builds add automatic retention reporting/settings visibility while preserving logs after issue deletion for audit/debugging until explicit cleanup.
 
 See also: [CHANGELOG](../CHANGELOG.md) and [Operations checklist](OPERATIONS.md).

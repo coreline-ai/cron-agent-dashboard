@@ -59,6 +59,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			"auto_backup_keep":                    s.cfg.AutoBackupKeep,
 			"auto_cleanup_log_days":               s.cfg.AutoCleanupLogDays,
 			"interval_seconds":                    int64(s.cfg.MaintenanceInterval / time.Second),
+			"worktree_gc_after_seconds":           int64(s.cfg.WorktreeGCAfter / time.Second),
 			"autopilot_failure_disable_threshold": s.cfg.AutopilotFailureDisableThreshold,
 			"last_log_cleanup_at":                 lastCleanupAt,
 			"last_log_cleanup_files":              lastCleanupFiles,

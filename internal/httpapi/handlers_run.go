@@ -154,8 +154,8 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 // watermark and writes them to the SSE stream. The watermark is updated
 // in-place so the next call only picks up rows beyond what we just sent.
 // A store error is surfaced as a single SSE `event: error` frame and the
-// caller is expected to terminate the stream (EventSource reconnects with
-// its remembered watermark).
+// caller is expected to terminate the stream; fetch-based SSE clients can
+// reconnect with their remembered watermark.
 func (s *Server) flushPendingRunEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, issueID string, watermark *string) error {
 	events, err := s.store.ListIssueRunEventsSince(ctx, issueID, *watermark, 100)
 	if err != nil {
@@ -265,7 +265,7 @@ func (s *Server) runLog(w http.ResponseWriter, r *http.Request) {
 
 // streamRunLog tails the run's stdout file. Each frame is `event: chunk`
 // with the raw text encoded per the SSE multi-line `data:` convention so
-// the client EventSource receives `e.data` joined by newlines. When the
+// clients receive multi-line chunks joined by newlines. When the
 // run reaches a terminal status, the handler sends a final flush, an
 // `event: done` frame, and closes the stream — the client can switch to
 // the existing /log download for the complete archive.

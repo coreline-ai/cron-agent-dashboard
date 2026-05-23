@@ -66,28 +66,20 @@ export function IssueDetailPage() {
   };
 
   // Subscribe to /api/issues/{id}/events/stream so new run_events trigger
-  // a query invalidation without waiting for the 3s polling tick. We pass
-  // the relative URL through apiClient.baseURL so the same EventSource
-  // works in dev (Vite proxy) and embedded (Go binary) modes.
+  // a query invalidation without waiting for the 3s polling tick. The API
+  // helper uses fetch streaming instead of native EventSource so token-mode
+  // dashboards can include the Authorization header.
   useEffect(() => {
     if (!issue.data?.id) return undefined;
-    const url = apiClient.url(`/issues/${issue.data.id}/events/stream`);
-    let source: EventSource;
-    try {
-      source = new EventSource(url);
-    } catch {
-      return undefined;
-    }
-    const onEvent = () => {
-      queryClient.invalidateQueries({ queryKey: ['comments', issue.data?.id] });
-      queryClient.invalidateQueries({ queryKey: ['runs', issue.data?.id] });
-      queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
-    };
-    source.addEventListener('run_event', onEvent);
-    return () => {
-      source.removeEventListener('run_event', onEvent);
-      source.close();
-    };
+    return apiClient.streamSSE(`/issues/${issue.data.id}/events/stream`, {
+      reconnect: true,
+      onEvent: (event) => {
+        if (event !== 'run_event') return;
+        queryClient.invalidateQueries({ queryKey: ['comments', issue.data?.id] });
+        queryClient.invalidateQueries({ queryKey: ['runs', issue.data?.id] });
+        queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
+      }
+    });
   }, [issue.data?.id, queryClient, slug, identifier]);
 
   const addComment = useMutation({
@@ -465,7 +457,7 @@ function RunHistoryCard({ run }: { run: Run }) {
 // running. For terminal runs it still opens the stream (server sends the
 // final snapshot + done frame and closes), so the operator can read the
 // captured output inline without downloading the file. The panel stays
-// collapsed by default; opening it triggers the EventSource subscription.
+// collapsed by default; opening it triggers the SSE subscription.
 function RunLiveLogPanel({ run }: { run: Run }) {
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<string>('');
@@ -474,21 +466,20 @@ function RunLiveLogPanel({ run }: { run: Run }) {
     if (!open) return undefined;
     setLines('');
     setDone(false);
-    const source = new EventSource(apiClient.url(`/runs/${run.id}/log/stream`));
-    const onChunk = (e: MessageEvent<string>) => {
-      setLines((prev) => prev + (prev && !prev.endsWith('\n') ? '\n' : '') + e.data);
-    };
-    const onDone = () => {
-      setDone(true);
-      source.close();
-    };
-    source.addEventListener('chunk', onChunk as EventListener);
-    source.addEventListener('done', onDone as EventListener);
-    return () => {
-      source.removeEventListener('chunk', onChunk as EventListener);
-      source.removeEventListener('done', onDone as EventListener);
-      source.close();
-    };
+    let unsubscribe: () => void = () => undefined;
+    unsubscribe = apiClient.streamSSE(`/runs/${run.id}/log/stream`, {
+      onEvent: (event, data) => {
+        if (event === 'chunk') {
+          setLines((prev) => prev + (prev && !prev.endsWith('\n') ? '\n' : '') + data);
+        }
+        if (event === 'done') {
+          setDone(true);
+          unsubscribe();
+        }
+      },
+      onError: () => setDone(true)
+    });
+    return unsubscribe;
   }, [open, run.id]);
   return (
     <details

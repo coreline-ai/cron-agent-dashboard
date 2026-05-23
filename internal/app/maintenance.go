@@ -21,6 +21,7 @@ type MaintenanceConfig struct {
 	AutoBackupKeep     int
 	AutoCleanupLogDays int
 	WorktreeGCAfter    time.Duration
+	WorktreePruneGuard WorktreePruneGuard
 	Interval           time.Duration
 	Now                func() time.Time
 	Log                *slog.Logger
@@ -43,6 +44,12 @@ type MaintenanceReport struct {
 	WorktreeDirCount int64
 	PrunedWorktrees  int
 }
+
+// WorktreePruneGuard returns true when a run-id worktree is still needed
+// and must not be garbage-collected. The production guard checks DB run
+// state so queued/running retry worktrees survive even when their directory
+// mtime is old.
+type WorktreePruneGuard func(ctx context.Context, runID string) (bool, error)
 
 type MaintenanceRunner struct {
 	db      backupops.Checkpointer
@@ -164,7 +171,7 @@ func RunMaintenanceOnce(ctx context.Context, db backupops.Checkpointer, cfg Main
 	}
 	if cfg.WorktreeGCAfter > 0 {
 		cutoff := cfg.now().Add(-cfg.WorktreeGCAfter)
-		pruned, err := PruneStaleWorktrees(cfg.DataDir, cutoff)
+		pruned, err := PruneStaleWorktrees(ctx, cfg.DataDir, cutoff, cfg.WorktreePruneGuard)
 		report.PrunedWorktrees = pruned
 		if err != nil {
 			errs = append(errs, err)
@@ -234,12 +241,12 @@ func WorktreeDiskUsage(dataDir string) (int64, int64, error) {
 // PruneStaleWorktrees removes per-run worktree directories whose mtime is
 // older than the cutoff. Terminal runs do not touch their cwd, so an
 // untouched directory beyond the operator-configured GC horizon is a safe
-// candidate for cleanup. The function is deliberately git-agnostic — if the
-// directory was registered via `git worktree add`, the operator should run
-// `git worktree prune` from the parent repo afterwards to drop the stale
-// registry entry. The mtime-only check keeps maintenance free of any DB
-// dependency.
-func PruneStaleWorktrees(dataDir string, cutoff time.Time) (int, error) {
+// candidate for cleanup. A caller-provided guard can veto deletion for
+// queued/running DB rows so old retry worktrees survive GC. The function is
+// deliberately git-agnostic — if the directory was registered via
+// `git worktree add`, the operator should run `git worktree prune` from the
+// parent repo afterwards to drop the stale registry entry.
+func PruneStaleWorktrees(ctx context.Context, dataDir string, cutoff time.Time, guard WorktreePruneGuard) (int, error) {
 	root := filepath.Join(dataDir, "worktrees")
 	info, err := os.Stat(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -278,6 +285,16 @@ func PruneStaleWorktrees(dataDir string, cutoff time.Time) (int, error) {
 			}
 			if !fi.ModTime().Before(cutoff) {
 				continue
+			}
+			if guard != nil {
+				protected, err := guard(ctx, run.Name())
+				if err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				if protected {
+					continue
+				}
 			}
 			if err := os.RemoveAll(runPath); err != nil {
 				errs = append(errs, err)

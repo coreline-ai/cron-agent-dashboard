@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadDataDirUpdatesDefaultDBPath(t *testing.T) {
@@ -84,6 +85,46 @@ func TestLoadAutopilotFailureThresholdFallsBackToDefault(t *testing.T) {
 	}
 	if got, want := cfg.AutopilotFailureDisableThreshold, DefaultAutopilotFailureDisableThreshold; got != want {
 		t.Fatalf("AutopilotFailureDisableThreshold=%d, want %d", got, want)
+	}
+}
+
+func TestLoadWorktreeGCAfterFromFlagAndEnv(t *testing.T) {
+	t.Setenv("CRON_AGENT_DASHBOARD_WORKTREE_GC_AFTER", "48h")
+	cfg, _, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load env: %v", err)
+	}
+	if got, want := cfg.WorktreeGCAfter, 48*time.Hour; got != want {
+		t.Fatalf("WorktreeGCAfter=%s, want %s", got, want)
+	}
+
+	cfg, _, err = Load([]string{"--worktree-gc-after", "72h"})
+	if err != nil {
+		t.Fatalf("Load flag: %v", err)
+	}
+	if got, want := cfg.WorktreeGCAfter, 72*time.Hour; got != want {
+		t.Fatalf("WorktreeGCAfter=%s, want %s", got, want)
+	}
+}
+
+func TestLoadWorktreeGCAfterNegativeDisables(t *testing.T) {
+	cfg, _, err := Load([]string{"--worktree-gc-after", "-1h"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.WorktreeGCAfter != 0 {
+		t.Fatalf("negative worktree-gc-after should disable GC, got %s", cfg.WorktreeGCAfter)
+	}
+}
+
+func TestLoadRejectsInvalidWorktreeGCAfterEnv(t *testing.T) {
+	t.Setenv("CRON_AGENT_DASHBOARD_WORKTREE_GC_AFTER", "tomorrow")
+	_, _, err := Load(nil)
+	if err == nil {
+		t.Fatal("expected invalid env to fail")
+	}
+	if !strings.Contains(err.Error(), "CRON_AGENT_DASHBOARD_WORKTREE_GC_AFTER") {
+		t.Fatalf("error=%v, want env key in message", err)
 	}
 }
 

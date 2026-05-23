@@ -15,6 +15,7 @@ const (
 	DefaultBind                             = "127.0.0.1:8080"
 	DefaultTimezone                         = "Asia/Seoul"
 	DefaultWorkers                          = 3
+	DefaultWorktreeGCAfter                  = 24 * time.Hour
 	DefaultAutopilotFailureDisableThreshold = 5
 	privateDirMode                          = 0o700
 )
@@ -37,6 +38,7 @@ type Config struct {
 	AutoBackup                       bool          `json:"auto_backup"`
 	AutoBackupKeep                   int           `json:"auto_backup_keep"`
 	AutoCleanupLogDays               int           `json:"auto_cleanup_log_days"`
+	WorktreeGCAfter                  time.Duration `json:"-"`
 	MaintenanceInterval              time.Duration `json:"-"`
 	AutopilotFailureDisableThreshold int           `json:"autopilot_failure_disable_threshold"`
 }
@@ -57,6 +59,7 @@ func Default() (Config, error) {
 		AutoBackup:                       true,
 		AutoBackupKeep:                   7,
 		AutoCleanupLogDays:               90,
+		WorktreeGCAfter:                  DefaultWorktreeGCAfter,
 		MaintenanceInterval:              24 * time.Hour,
 		AutopilotFailureDisableThreshold: DefaultAutopilotFailureDisableThreshold,
 	}, nil
@@ -90,6 +93,7 @@ func Load(args []string) (Config, []string, error) {
 	fs.BoolVar(&cfg.AutoBackup, "auto-backup", cfg.AutoBackup, "enable automatic daily SQLite backups")
 	fs.IntVar(&cfg.AutoBackupKeep, "auto-backup-keep", cfg.AutoBackupKeep, "number of automatic backups to keep")
 	fs.IntVar(&cfg.AutoCleanupLogDays, "auto-cleanup-log-days", cfg.AutoCleanupLogDays, "delete run logs older than this many days; 0 disables")
+	fs.DurationVar(&cfg.WorktreeGCAfter, "worktree-gc-after", cfg.WorktreeGCAfter, "delete terminal/orphan per-run worktrees not modified for this duration; queued/running rows are protected; 0 disables")
 	fs.DurationVar(&cfg.MaintenanceInterval, "maintenance-interval", cfg.MaintenanceInterval, "automatic maintenance interval")
 	fs.IntVar(&cfg.AutopilotFailureDisableThreshold, "autopilot-failure-disable-threshold", cfg.AutopilotFailureDisableThreshold, "consecutive autopilot trigger failures before auto-disable; values <=0 reset to default")
 	if err := fs.Parse(args); err != nil {
@@ -115,6 +119,9 @@ func Load(args []string) (Config, []string, error) {
 	}
 	if cfg.AutoCleanupLogDays < 0 {
 		cfg.AutoCleanupLogDays = 0
+	}
+	if cfg.WorktreeGCAfter < 0 {
+		cfg.WorktreeGCAfter = 0
 	}
 	if cfg.MaintenanceInterval <= 0 {
 		cfg.MaintenanceInterval = 24 * time.Hour
@@ -232,6 +239,13 @@ func applyEnv(c *Config) error {
 			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_MAINTENANCE_INTERVAL %q: %w", v, err)
 		}
 		c.MaintenanceInterval = d
+	}
+	if v := os.Getenv("CRON_AGENT_DASHBOARD_WORKTREE_GC_AFTER"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid CRON_AGENT_DASHBOARD_WORKTREE_GC_AFTER %q: %w", v, err)
+		}
+		c.WorktreeGCAfter = d
 	}
 	if v := os.Getenv("CRON_AGENT_DASHBOARD_AUTOPILOT_FAILURE_DISABLE_THRESHOLD"); v != "" {
 		n, err := strconv.Atoi(v)

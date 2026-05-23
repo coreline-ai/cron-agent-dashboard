@@ -21,21 +21,22 @@ const WorkspaceExportFormatVersion = 1
 // configuration: workspace + agents + skills + agent skill assignments +
 // autopilot rules. History (issues / runs / comments / attachment metadata)
 // is included only when the exporter is invoked with
-// ExportWorkspaceOptions.IncludeHistory; the importer silently ignores those
-// fields so v1 and v2 payloads remain compatible without bumping
-// FormatVersion.
+// ExportWorkspaceOptions.IncludeHistory; importers materialize those rows only
+// when ImportOptions.IncludeHistory is enabled, so existing config-only import
+// flows stay non-destructive without bumping FormatVersion.
 type WorkspaceExport struct {
-	FormatVersion int                          `json:"format_version"`
-	ExportedAt    string                       `json:"exported_at"`
-	Workspace     WorkspaceExportWorkspace     `json:"workspace"`
-	Agents        []WorkspaceExportAgent       `json:"agents"`
-	Skills        []WorkspaceExportSkill       `json:"skills,omitempty"`
-	AgentSkills   []WorkspaceExportAgentSkill  `json:"agent_skills,omitempty"`
-	Autopilot     []WorkspaceExportAutopilot   `json:"autopilot_rules,omitempty"`
+	FormatVersion int                         `json:"format_version"`
+	ExportedAt    string                      `json:"exported_at"`
+	Workspace     WorkspaceExportWorkspace    `json:"workspace"`
+	Agents        []WorkspaceExportAgent      `json:"agents"`
+	Skills        []WorkspaceExportSkill      `json:"skills,omitempty"`
+	AgentSkills   []WorkspaceExportAgentSkill `json:"agent_skills,omitempty"`
+	Autopilot     []WorkspaceExportAutopilot  `json:"autopilot_rules,omitempty"`
 
 	// History payload. Present only when ExportWorkspaceOptions.IncludeHistory
-	// is true. Importers ignore these fields today; they exist so operators
-	// can archive a complete workspace snapshot for compliance / migration.
+	// is true. ImportWorkspace rematerializes these rows when
+	// ImportOptions.IncludeHistory is true; otherwise they are intentionally
+	// ignored for config-only imports.
 	Issues      []WorkspaceExportIssue      `json:"issues,omitempty"`
 	Comments    []WorkspaceExportComment    `json:"comments,omitempty"`
 	Runs        []WorkspaceExportRun        `json:"runs,omitempty"`
@@ -59,6 +60,7 @@ type WorkspaceExportWorkspace struct {
 	AutoChainDailyCostMicros int64  `json:"auto_chain_daily_cost_micros"`
 	AutoChainDryRun          bool   `json:"auto_chain_dry_run"`
 	AutoCloseOnRunDone       bool   `json:"auto_close_on_run_done"`
+	PerRunWorktree           bool   `json:"per_run_worktree"`
 }
 
 type WorkspaceExportAgent struct {
@@ -297,6 +299,7 @@ func ExportWorkspaceWithOptions(ctx context.Context, st *store.Store, slug strin
 			AutoChainDailyCostMicros: ws.AutoChainDailyCostMicros,
 			AutoChainDryRun:          ws.AutoChainDryRun,
 			AutoCloseOnRunDone:       ws.AutoCloseOnRunDone,
+			PerRunWorktree:           ws.PerRunWorktree,
 		},
 		Agents:      exportAgents,
 		Skills:      exportSkills,
@@ -411,8 +414,9 @@ type ImportOptions struct {
 
 // ImportWorkspace creates a fresh workspace from the WorkspaceExport snapshot.
 // It is intentionally non-destructive: slug collisions return store.ErrConflict
-// rather than overwriting. Issue / run / comment / run_event history is out
-// of scope for this format — only operational configuration is restored.
+// rather than overwriting. By default only operational configuration is
+// restored; set ImportOptions.IncludeHistory to rematerialize exported issue /
+// run / comment / attachment metadata.
 func ImportWorkspace(ctx context.Context, st *store.Store, export WorkspaceExport, opts ImportOptions) (store.Workspace, error) {
 	if st == nil {
 		return store.Workspace{}, errors.New("import: store is nil")
@@ -462,6 +466,7 @@ func ImportWorkspace(ctx context.Context, st *store.Store, export WorkspaceExpor
 		AutoChainDailyCostMicros: export.Workspace.AutoChainDailyCostMicros,
 		AutoChainDryRun:          export.Workspace.AutoChainDryRun,
 		AutoCloseOnRunDone:       boolPtr(export.Workspace.AutoCloseOnRunDone),
+		PerRunWorktree:           export.Workspace.PerRunWorktree,
 		MainAgent: store.CreateAgentInput{
 			Name:                   mainSpec.Name,
 			Runtime:                mainSpec.Runtime,
@@ -770,4 +775,3 @@ func intPtrIfPositive(v int) *int {
 func boolPtr(v bool) *bool {
 	return &v
 }
-

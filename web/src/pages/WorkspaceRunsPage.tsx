@@ -31,23 +31,18 @@ export function WorkspaceRunsPage() {
 
   // Subscribe to the workspace SSE wake stream so any issue's run_event
   // in this workspace refreshes the feed without waiting for the 8s
-  // polling tick.
+  // polling tick. The API helper uses fetch streaming so token mode can
+  // attach Authorization.
   useEffect(() => {
     if (!slug) return undefined;
-    let source: EventSource;
-    try {
-      source = new EventSource(apiClient.url(`/workspaces/${slug}/runs/stream`));
-    } catch {
-      return undefined;
-    }
-    const onWake = () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-runs-feed', slug] });
-    };
-    source.addEventListener('wake', onWake);
-    return () => {
-      source.removeEventListener('wake', onWake);
-      source.close();
-    };
+    return apiClient.streamSSE(`/workspaces/${slug}/runs/stream`, {
+      reconnect: true,
+      onEvent: (event) => {
+        if (event === 'wake') {
+          queryClient.invalidateQueries({ queryKey: ['workspace-runs-feed', slug] });
+        }
+      }
+    });
   }, [slug, queryClient]);
 
   const filtered = useMemo(() => {

@@ -51,10 +51,10 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 ```
 
 > [!IMPORTANT]
-> **이 프로젝트는 현재 v0.1 안정화 이후 Phase 2 핵심 기능까지 반영된 상태입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore/workspace import-export, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 19 파일 / httpapi 13 파일), **64개 REST route**, **24개 SQLite migration**, sentinel 에러 16종, panic cooldown, heartbeat 기반 stale 회수, startup self-check 시 gopsutil 기반 orphan process 검증(평시 stale scan은 heartbeat-only), react-error-boundary, @xyflow/react 흐름 그래프, Agent Skills registry, workspace opt-in auto-chain guard(main agent PM hub 재진입 허용), chain dashboard, issue attachments, outbound webhooks, per-run worktree opt-in까지 적용된 상태입니다. 2026-05-23 기준 `go test ./...`, `go test -race ./...`, `go vet ./...`, `pnpm --filter web build`, `pnpm --filter web test`, `make e2e-smoke`, `govulncheck ./...`, `pnpm audit --prod`, `pnpm audit`를 통과했습니다.
+> **이 프로젝트는 현재 v0.1 안정화 이후 Phase 2 핵심 기능까지 반영된 상태입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore/workspace import-export, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 19 파일 / httpapi 13 파일), **68개 API route(+ `/healthz`)**, **24개 SQLite migration**, sentinel 에러 16종, panic cooldown, heartbeat 기반 stale 회수, startup self-check 시 gopsutil 기반 orphan process 검증(평시 stale scan은 heartbeat-only), react-error-boundary, @xyflow/react 흐름 그래프, Agent Skills registry, workspace opt-in auto-chain guard(main agent PM hub 재진입 허용), chain dashboard, issue attachments, outbound webhooks, per-run worktree opt-in, SSE run_event streaming, Homebrew tap publish workflow, workspace history import materialization, worktree disk usage/GC, e2e-full CI gate까지 적용된 상태입니다. 2026-05-23 기준 `go test ./...`, `go test -race ./...`, `go vet ./...`, `pnpm --filter web build`, `pnpm --filter web test`, `make e2e-smoke`, `make e2e-full`, `govulncheck ./...`, `pnpm audit --prod`, `pnpm audit`를 통과했습니다.
 
 > [!TIP]
-> **품질 지표 (2026-05-23 기준)** — Go production **12,015 LOC** · Web production **10,104 LOC** · 자동화 테스트/스펙 **81 파일 / 11,235 LOC**(Go test 56 · Vitest 13 · Playwright 12) · `go test -race ./...` clean · TypeScript strict · sentinel 에러 16종 · single-direction migration **24개**.
+> **품질 지표 (2026-05-23 기준)** — Go production **13,097 LOC** · Web production **10,656 LOC** · 자동화 테스트/스펙 **93 파일 / 12,854 LOC**(Go test 65 · Vitest 15 · Playwright 12 + fixture 1) · `go test -race ./...` clean · TypeScript strict · sentinel 에러 16종 · single-direction migration **24개**.
 
 ### 🔎 코드 레벨 전문가 분석 요약 (2026-05-23)
 
@@ -63,8 +63,8 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 | 아키텍처 | 안정적 | HTTP/store/worker/runtime/scheduler가 분리되어 있고, queue는 SQLite row 기반 durable claim으로 동작 |
 | 실행 lifecycle | 강함 | heartbeat, stale/orphan recovery, process group kill, cancel race guard, panic cooldown, run_event audit trail 보유 |
 | 보안 기본값 | 양호 | localhost 기본, 외부 bind token 강제, CORS allowlist, CSP/security headers, body cap, backup path 제한, private file permission 적용 |
-| 프론트엔드 | 실사용 가능 | React Query polling, URL 필터, error boundary, safe markdown, run graph, token local/session storage 지원 |
-| 남은 개선 후보 | 모두 닫힘 (2026-05-23) | SSE 스트리밍(commit `738f414`) · Homebrew 자동 publish CI step(`35641ce`) · workspace history import materialization(`2d21162`) · worktree 디스크 사용량 관측 + GC(`bd450c3`) · e2e-full CI 승격(`3d3f733`) 모두 적용. 다음 후속은 운영 중 발견되는 새 항목에서 시작 |
+| 프론트엔드 | 실사용 가능 | fetch 기반 SSE issue detail refresh + React Query polling fallback, URL 필터, error boundary, safe markdown, run graph, token local/session storage 지원 |
+| 남은 개선 후보 | 모두 닫힘 (2026-05-23) | SSE 스트리밍 · Homebrew tap publish CI step · workspace history import materialization · worktree 디스크 사용량 관측 + configurable GC · e2e-full 필수 CI gate 모두 적용. 다음 후속은 운영 중 발견되는 새 항목에서 시작 |
 
 ---
 
@@ -190,7 +190,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 | DB | PostgreSQL 17 + pgvector | **SQLite 1 파일** |
 | 인프라 | `docker-compose` × 5 services | **없음** |
 | Frontend | Next.js 16 (SSR/RSC) | **Vite + React Router SPA** |
-| Realtime | WebSocket Hub | **HTTP polling** (3s) |
+| Realtime | WebSocket Hub | **SSE run_event stream + HTTP polling fallback** |
 | 인증 | OAuth + PAT + Daemon Token | **무인증** (옵션: 단일 토큰) |
 | 멤버 / 권한 | RBAC + invite | **단일 사용자** |
 | Go 코드 규모 | ~25,000 LOC | **~8,824 LOC + 5,584 LOC Go tests** |
@@ -291,11 +291,11 @@ Plain CSS 기반 디자인 시스템.
 - [x] 🌳 per-run worktree — workspace opt-in 동시 실행, git repo는 `git worktree add --detach`/`remove --force`, 비-git 경로는 isolated mkdir fallback
 - [x] 📤 워크스페이스 import/export — CLI `workspace-export`/`workspace-import`, HTTP export, history export + PII masking
 - [x] 🔔 외부 webhook — workspace 구독, HMAC-SHA256 서명, mask_pii, exponential retry, dead-letter 배지
-- [x] 📡 Realtime streaming — `/api/issues/{id}/events/stream` SSE + EventSource subscriber in IssueDetailPage(`738f414`)
-- [x] 🍺 Homebrew tap publish — release CI가 formula를 채워 release artifact로 업로드 + opt-in tap PR step(`35641ce`)
-- [x] 🧹 per-run worktree 운영 관측 — 매 maintenance tick마다 `<data>/worktrees/` 사용량 측정 + 24h 이상 미사용 디렉터리 GC + Settings UI 노출(`bd450c3`)
-- [x] 📥 workspace history import 복원 — `ImportOptions.IncludeHistory`로 issue/comment/run/attachment metadata rematerialize, in-flight run은 `cancelled`로 정착(`2d21162`)
-- [x] 🧪 e2e-full CI 승격 — `make e2e-full`이 별도 job으로 작동(`3d3f733`, 안정화 단계는 `continue-on-error`)
+- [x] 📡 Realtime streaming — `/api/issues/{id}/events/stream` SSE + fetch-based subscriber in IssueDetailPage
+- [x] 🍺 Homebrew tap publish — release CI가 formula를 채워 release artifact로 업로드 + secret 설정 시 opt-in tap PR 생성
+- [x] 🧹 per-run worktree 운영 관측 — 매 maintenance tick마다 `<data>/worktrees/` 사용량 측정 + `--worktree-gc-after`(기본 24h) 이상 미사용 terminal/orphan 디렉터리 GC(queued/running 보호) + Settings UI 노출
+- [x] 📥 workspace history import 복원 — `ImportOptions.IncludeHistory`로 issue/comment/run/attachment metadata rematerialize, in-flight run은 `cancelled`로 정착, `per_run_worktree` round-trip 보존
+- [x] 🧪 e2e-full CI 승격 — `make e2e-full`이 필수 GitHub Actions job으로 PR/release 회귀를 gate
 
 ---
 
@@ -314,7 +314,7 @@ Plain CSS 기반 디자인 시스템.
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │              HTTP Server (chi router)                    │  │
-│  │  /api/*  →  REST API (64 routes)                         │  │
+│  │  /api/*  →  REST API (68 routes)                         │  │
 │  │  /*      →  embed.FS (Vite SPA + index.html fallback)    │  │
 │  └────────────────────┬─────────────────────┬───────────────┘  │
 │                       │                     │                  │
@@ -453,10 +453,10 @@ Plain CSS 기반 디자인 시스템.
 - Node.js 22+ · pnpm 10+
 - `codex` 또는 `claude` 또는 `gemini` CLI 중 1개 이상 PATH에 설치됨
 
-### 설치 (예정)
+### 설치
 
 ```bash
-# Homebrew (예정)
+# Homebrew (tap publish secret 설정 후 release workflow가 Formula PR 생성)
 brew install coreline-ai/tap/cron-agent-dashboard
 
 # 또는 직접 다운로드
@@ -692,7 +692,7 @@ cron-agent-dashboard serve   # 마이그레이션 자동 적용
 | [⚙️ TRD](docs/TRD.md) | 기술 요구사항 — 스택 · Runtime adapter · durable queue · 워크스페이스 직렬화 |
 | [🧱 ARCHITECTURE](docs/ARCHITECTURE.md) | 컴포넌트 · 데이터 흐름 · 상태머신 (`issue.status` vs `run.status` 분리) |
 | [🗃️ DATA MODEL](docs/DATA_MODEL.md) | workspace/agent/skill/issue/comment/run/autopilot 중심 DDL · claim 쿼리 · 트랜잭션 패턴 |
-| [🔌 API](docs/API.md) | 64 REST route · 멘션/auto-chain 규칙 · attachments/webhooks · identifier resolve |
+| [🔌 API](docs/API.md) | 68 API route · 멘션/auto-chain 규칙 · attachments/webhooks · identifier resolve |
 | [🎨 UX FLOW](docs/UX_FLOW.md) | 7 페이지 화면 · 배지 · 사이드바 · empty state |
 | [🔗 CHAINING](docs/CHAINING.md) | explicit-only 기본 + workspace opt-in auto-chain (depth·run·cost·dry-run 5중 가드) |
 | [🗺️ ROADMAP](docs/ROADMAP.md) | Phase 0~7 · 의존성 · 리스크 |
@@ -700,7 +700,7 @@ cron-agent-dashboard serve   # 마이그레이션 자동 적용
 | [🚀 RELEASE NOTES v0.1.0](docs/RELEASE_NOTES_v0.1.0.md) | GitHub Release body로 사용할 수 있는 사용자 관점 릴리스 노트 |
 | [🛠️ OPERATIONS](docs/OPERATIONS.md) | daily-use 운영 체크리스트 · 백업 · run event · 로그 정리 · artifact 검증 |
 | [✅ TODO](TODO.md) | 완료된 scaffold/Phase 2 작업 이력 · 현재 open 구현 항목 0개 기준 추적 |
-| [🧩 후속 개발 계획](dev-plan/implement_20260512_180648.md) | worker/scheduler/frontend/embed/release 남은 작업 분해 |
+| [🧩 개발 계획 기록](dev-plan/implement_20260512_180648.md) | worker/scheduler/frontend/embed/release 초기 작업 분해 기록 |
 | [🤝 CLAUDE.md](CLAUDE.md) | LLM 코딩 어시스턴트용 작업 가이드라인 |
 
 ---

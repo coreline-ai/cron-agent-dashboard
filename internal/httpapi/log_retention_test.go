@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/coreline-ai/cron-agent-dashboard/internal/config"
 	"github.com/coreline-ai/cron-agent-dashboard/internal/db"
@@ -24,7 +25,15 @@ func TestSettingsExposesLastLogCleanupAfterManualSweep(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	h := New(store.New(database), config.Config{DataDir: dir, DBPath: filepath.Join(dir, "data.db"), Bind: "127.0.0.1:0", Workers: 1, Timezone: "Asia/Seoul", AutoCleanupLogDays: 30})
+	h := New(store.New(database), config.Config{
+		DataDir:            dir,
+		DBPath:             filepath.Join(dir, "data.db"),
+		Bind:               "127.0.0.1:0",
+		Workers:            1,
+		Timezone:           "Asia/Seoul",
+		AutoCleanupLogDays: 30,
+		WorktreeGCAfter:    48 * time.Hour,
+	})
 
 	pristine := do(t, h, http.MethodGet, "/api/settings", "")
 	if pristine.Code != http.StatusOK {
@@ -38,6 +47,9 @@ func TestSettingsExposesLastLogCleanupAfterManualSweep(t *testing.T) {
 	}
 	if got, _ := pristineBody.Maintenance["auto_cleanup_log_days"].(float64); int(got) != 30 {
 		t.Fatalf("auto_cleanup_log_days=%v want 30", pristineBody.Maintenance["auto_cleanup_log_days"])
+	}
+	if got, _ := pristineBody.Maintenance["worktree_gc_after_seconds"].(float64); int(got) != int((48*time.Hour)/time.Second) {
+		t.Fatalf("worktree_gc_after_seconds=%v want %d", pristineBody.Maintenance["worktree_gc_after_seconds"], int((48*time.Hour)/time.Second))
 	}
 	if at, _ := pristineBody.Maintenance["last_log_cleanup_at"].(string); at != "" {
 		t.Fatalf("pristine last_log_cleanup_at should be empty, got %q", at)

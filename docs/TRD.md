@@ -330,15 +330,15 @@ cron-agent-dashboard/
 
 | 영역 | 엔드포인트 수 |
 |---|---|
-| Workspaces | 5 (list/get/create/update/delete) |
-| Agents | 6 (list/get/create/update/promote/delete) |
-| Issues | 7 (list/get/create/update/rerun/cancel/delete) |
-| Comments | 3 |
-| Runs | 2 |
+| Workspaces | 6 (list/get/create/update/delete/export) |
+| Agents / Skills | 16 (agents, activity, instructions, skills, assignments) |
+| Issues / Comments / Attachments | 25 (issues, sub-issues, comments, attachments/audit/link) |
+| Runs / Chains | 6 (issue runs, events, log, chain cancel/retry, workspace runs) |
 | Autopilot | 5 |
-| Health / Settings | 2 |
+| Webhooks | 6 |
+| Health / Settings / Usage | 3 |
 | System actions | 3 (backup/vacuum/cleanup-logs) |
-| **총** | **33** |
+| **총** | **64** |
 
 ---
 
@@ -431,12 +431,12 @@ cron-agent-dashboard/
   - `mention`: 댓글 content의 앞 4KB
   - `autopilot`: 룰 이름 + cron 표현식
   - `rerun`: `[rerun of run <id>]`
-- `agent_mention` 또는 `auto_mention`은 auto-chain opt-in 구현 시 검토할 후보 enum이며 현재 schema/API에는 없다.
+- auto-chain run도 기존 enum 호환을 위해 `trigger_type="mention"`을 사용하고, lineage 필드(`chain_id`, `parent_run_id`, `chain_depth`)와 run_event details로 자동 체이닝 여부를 구분한다.
 
 ### 8.8 Run is stateless
 - run 테이블에 `session_id`, `work_dir` 컬럼 없음 (의도적)
-- 모든 run은 매번 `workspace.working_dir`을 cwd로 사용
-- 에이전트 간 working_dir 격리는 Phase 2 후보 (per-run worktree)
+- 기본 실행 cwd는 `workspace.working_dir`이다.
+- `workspace.per_run_worktree=true`이면 worker가 run claim 시 `<data_dir>/worktrees/<slug>/<run-id>/`를 실행 cwd로 넘긴다. git repo는 `git worktree add --detach`, 비-git 경로는 isolated mkdir fallback을 사용한다.
 
 ### 8.9 Auto-chain opt-in (구현됨)
 
@@ -581,7 +581,7 @@ cron-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 |---|---|---|
 | Frontend 스택 | **Vite + React Router SPA** (확정, Next.js/next-themes 미사용) | Phase 0 |
 | `issue.status` vs `run.status` 분리 | **분리** (issue: open/done/cancelled, run: queued/running/done/failed/cancelled). execution_status는 API derived | Phase 0 |
-| 워크스페이스 동시 실행 | **MVP는 워크스페이스당 1개** (per-run worktree는 Phase 2) | Phase 0 |
+| 워크스페이스 동시 실행 | **기본은 워크스페이스당 1개**, `per_run_worktree=true`면 같은 workspace의 다른 issue도 isolated cwd에서 병렬 claim | Phase 2 |
 | 멘션 시 담당자 유지 | **issue.assignee_agent_id는 유지** (`run.agent_id`만 멘션된 agent) | Phase 0 |
 | identifier URL 처리 | **`:idOrIdentifier` 다형 라우팅** | Phase 0 |
 | stdout → comment | **64KB cap + raw HTML 금지 + pipe drain** | Phase 0 |
@@ -589,15 +589,15 @@ cron-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 | [재실행] 대상 agent | **마지막 run의 agent** (issue.assignee와 다를 수 있음) | Phase 0 |
 | Durable queue | **`run.status='queued'` + DB claim** (확정) | Phase 0 |
 | Cancel status | **`cancelled` 별도** (확정) | Phase 0 |
-| Sub-issue 트리 | **Phase 2로 이동** (확정, MVP는 멘션 = 같은 issue 새 run) | Phase 0 |
+| Sub-issue 트리 | 구현됨. 부모/자식 관계와 lineage graph로 표시 | Phase 2 |
 | 멘션 정책 | **첫 멘션만 dispatch** (확정) | Phase 0 |
 | Timezone | **시스템 전역 `CRON_AGENT_DASHBOARD_TIMEZONE`** (기본 `Asia/Seoul`) | Phase 0 |
 | Stdout cap | **단일 run 10MB** (확정) | Phase 0 |
 | Prompt 컨텍스트 | **truncation 4000자, 요약 없음** | Phase 0 |
 | 체이닝 정책 | **explicit-first + workspace opt-in auto-chain**. 기본 off, workspace guard(depth/run/cost/dry-run) 통과 시 agent 결과 첫 멘션 dispatch | Phase 2 |
-| stdout 스트리밍 단위 | 종료 후 1번 (확정 MVP) — 라인 단위는 Phase 2 후보 | Phase 0 |
-| run log 압축 | gzip vs raw — Phase 2에서 디스크 사용량 보고 후 결정 | Phase 2 |
-| 워크스페이스 import/export | Phase 2 | Phase 2 |
+| stdout 스트리밍 단위 | stdout 원문은 종료 후 다운로드. run lifecycle은 issue SSE(`/api/issues/{id}/events/stream`)로 실시간 event audit 제공 | Phase 2 |
+| run log 압축 | gzip vs raw — 운영 디스크 사용량을 보고 필요 시 결정 | Phase 2 |
+| 워크스페이스 import/export | 구현됨. CLI import/export + HTTP export + history export/PII masking + `ImportOptions.IncludeHistory` materialization | Phase 2 |
 
 ---
 

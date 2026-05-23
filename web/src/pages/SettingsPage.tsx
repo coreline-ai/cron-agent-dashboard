@@ -34,6 +34,22 @@ function formatBytes(value?: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function formatDurationSeconds(value?: number) {
+  const seconds = value ?? 0;
+  if (seconds <= 0) {
+    return 'OFF';
+  }
+  const days = Math.floor(seconds / 86_400);
+  if (days >= 1 && seconds % 86_400 === 0) {
+    return `${days}일`;
+  }
+  const hours = Math.floor(seconds / 3_600);
+  if (hours >= 1 && seconds % 3_600 === 0) {
+    return `${hours}시간`;
+  }
+  return `${seconds}초`;
+}
+
 function formatWorktreeUsage(m?: { worktree_bytes?: string; worktree_dir_count?: string; worktree_pruned_last_pass?: string; worktree_measured_at?: string }) {
   const at = m?.worktree_measured_at?.trim();
   if (!at) {
@@ -93,7 +109,7 @@ function WorkspaceTimeoutRow({ workspace }: { workspace: WorkspaceSummary }) {
   });
 
   return (
-    <section className="setting-action compact-action">
+    <section className="setting-action workspace-setting-action">
       <div className="setting-copy">
         <strong>{workspace.name}</strong>
         <p>{workspace.slug} · 기본 run timeout을 초 단위로 설정합니다.</p>
@@ -216,6 +232,8 @@ export function SettingsPage() {
           <dd>{formatLastLogCleanup(data?.maintenance)}</dd>
           <dt>worktree 디스크</dt>
           <dd>{formatWorktreeUsage(data?.maintenance)}</dd>
+          <dt>worktree GC</dt>
+          <dd>{data?.maintenance?.worktree_gc_after_seconds ? `${formatDurationSeconds(data.maintenance.worktree_gc_after_seconds)} 이상 미사용 디렉터리 자동 정리` : 'OFF'}</dd>
           <dt>마이그레이션 실패</dt>
           <dd>{data?.migration_fail_count ? `${data.migration_fail_count}건 이력 있음 · 로그/DB 확인 권장` : '없음'}</dd>
         </dl>
