@@ -121,6 +121,10 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 
 ![이슈 상세](docs/screenshots/04-issue-detail.png)
 
+> [!NOTE]
+> 흐름 그래프 범례(`d=N`은 `chain_depth`)는 외곽 박스 바깥 상단으로 분리되어 외곽과 겹치지 않으며, 좌하단 ReactFlow Controls(+/-/fit) 버튼과 우하단 React Flow attribution 배지는 동일한 카드 배경/테두리/hover 톤으로 강조되어 다크/라이트 양쪽에서 또렷하게 보이고 컨테이너 가장자리에서 잘리지 않습니다.
+
+
 - 좌측 메인:
   - **본문 패널**: `react-markdown` + `remark-gfm`로 안전 렌더 (raw HTML/script 차단, XSS smoke 회귀로 보호)
   - **흐름 그래프 (`@xyflow/react`)**: parent issue → 현재 이슈 → sub-issue / chained run의 lineage를 시각화. 노드 클릭으로 자식 페이지 이동
@@ -163,11 +167,13 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 
 ![설정](docs/screenshots/08-settings.png)
 
+- **AI Dev Team 워크스페이스 카드** (최상단): slug + working_dir 입력으로 Lead/Designer/Backend/Frontend/DB/QA/DevOps 7-role + 8 skill을 한 번에 시드(`POST /api/system/seed-dev-team`, CLI `seed-dev-team`와 동일 helper). 성공 시 toast + `/w/<slug>/board`로 이동
 - **서버 설정** (읽기 전용): 버전, 데이터 디렉토리, 타임존, worker 수, 인증 모드, 감지된 런타임 + version + warning, 7일 token/cost, 자동 백업 보존 개수, 자동 로그 정리 기준, 마이그레이션 실패 이력
 - **사용량 대시보드**: 최근 7일 / 30일 input·output·total token + cost, 측정 run 수(`run_count` 대비 `measured_run_count`)
 - **워크스페이스 실행 기본값**: workspace별 `default_timeout_seconds` + auto-chain 5중 가드(ON/OFF · 최대 chain depth · 24시간 run 제한 · 24시간 비용 제한 · dry-run)
 - **운영 작업**: `DB 백업 (경로 옵션)` / `Vacuum` / `Run 로그 정리 (보존 일수)` — 결과는 하단 메시지 영역에 표시
 - **API 토큰**: 서버가 token mode일 때 사용할 Bearer token을 브라우저 `localStorage`(기본) 또는 `sessionStorage`(이번 세션만)에 저장/삭제(서버에 저장되지 않음)
+- **좌측 사이드바 신규 메뉴**: `런 피드 (All runs)` → 워크스페이스 전체 run을 newest-first로 노출하는 `/w/:slug/runs`, `체인 대시보드 (Auto-chain)` → chain 단위 status/guard/취소·재시작을 `/w/:slug/chains`에서 일괄 관리
 
 ### 7. 라이트 테마
 
@@ -296,6 +302,9 @@ Plain CSS 기반 디자인 시스템.
 - [x] 🧹 per-run worktree 운영 관측 — 매 maintenance tick마다 `<data>/worktrees/` 사용량 측정 + `--worktree-gc-after`(기본 24h) 이상 미사용 terminal/orphan 디렉터리 GC(queued/running 보호) + Settings UI 노출
 - [x] 📥 workspace history import 복원 — `ImportOptions.IncludeHistory`로 issue/comment/run/attachment metadata rematerialize, in-flight run은 `cancelled`로 정착, `per_run_worktree` round-trip 보존
 - [x] 🧪 e2e-full CI 승격 — `make e2e-full`이 필수 GitHub Actions job으로 PR/release 회귀를 gate
+- [x] 📊 워크스페이스 단위 Run feed — `/w/:slug/runs`에서 최근 500개 run을 newest-first로 status/agent/검색 필터링, 클릭으로 이슈 상세로 점프
+- [x] 🤖 AI dev-team workspace seed — `cron-agent-dashboard seed-dev-team`(CLI) 또는 Settings의 "AI Dev Team 워크스페이스" 카드(`POST /api/system/seed-dev-team`)로 Lead/Designer/Backend/Frontend/DB/QA/DevOps 7-role + 8 skill을 한 번에 시드. dev-team 보드에서 "샘플 이슈로 시작" 버튼이 dark-mode 토글 시나리오를 prefill하여 hub-PM 체인을 한 클릭으로 트리거
+- [x] 🎨 흐름 그래프 polish — 범례를 차트 박스 바깥으로 분리(외곽 겹침 제거), ReactFlow Controls(+/-/fit) 버튼에 카드 배경·테두리·hover 톤을 적용하여 흰 배경에 묻히지 않게 함
 
 ---
 
@@ -488,6 +497,9 @@ make build
 
 # (선택) 단일 워크스페이스 AI dev-team 시드 — Lead/Designer/Backend/Frontend/DB/QA/DevOps + 8 skills
 ./cron-agent-dashboard seed-dev-team --slug ai-dev-team --working-dir "$(pwd)"
+# 또는 웹앱 Settings 페이지 최상단 "AI Dev Team 워크스페이스" 카드에서 한 번에 생성할 수 있습니다.
+# 생성 직후 보드에서 "샘플 이슈로 시작" 버튼이 dark-mode 토글 acceptance criteria를 prefill하여
+# Lead → worker chain을 한 클릭으로 트리거합니다.
 
 # (선택) 워크스페이스 운영 설정 백업/복제 (workspace + agents + skills + autopilot rules)
 # ./cron-agent-dashboard workspace-export --workspace <slug> --to demo.json
@@ -784,6 +796,13 @@ MIT License © 2026 Coreline AI — 전문은 [LICENSE](LICENSE) 참조.
 [⬆ 맨 위로](#-cron-agent-dashboard)
 
 </div>
+
+### 2026-05-25 AI dev-team workspace 통합 + 흐름 그래프 polish
+
+- `cron-agent-dashboard seed-dev-team` CLI(commit `77a6ad7`)에 더해 웹앱 Settings 페이지에 **"AI Dev Team 워크스페이스" 카드**를 추가했습니다(`POST /api/system/seed-dev-team`, commit `1ccd772`). slug + working_dir 입력 → 7-role 에이전트(Lead/Designer/Backend/Frontend/DB/QA/DevOps) + 8 skill을 한 번에 시드하고 새 보드로 이동합니다. dev-team workspace에 이슈가 0개일 때는 보드에서 "샘플 이슈로 시작" 버튼이 노출되어 dark-mode 토글 acceptance criteria가 prefill된 새 이슈 모달을 엽니다.
+- `web/src/components/IssueFlowGraph.tsx`의 chain_depth 범례를 차트 박스 **바깥**으로 분리해 외곽선과 글자가 겹치던 문제를 제거했고, `web/src/styles/global.css`에서 좌하단 ReactFlow Controls(+/-/fit) 버튼과 우하단 React Flow attribution 배지에 동일한 카드 배경 · 테두리 · hover 톤 + `0.85rem` 인셋을 적용해 흰 배경에서도 또렷하게 보이며 컨테이너 가장자리에서 잘리지 않도록 했습니다.
+- 워크스페이스 단위 chain 액션이 워크스페이스 Run feed / chain dashboard SSE 캐시를 함께 invalidate하도록 `ChainSummaryPanel`을 보강했습니다(취소·재시작 후 두 뷰가 즉시 동기화).
+- `docs/screenshots/01~09.png`를 `make screenshots`로 최신 다크 테마 빌드 기준(1440×900)으로 재생성했습니다. 08-settings에는 DevTeamSeedCard와 신규 사이드바 메뉴(`런 피드`, `체인 대시보드`)가 함께 노출됩니다.
 
 ### 2026-05-20 PM hub 체인 가드 완화
 

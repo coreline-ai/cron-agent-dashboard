@@ -2882,12 +2882,68 @@ button.quick-action {
   gap: 0.35rem;
 }
 
+.issue-flow-graph-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .issue-flow-graph {
+  position: relative;
   height: 24rem;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: color-mix(in oklab, var(--muted) 22%, var(--card));
+}
+
+.issue-flow-graph .react-flow__controls {
+  bottom: 0.85rem;
+  left: 0.85rem;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.issue-flow-graph .react-flow__controls-button {
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: color-mix(in oklab, var(--muted) 32%, var(--card));
+  color: var(--foreground);
+}
+
+.issue-flow-graph .react-flow__controls-button:hover {
+  background: color-mix(in oklab, var(--brand) 14%, var(--card));
+  border-color: color-mix(in oklab, var(--brand) 38%, var(--border));
+}
+
+.issue-flow-graph .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.issue-flow-graph .react-flow__attribution {
+  bottom: 0.85rem;
+  right: 0.85rem;
+  padding: 0.18rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: color-mix(in oklab, var(--muted) 32%, var(--card));
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.issue-flow-graph .react-flow__attribution a {
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+
+.issue-flow-graph .react-flow__attribution a:hover {
+  color: var(--foreground);
 }
 
 .issue-flow-graph .react-flow__node {
@@ -3761,7 +3817,7 @@ button.quick-action {
 }
 
 .issue-flow-graph__legend {
-  margin: 0 0 0.5rem 0;
+  margin: 0;
   font-size: 0.78rem;
   color: var(--muted-foreground);
   line-height: 1.45;

@@ -22,23 +22,25 @@ export function IssueFlowGraph({ issue, subIssues, runs, mainAgentName }: IssueF
   }
 
   return (
-    <div className="issue-flow-graph" aria-label="이슈 흐름 그래프">
+    <div className="issue-flow-graph-wrap" aria-label="이슈 흐름 그래프">
       <p className="issue-flow-graph__legend">
         run 노드의 <code>d=N</code>은 <code>chain_depth</code>입니다. main agent 재진입은 depth를 증가시키지 않으며 <code>max_depth</code> 가드에서도 제외됩니다.
       </p>
-      <ReactFlow
-        nodes={graph.nodes}
-        edges={graph.edges}
-        fitView
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        zoomOnScroll={false}
-        panOnScroll
-      >
-        <Background />
-        <Controls showInteractive={false} />
-      </ReactFlow>
+      <div className="issue-flow-graph">
+        <ReactFlow
+          nodes={graph.nodes}
+          edges={graph.edges}
+          fitView
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          zoomOnScroll={false}
+          panOnScroll
+        >
+          <Background />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
     </div>
   );
 }
