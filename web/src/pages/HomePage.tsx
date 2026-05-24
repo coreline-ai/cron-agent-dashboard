@@ -88,10 +88,26 @@ export function HomePage() {
             <span>mcp://local-dashboard</span>
             <strong>{serverState}</strong>
           </div>
-          <div className="server-orbit" aria-hidden="true">
-            <span />
-            <span />
-            <span />
+          <div className="server-map" aria-hidden="true">
+            <div className="server-map__core">
+              <span className={`server-map__dot server-map__dot--${serverState}`} />
+              <strong>MCP Core</strong>
+              <small>local-dashboard</small>
+            </div>
+            <div className="server-map__routes">
+              <span className="server-map__route">
+                <b>{currentWorkspace ? 'linked' : 'pending'}</b>
+                <small>workspace</small>
+              </span>
+              <span className="server-map__route">
+                <b>{activeIssueCount > 0 ? `${activeIssueCount} active` : 'idle'}</b>
+                <small>runs</small>
+              </span>
+              <span className="server-map__route">
+                <b>{runtimeCount > 0 ? `${runtimeCount} ready` : 'detecting'}</b>
+                <small>runtime</small>
+              </span>
+            </div>
           </div>
           <dl className="server-readout">
             <div>

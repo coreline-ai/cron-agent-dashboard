@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { type Run, useAgentsQuery } from '../api/queries';
+import { PageHeader } from '../components/PageHeader';
 import { StatusPill } from '../components/StatusPill';
 
 // Track B of dev-plan/implement_20260523_201535.md.
@@ -57,18 +58,26 @@ export function WorkspaceRunsPage() {
   }, [runs.data, statusFilter, agentFilter, search]);
 
   return (
-    <section className="content-grid">
-      <header className="content-header">
-        <div>
-          <h1>Run feed</h1>
-          <p className="muted-copy">
-            워크스페이스 전체 run을 한 줄씩 newest-first로 봅니다. 클릭하면 해당 이슈 상세로 이동합니다.
-            취소/재시작 액션은 이슈 상세 또는 체인 대시보드에서 진행하세요.
-          </p>
+    <section className="page-stack">
+      <PageHeader
+        eyebrow={`워크스페이스 / ${slug}`}
+        title="런 피드"
+        description="워크스페이스 전체 run을 최신순으로 확인하고, 실패 원인·agent·chain을 빠르게 좁혀봅니다."
+        actions={
+          <button className="button micro secondary" type="button" onClick={() => runs.refetch()} disabled={runs.isFetching}>
+            {runs.isFetching ? '새로고침 중' : '새로고침'}
+          </button>
+        }
+      />
+      <article className="board-toolbar panel">
+        <div className="toolbar-main">
+          <div>
+            <h2>전체 run</h2>
+            <p>최근 500건 중 {filtered.length}건 표시 · 클릭하면 해당 이슈 상세로 이동합니다.</p>
+          </div>
+          <span className="badge">{runs.data?.length ?? 0} total</span>
         </div>
-      </header>
-      <article className="panel">
-        <div className="form-grid runs-feed-filters">
+        <div className="toolbar-controls runs-feed-filters">
           <label className="field-label">
             상태
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -103,20 +112,33 @@ export function WorkspaceRunsPage() {
         </div>
       </article>
       {runs.isLoading ? (
-        <p className="muted-copy">불러오는 중…</p>
+        <article className="panel empty-state compact">
+          <p className="muted-copy">불러오는 중…</p>
+        </article>
       ) : filtered.length === 0 ? (
-        <p className="muted-copy">조건에 해당하는 run이 없습니다.</p>
+        <article className="panel empty-state compact">
+          <h2>조건에 해당하는 run 없음</h2>
+          <p>필터를 줄이거나 검색어를 비워 다시 확인하세요.</p>
+        </article>
       ) : (
-        <article className="panel">
+        <article className="panel table-panel">
           <div className="section-heading compact">
             <h2>run · {filtered.length}건</h2>
             <span className="muted-copy">최근 500건 중 필터 결과</span>
           </div>
-          <ul className="runs-feed-list">
+          <div className="runs-feed-table">
+            <div className="runs-feed-row runs-feed-head">
+              <span>Run</span>
+              <span>상태</span>
+              <span>Agent</span>
+              <span>Chain</span>
+              <span>대기 시각</span>
+              <span>오류</span>
+            </div>
             {filtered.map((r) => (
               <RunRow key={r.id} run={r} slug={slug ?? ''} />
             ))}
-          </ul>
+          </div>
         </article>
       )}
     </section>
@@ -130,17 +152,17 @@ function RunRow({ run, slug }: { run: Run; slug: string }) {
   // let the IssueDetailPage route resolve it.
   const target = run.issue_id ? `/w/${slug}/issues/${run.issue_id}` : '#';
   return (
-    <li className="runs-feed-row">
-      <Link to={target} className="runs-feed-row__link">
+    <Link to={target} className="runs-feed-row">
+      <span>
         <code className="runs-feed-row__id">run {run.id.slice(0, 8)}</code>
-        <StatusPill kind="run" status={run.status as never} />
-        {run.agent_name ? <span className="muted-copy">@{run.agent_name}</span> : null}
-        {run.chain_id ? <span className="muted-copy">chain {run.chain_id.slice(0, 8)}</span> : null}
-        <span className="runs-feed-row__time">
-          {run.enqueued_at?.slice(0, 19).replace('T', ' ') ?? '—'}
-        </span>
-        {run.error_message ? <span className="runs-feed-row__err">{run.error_message.slice(0, 80)}</span> : null}
-      </Link>
-    </li>
+      </span>
+      <span><StatusPill kind="run" status={run.status as never} /></span>
+      <span className="runs-feed-cell-muted">{run.agent_name ? `@${run.agent_name}` : '—'}</span>
+      <span className="runs-feed-cell-muted">{run.chain_id ? `chain ${run.chain_id.slice(0, 8)}` : '—'}</span>
+      <span className="runs-feed-cell-muted">{run.enqueued_at?.slice(0, 19).replace('T', ' ') ?? '—'}</span>
+      <span className="runs-feed-row__err" title={run.error_message || undefined}>
+        {run.error_message ? run.error_message.replace(/\s+/g, ' ').slice(0, 120) : '—'}
+      </span>
+    </Link>
   );
 }

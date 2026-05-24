@@ -47,7 +47,7 @@ export function ChainSummaryPanel({
     return null;
   }
   return (
-    <article className="panel">
+    <article className="panel chain-summary-panel">
       <div className="section-heading compact">
         <h2>체인 요약</h2>
         <span className="badge">{summaries.length}</span>
@@ -56,13 +56,23 @@ export function ChainSummaryPanel({
         같은 <code>chain_id</code>의 run을 묶어 시작/마지막 활동, 최대 chain_depth, 누적 token/cost, 마지막 상태를 보여줍니다.
         main agent 재진입은 depth 카운트에서 제외되므로 max_depth가 작아도 hub-PM 워크플로우가 끝까지 진행됩니다.
       </p>
-      <ul className="chain-summary-list">
+      <div className="chain-summary-table">
+        <div className="chain-summary-head">
+          <span>Chain</span>
+          <span>상태</span>
+          <span>Agent</span>
+          <span>Run</span>
+          <span>Depth</span>
+          <span>Token</span>
+          <span>Cost</span>
+          <span>시작</span>
+          <span>마지막 활동</span>
+          <span>Action</span>
+        </div>
         {summaries.map((s) => (
-          <li key={s.chainID}>
-            <ChainSummaryRow summary={s} issueID={issueID} workspace={workspace} />
-          </li>
+          <ChainSummaryRow key={s.chainID} summary={s} issueID={issueID} workspace={workspace} />
         ))}
-      </ul>
+      </div>
     </article>
   );
 }
@@ -77,19 +87,24 @@ function ChainSummaryRow({
   workspace?: WorkspaceSummary;
 }) {
   const queryClient = useQueryClient();
-  const invalidateIssue = () => {
-    if (!issueID) return;
-    queryClient.invalidateQueries({ queryKey: ['issue', issueID] });
-    queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
-    queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
+  const invalidateAfterAction = () => {
+    if (issueID) {
+      queryClient.invalidateQueries({ queryKey: ['issue', issueID] });
+      queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
+      queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
+    }
+    if (workspace?.slug) {
+      queryClient.invalidateQueries({ queryKey: ['workspace-runs', workspace.slug] });
+      queryClient.invalidateQueries({ queryKey: ['workspace-runs-feed', workspace.slug] });
+    }
   };
   const cancelChain = useMutation({
     mutationFn: () => apiClient.post(`/runs/chain/${summary.chainID}/cancel`, {}),
-    onSuccess: invalidateIssue
+    onSuccess: invalidateAfterAction
   });
   const retryChain = useMutation({
     mutationFn: () => apiClient.post(`/runs/chain/${summary.chainID}/retry`, {}),
-    onSuccess: invalidateIssue
+    onSuccess: invalidateAfterAction
   });
   const isCancellable =
     summary.lastStatus === 'queued' || summary.lastStatus === 'running';
@@ -100,13 +115,25 @@ function ChainSummaryRow({
   const costGuard = classifyGuard(summary.totalCostMicros, costLimitMicros);
   return (
     <div className="chain-summary-row" data-guard={depthGuard === 'over' || costGuard === 'over' ? 'over' : depthGuard === 'warn' || costGuard === 'warn' ? 'warn' : 'ok'}>
-      <div className="chain-summary-row__head">
-        <code className="chain-summary-row__id">chain {summary.chainID.slice(0, 8)}</code>
-        {summary.lastStatus ? <StatusPill kind="run" status={summary.lastStatus as never} /> : null}
-        {summary.lastAgentName ? <span className="muted-copy">@{summary.lastAgentName}</span> : null}
+      <span><code className="chain-summary-row__id">chain {summary.chainID.slice(0, 8)}</code></span>
+      <span>{summary.lastStatus ? <StatusPill kind="run" status={summary.lastStatus as never} /> : '—'}</span>
+      <span className="chain-summary-cell-muted">{summary.lastAgentName ? `@${summary.lastAgentName}` : '—'}</span>
+      <span>{summary.totalRuns}</span>
+      <span data-guard={depthGuard}>
+        {summary.maxChainDepth}{depthLimit ? ` / ${depthLimit}` : ''}
+      </span>
+      <span>{formatTokens(summary.totalInputTokens)} / {formatTokens(summary.totalOutputTokens)}</span>
+      <span data-guard={costGuard}>
+        {formatCostMicros(summary.totalCostMicros)}
+        {costLimitMicros && costGuard !== 'ok' ? ` · ${costGuard === 'over' ? '초과' : '근접'}` : ''}
+      </span>
+      <span className="chain-summary-cell-muted">{shortDate(summary.firstEnqueuedAt)}</span>
+      <span className="chain-summary-cell-muted">{shortDate(summary.lastActivityAt)}</span>
+      <span className="chain-summary-row__actions">
         {isCancellable ? (
           <button
             type="button"
+            aria-label="체인 취소"
             className="button danger ghost chain-summary-row__cancel"
             onClick={() => {
               if (window.confirm('이 체인의 모든 queued/running run을 취소할까요?')) {
@@ -115,58 +142,22 @@ function ChainSummaryRow({
             }}
             disabled={cancelChain.isPending}
           >
-            {cancelChain.isPending ? '취소 중' : '체인 취소'}
+            {cancelChain.isPending ? '취소 중' : '취소'}
           </button>
         ) : null}
         {isRetryable ? (
           <button
             type="button"
+            aria-label="체인 재시작"
             className="button secondary ghost chain-summary-row__retry"
             onClick={() => retryChain.mutate()}
             disabled={retryChain.isPending}
           >
-            {retryChain.isPending ? '재시작 중' : '체인 재시작'}
+            {retryChain.isPending ? '재시작 중' : '재시작'}
           </button>
         ) : null}
-      </div>
-      <dl className="chain-summary-row__stats">
-        <div>
-          <dt>run</dt>
-          <dd>{summary.totalRuns}</dd>
-        </div>
-        <div data-guard={depthGuard}>
-          <dt>max depth{depthLimit ? ` / ${depthLimit}` : ''}</dt>
-          <dd>
-            {summary.maxChainDepth}
-            {depthLimit && depthGuard !== 'ok' ? (
-              <span className="muted-copy"> ({depthGuard === 'over' ? '한도 초과' : '한도 근접'})</span>
-            ) : null}
-          </dd>
-        </div>
-        <div>
-          <dt>token (in / out)</dt>
-          <dd>
-            {formatTokens(summary.totalInputTokens)} / {formatTokens(summary.totalOutputTokens)}
-          </dd>
-        </div>
-        <div data-guard={costGuard}>
-          <dt>cost{costLimitMicros ? ` / ${formatCostMicros(costLimitMicros)}/일` : ''}</dt>
-          <dd>
-            {formatCostMicros(summary.totalCostMicros)}
-            {costLimitMicros && costGuard !== 'ok' ? (
-              <span className="muted-copy"> ({costGuard === 'over' ? '한도 초과' : '한도 근접'})</span>
-            ) : null}
-          </dd>
-        </div>
-        <div>
-          <dt>시작</dt>
-          <dd>{shortDate(summary.firstEnqueuedAt)}</dd>
-        </div>
-        <div>
-          <dt>마지막 활동</dt>
-          <dd>{shortDate(summary.lastActivityAt)}</dd>
-        </div>
-      </dl>
+        {!isCancellable && !isRetryable ? <span className="chain-summary-cell-muted">—</span> : null}
+      </span>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { type Run, useWorkspaceQuery } from '../api/queries';
 import { ChainSummaryPanel } from '../components/ChainSummaryPanel';
+import { PageHeader } from '../components/PageHeader';
 
 // Track G of dev-plan/implement_20260522_220446.md.
 //
@@ -39,20 +40,37 @@ export function WorkspaceChainsPage() {
   }, [slug, queryClient]);
 
   return (
-    <section className="content-grid">
-      <header className="content-header">
-        <div>
-          <h1>체인 대시보드</h1>
-          <p className="muted-copy">
-            워크스페이스 전체에서 진행 중이거나 마무리된 chain을 한 번에 봅니다. 각 row의 체인 취소 / 재시작 버튼은
-            이슈 상세 페이지의 동작과 동일합니다.
-          </p>
+    <section className="page-stack">
+      <PageHeader
+        eyebrow={`워크스페이스 / ${slug}`}
+        title="체인 대시보드"
+        description="워크스페이스 전체 chain의 진행 상태, guard 사용량, 마지막 활동을 보드와 같은 밀도로 확인합니다."
+        actions={
+          <button className="button micro secondary" type="button" onClick={() => runs.refetch()} disabled={runs.isFetching}>
+            {runs.isFetching ? '새로고침 중' : '새로고침'}
+          </button>
+        }
+      />
+      <article className="board-toolbar panel">
+        <div className="toolbar-main">
+          <div>
+            <h2>체인 실행 현황</h2>
+            <p>
+              최근 500개 run 기준 · chain 취소/재시작 액션은 이슈 상세와 동일한 API를 사용합니다.
+            </p>
+          </div>
+          <span className="badge">{runs.data?.length ?? 0} runs</span>
         </div>
-      </header>
+      </article>
       {runs.isLoading ? (
-        <p className="muted-copy">불러오는 중…</p>
+        <article className="panel empty-state compact">
+          <p className="muted-copy">불러오는 중…</p>
+        </article>
       ) : (runs.data ?? []).length === 0 ? (
-        <p className="muted-copy">아직 실행 이력이 없습니다.</p>
+        <article className="panel empty-state compact">
+          <h2>실행 이력 없음</h2>
+          <p>아직 이 워크스페이스에 run이 없습니다.</p>
+        </article>
       ) : (
         <ChainSummaryPanel runs={runs.data ?? []} workspace={workspace.data} />
       )}

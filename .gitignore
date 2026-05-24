@@ -25,3 +25,4 @@ runs/
 
 # Local Claude Code extension state (per-session lock, scheduled tasks)
 .claude/
+.gstack/
