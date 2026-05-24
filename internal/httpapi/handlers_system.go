@@ -27,6 +27,58 @@ func (s *Server) registerSystemRoutes(api chi.Router) {
 	api.Post("/api/system/backup", s.backup)
 	api.Post("/api/system/vacuum", s.vacuum)
 	api.Post("/api/system/cleanup-logs", s.cleanupLogs)
+	api.Post("/api/system/seed-dev-team", s.seedDevTeam)
+}
+
+// seedDevTeam exposes the CLI `seed-dev-team` action over HTTP so an
+// operator can provision the 7-role hub-PM workspace from the Settings
+// page without dropping to a terminal. The handler defers to
+// app.SeedDevTeam, which is idempotent — rerunning against the same
+// slug returns already_had=true without creating duplicates.
+//
+// working_dir defaults to the server's data_dir so a brand-new operator
+// who has not yet decided where the project lives still gets a working
+// workspace (per-run worktree falls back to plain mkdir when working_dir
+// is not a git repo).
+func (s *Server) seedDevTeam(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Slug       string `json:"slug"`
+		WorkingDir string `json:"working_dir"`
+	}
+	if !decodeOptional(w, r, &req) {
+		return
+	}
+	workingDir := strings.TrimSpace(req.WorkingDir)
+	if workingDir == "" {
+		workingDir = s.cfg.DataDir
+	}
+	seeded, err := app.SeedDevTeam(r.Context(), s.store, strings.TrimSpace(req.Slug), workingDir)
+	if err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	agents := make([]map[string]string, 0, len(seeded.Agents))
+	for _, a := range seeded.Agents {
+		agents = append(agents, map[string]string{"id": a.ID, "name": a.Name, "runtime": a.Runtime})
+	}
+	skills := make([]string, 0, len(seeded.Skills))
+	for _, sk := range seeded.Skills {
+		skills = append(skills, sk.Name)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"workspace": map[string]any{
+			"id":               seeded.Workspace.ID,
+			"slug":             seeded.Workspace.Slug,
+			"name":             seeded.Workspace.Name,
+			"working_dir":      seeded.Workspace.WorkingDir,
+			"per_run_worktree": seeded.Workspace.PerRunWorktree,
+		},
+		"agents":              agents,
+		"skills":              skills,
+		"assignment_count":    seeded.AssignmentCount,
+		"created_agent_count": seeded.CreatedAgentCount,
+		"already_had":         seeded.AlreadyHad,
+	})
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {

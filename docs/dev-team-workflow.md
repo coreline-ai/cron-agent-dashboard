@@ -4,15 +4,31 @@
 
 ## 생성 명령
 
+두 가지 진입점이 있다 — 운영자 취향에 따라 골라서 사용한다.
+
+### 옵션 A. 웹앱에서 한 번에 (권장 — 시뮬레이션 포함)
+
+1. `./cron-agent-dashboard serve --workers 3` 으로 서버 띄움.
+2. 브라우저에서 `/settings` 진입 → 최상단 **"AI Dev Team 워크스페이스"** 카드.
+3. slug(기본 `ai-dev-team`) + working_dir(비우면 서버 `data_dir`) 입력 → **AI Dev Team 생성** 클릭.
+4. 자동으로 `/w/<slug>/board`로 이동. 이슈가 0개면 **"샘플 이슈로 시작"** 버튼 노출 → 클릭 시 canned acceptance criteria가 채워진 새 이슈 모달.
+5. 이슈 생성 즉시 `@Lead`가 자동 dispatch — chain dashboard(`/w/<slug>/chains`)에서 실시간 흐름 관찰.
+
+### 옵션 B. CLI (CI 자동화 / 헤드리스)
+
 ```bash
 make build
 ./cron-agent-dashboard seed-dev-team --slug ai-dev-team --working-dir "$(pwd)"
 ./cron-agent-dashboard serve --workers 3
 ```
 
+옵션 B 동작 규칙:
+
 - `--slug` 기본값: `ai-dev-team`
 - `--working-dir` 생략 시 현재 위치에서 가장 가까운 git root를 자동 감지한다.
 - workspace는 `auto_chain_enabled=true`, `auto_chain_max_depth=8`, `per_run_worktree=true`, `auto_close_on_run_done=false`로 생성된다.
+
+HTTP 진입점 (옵션 A가 내부적으로 호출): `POST /api/system/seed-dev-team` body `{slug?, working_dir?}` — 응답에 workspace / agents / skills / assignment 카운트.
 
 ## 역할 구성
 

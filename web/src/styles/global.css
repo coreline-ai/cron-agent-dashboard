@@ -2030,6 +2030,13 @@ textarea {
   color: var(--muted-foreground);
 }
 
+.board-toolbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .toolbar-controls {
   flex-wrap: wrap;
   justify-content: flex-start;
@@ -2449,6 +2456,11 @@ button.quick-action {
 .settings-card {
   display: grid;
   gap: 1rem;
+}
+
+.dev-team-seed-card__form {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: end;
 }
 
 .read-only-note > div > p,

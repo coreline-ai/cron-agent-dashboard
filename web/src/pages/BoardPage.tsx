@@ -17,6 +17,26 @@ type PendingAction =
   | { type: 'status'; issue: Issue; status: IssueStatus }
   | { type: 'cancelExecution'; issue: Issue };
 
+// DEV_TEAM_AGENT_NAMES is the canonical roster produced by
+// `cron-agent-dashboard seed-dev-team` / the Settings 카드. The board uses
+// it to decide whether to surface the "샘플 이슈로 시작" affordance.
+const DEV_TEAM_AGENT_NAMES = ['lead', 'designer', 'backend', 'frontend', 'db', 'qa', 'devops'];
+
+// SAMPLE_DEV_TEAM_ISSUE primes the new-issue dialog so an operator can
+// trigger a full hub-PM chain (Lead → Designer → Frontend → QA → Lead)
+// without writing the acceptance criteria by hand. Title/body match the
+// scenario documented in docs/dev-team-workflow.md.
+const SAMPLE_DEV_TEAM_ISSUE = {
+  title: 'Settings 페이지 다크모드 토글 추가',
+  body: [
+    '## Acceptance criteria',
+    '- settings 페이지에 다크/라이트 토글 버튼',
+    "- localStorage 'theme' 키로 영속화",
+    '- 페이지 로드 시 저장된 값 복원',
+    '- 키보드 단축키 `?`로 토글 가능'
+  ].join('\n')
+};
+
 const statuses: Array<{ value: IssueStatus; label: string; hint: string }> = [
   { value: 'open', label: '진행', hint: 'Open' },
   { value: 'done', label: '완료', hint: 'Done' },
@@ -106,6 +126,7 @@ export function BoardPage() {
   const toast = useToast();
   const [viewMode, setViewMode] = useState<ViewMode>((searchParams.get('view') as ViewMode) === 'list' ? 'list' : 'board');
   const [dialogStatus, setDialogStatus] = useState<IssueStatus | null>(null);
+  const [dialogPrefill, setDialogPrefill] = useState<{ title?: string; body?: string } | undefined>(undefined);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
   const statusFilter = validStatusFilter(searchParams.get('status'));
@@ -142,6 +163,15 @@ export function BoardPage() {
   });
 
   const allIssues = issues.data ?? [];
+  const issueList = allIssues;
+  // A workspace is considered a dev-team workspace when its agent roster
+  // matches the seed-dev-team set (Lead + 6 workers). Detection is a
+  // case-insensitive name check so the "샘플 이슈로 시작" affordance only
+  // surfaces where the canned prompt is actually useful.
+  const isDevTeamWorkspace = useMemo(() => {
+    const names = (agents.data ?? []).map((a) => a.name.toLowerCase());
+    return DEV_TEAM_AGENT_NAMES.every((n) => names.includes(n));
+  }, [agents.data]);
   const counts = useMemo(() => {
     return statuses.reduce<Record<IssueStatus, number>>(
       (acc, status) => {
@@ -213,9 +243,30 @@ export function BoardPage() {
             <h2>전체 이슈</h2>
             <p>open {counts.open} · done {counts.done} · cancelled {counts.cancelled}</p>
           </div>
-          <button className="button" type="button" onClick={() => setDialogStatus('open')}>
-            새 이슈
-          </button>
+          <div className="board-toolbar__actions">
+            {isDevTeamWorkspace && issueList.length === 0 ? (
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => {
+                  setDialogPrefill(SAMPLE_DEV_TEAM_ISSUE);
+                  setDialogStatus('open');
+                }}
+              >
+                샘플 이슈로 시작
+              </button>
+            ) : null}
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                setDialogPrefill(undefined);
+                setDialogStatus('open');
+              }}
+            >
+              새 이슈
+            </button>
+          </div>
         </div>
         <div className="toolbar-controls board-filter-grid">
           <div className="segmented" role="tablist" aria-label="이슈 상태 필터">
@@ -325,7 +376,16 @@ export function BoardPage() {
         </article>
       )}
 
-      <CreateIssueDialog open={Boolean(dialogStatus)} slug={slug} statusHint={dialogStatus ?? 'open'} onClose={() => setDialogStatus(null)} />
+      <CreateIssueDialog
+        open={Boolean(dialogStatus)}
+        slug={slug}
+        statusHint={dialogStatus ?? 'open'}
+        prefill={dialogPrefill}
+        onClose={() => {
+          setDialogStatus(null);
+          setDialogPrefill(undefined);
+        }}
+      />
       <ConfirmDialog
         open={Boolean(pendingAction)}
         title={pendingTitle(pendingAction)}

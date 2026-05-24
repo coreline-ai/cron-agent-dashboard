@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiAuth, apiClient } from '../api/client';
 import { AuthTokenPanel, isUnauthorizedError } from '../components/AuthTokenPanel';
+import { DevTeamSeedCard } from '../components/DevTeamSeedCard';
 import { PageHeader } from '../components/PageHeader';
 import { WorkspaceWebhookSection } from '../components/WorkspaceWebhookSection';
 import { WorkspaceSummary, useSettingsQuery, useUsageSummaryQuery, useWorkspacesQuery } from '../api/queries';
@@ -213,6 +214,8 @@ export function SettingsPage() {
         title="설정"
         description="서버 설정은 확인 중심이고, 브라우저 토큰/운영 유지보수 작업은 여기서 직접 실행합니다."
       />
+
+      <DevTeamSeedCard />
 
       <article className="panel settings-card read-only-note">
         <div>

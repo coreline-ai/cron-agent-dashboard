@@ -1,20 +1,34 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { useAgentsQuery, type IssueStatus } from '../api/queries';
 import { Modal } from './Modal';
 
+export type CreateIssuePrefill = {
+  title?: string;
+  body?: string;
+};
+
 type CreateIssueDialogProps = {
   open: boolean;
   slug: string | undefined;
   statusHint?: IssueStatus;
+  prefill?: CreateIssuePrefill;
   onClose: () => void;
 };
 
-export function CreateIssueDialog({ open, slug, statusHint = 'open', onClose }: CreateIssueDialogProps) {
+export function CreateIssueDialog({ open, slug, statusHint = 'open', prefill, onClose }: CreateIssueDialogProps) {
   const queryClient = useQueryClient();
   const agents = useAgentsQuery(slug);
   const [form, setForm] = useState({ title: '', body: '', assignee_agent_id: '' });
+  // Apply prefill the moment the dialog opens so the operator sees the
+  // sample issue's title/body filled in without having to copy-paste.
+  useEffect(() => {
+    if (!open) return;
+    if (prefill) {
+      setForm({ title: prefill.title ?? '', body: prefill.body ?? '', assignee_agent_id: '' });
+    }
+  }, [open, prefill]);
   const createIssue = useMutation({
     mutationFn: () => apiClient.post(`/workspaces/${slug}/issues`, form),
     onSuccess: () => {
