@@ -87,6 +87,14 @@ func main() {
 		if err := seedExample(st); err != nil {
 			log.Fatal(err)
 		}
+	case "seed-lab":
+		if err := seedMultiAgentLab(cfg, st); err != nil {
+			log.Fatal(err)
+		}
+	case "seed-dev-team":
+		if err := seedDevTeam(cfg, st); err != nil {
+			log.Fatal(err)
+		}
 	case "workspace-export":
 		if err := workspaceExportCmd(cfg, st); err != nil {
 			log.Fatal(err)
@@ -96,7 +104,7 @@ func main() {
 			log.Fatal(err)
 		}
 	default:
-		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, import, seed, workspace-export, or workspace-import)", cmd)
+		log.Fatalf("unknown command %q (expected serve, init, backup, restore, export, import, seed, seed-lab, seed-dev-team, workspace-export, or workspace-import)", cmd)
 	}
 }
 
@@ -171,6 +179,128 @@ func seedExample(st *store.Store) error {
 		result.MainAgent.Name,
 		strings.Join(workerNames, ", "),
 	)
+	return nil
+}
+
+func seedMultiAgentLab(cfg config.Config, st *store.Store) error {
+	workingDir := normalizeLabWorkingDir(cfg.LabWorkingDir)
+	if workingDir == "" {
+		workingDir = detectNearestGitRoot()
+	}
+	result, err := app.SeedMultiAgentLab(context.Background(), st, app.MultiAgentLabOptions{WorkingDir: workingDir})
+	if err != nil {
+		return err
+	}
+
+	createdWorkspaces := 0
+	createdAgents := 0
+	createdIssues := 0
+	for _, lab := range result.Workspaces {
+		if !lab.AlreadyHad {
+			createdWorkspaces++
+		}
+		createdAgents += lab.CreatedAgentCount
+		createdIssues += lab.CreatedIssueCount
+	}
+	fmt.Printf("seeded multi-agent lab — workspaces=%d created=%d existing=%d new_workers=%d new_issues=%d\n",
+		len(result.Workspaces),
+		createdWorkspaces,
+		len(result.Workspaces)-createdWorkspaces,
+		createdAgents,
+		createdIssues,
+	)
+	if workingDir == "" {
+		fmt.Println("lab working_dir: default per-workspace workdirs (pass --lab-working-dir /path/to/repo for real code runs)")
+	} else {
+		fmt.Printf("lab working_dir: %s\n", workingDir)
+	}
+	for _, lab := range result.Workspaces {
+		workerNames := make([]string, 0, len(lab.Worker))
+		for _, worker := range lab.Worker {
+			workerNames = append(workerNames, worker.Name)
+		}
+		status := "created"
+		if lab.AlreadyHad {
+			status = "existing"
+		}
+		fmt.Printf("- %-24s [%s] main=%s workers=%s issue=%s\n",
+			lab.Workspace.Slug,
+			status,
+			lab.MainAgent.Name,
+			strings.Join(workerNames, ", "),
+			firstIssueIdentifier(lab.Issues),
+		)
+	}
+	return nil
+}
+
+func normalizeLabWorkingDir(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
+}
+
+func detectNearestGitRoot() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	current, err := filepath.Abs(cwd)
+	if err != nil {
+		current = cwd
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
+func firstIssueIdentifier(issues []store.Issue) string {
+	if len(issues) == 0 {
+		return "-"
+	}
+	return issues[0].Identifier
+}
+
+func seedDevTeam(cfg config.Config, st *store.Store) error {
+	workingDir := normalizeLabWorkingDir(cfg.DevTeamWorkingDir)
+	if workingDir == "" {
+		workingDir = detectNearestGitRoot()
+	}
+	result, err := app.SeedDevTeam(context.Background(), st, cfg.DevTeamSlug, workingDir)
+	if err != nil {
+		return err
+	}
+	status := "created"
+	if result.AlreadyHad {
+		status = "existing"
+	}
+	fmt.Printf("seeded dev-team workspace %q (slug=%s, %s) — agents=%d new_agents=%d skills=%d assignments=%d\n",
+		result.Workspace.Name,
+		result.Workspace.Slug,
+		status,
+		len(result.Agents),
+		result.CreatedAgentCount,
+		len(result.Skills),
+		result.AssignmentCount,
+	)
+	if workingDir == "" {
+		fmt.Println("dev-team working_dir: default per-workspace workdir (pass --working-dir /path/to/repo for real code runs)")
+	} else {
+		fmt.Printf("dev-team working_dir: %s\n", workingDir)
+	}
 	return nil
 }
 

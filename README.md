@@ -480,6 +480,15 @@ make build
 # (선택) hub-PM 데모 워크스페이스 시드 — Lead + Writer + Reviewer + auto-chain 활성화
 ./cron-agent-dashboard seed
 
+# (선택) 7개 워크스페이스 멀티 에이전트 실개발 lab 시드
+# repo root에서 실행하면 working_dir은 자동으로 현재 git root를 사용합니다.
+./cron-agent-dashboard seed-lab
+# 또는 명시:
+# ./cron-agent-dashboard seed-lab --lab-working-dir "$(pwd)"
+
+# (선택) 단일 워크스페이스 AI dev-team 시드 — Lead/Designer/Backend/Frontend/DB/QA/DevOps + 8 skills
+./cron-agent-dashboard seed-dev-team --slug ai-dev-team --working-dir "$(pwd)"
+
 # (선택) 워크스페이스 운영 설정 백업/복제 (workspace + agents + skills + autopilot rules)
 # ./cron-agent-dashboard workspace-export --workspace <slug> --to demo.json
 # ./cron-agent-dashboard workspace-import --from demo.json --dest-slug demo-clone
@@ -695,6 +704,8 @@ cron-agent-dashboard serve   # 마이그레이션 자동 적용
 | [🔌 API](docs/API.md) | 68 API route · 멘션/auto-chain 규칙 · attachments/webhooks · identifier resolve |
 | [🎨 UX FLOW](docs/UX_FLOW.md) | 7 페이지 화면 · 배지 · 사이드바 · empty state |
 | [🔗 CHAINING](docs/CHAINING.md) | explicit-only 기본 + workspace opt-in auto-chain (depth·run·cost·dry-run 5중 가드) |
+| [🧪 MULTI AGENT LAB](docs/MULTI_AGENT_LAB.md) | `seed-lab` 기반 7개 워크스페이스 실개발 테스트 runbook |
+| [🤖 DEV TEAM WORKFLOW](docs/dev-team-workflow.md) | `seed-dev-team` 기반 단일 워크스페이스 7-role AI 개발팀 운영법 |
 | [🗺️ ROADMAP](docs/ROADMAP.md) | Phase 0~7 · 의존성 · 리스크 |
 | [📝 CHANGELOG](CHANGELOG.md) | v0.1.0 변경 이력 · 릴리스별 추가/변경/운영 주의사항 |
 | [🚀 RELEASE NOTES v0.1.0](docs/RELEASE_NOTES_v0.1.0.md) | GitHub Release body로 사용할 수 있는 사용자 관점 릴리스 노트 |
