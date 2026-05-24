@@ -20,6 +20,7 @@ import (
 func (s *Server) registerRunRoutes(api chi.Router) {
 	api.Get("/api/issues/{id}/runs", s.listRuns)
 	api.Get("/api/issues/{id}/events/stream", s.streamIssueRunEvents)
+	api.Get("/api/runs/{id}/events/stream", s.streamRunEvents)
 	api.Get("/api/runs/{id}/events", s.listRunEvents)
 	api.Get("/api/runs/{id}/log", s.runLog)
 	api.Get("/api/runs/{id}/log/stream", s.streamRunLog)
@@ -89,6 +90,23 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err, 0)
 		return
 	}
+	s.streamRunEventsForIssue(w, r, issueID, "")
+}
+
+// streamRunEvents serves a run-scoped SSE stream. Run events are stored with
+// both run_id and issue_id, while the existing incremental store query is
+// issue-scoped; resolve the run once, subscribe to the parent issue wake-up
+// channel, and filter emitted rows back down to this run.
+func (s *Server) streamRunEvents(w http.ResponseWriter, r *http.Request) {
+	run, err := s.store.GetRun(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respond(w, nil, err, 0)
+		return
+	}
+	s.streamRunEventsForIssue(w, r, run.IssueID, run.ID)
+}
+
+func (s *Server) streamRunEventsForIssue(w http.ResponseWriter, r *http.Request, issueID, runID string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
@@ -120,7 +138,7 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	// Initial flush so subscribers that opened after a burst still get the
 	// rows they missed before the first wake-up arrives.
-	if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, &watermark); err != nil {
+	if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, runID, &watermark); err != nil {
 		return
 	}
 
@@ -139,11 +157,11 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 			// double-checks at low frequency so the handler converges even
 			// when the bus was nil (test) or a notifier call was dropped
 			// due to a buffer race.
-			if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, &watermark); err != nil {
+			if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, runID, &watermark); err != nil {
 				return
 			}
 		case <-wake:
-			if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, &watermark); err != nil {
+			if err := s.flushPendingRunEvents(r.Context(), w, flusher, issueID, runID, &watermark); err != nil {
 				return
 			}
 		}
@@ -156,7 +174,7 @@ func (s *Server) streamIssueRunEvents(w http.ResponseWriter, r *http.Request) {
 // A store error is surfaced as a single SSE `event: error` frame and the
 // caller is expected to terminate the stream; fetch-based SSE clients can
 // reconnect with their remembered watermark.
-func (s *Server) flushPendingRunEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, issueID string, watermark *string) error {
+func (s *Server) flushPendingRunEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, issueID, runID string, watermark *string) error {
 	events, err := s.store.ListIssueRunEventsSince(ctx, issueID, *watermark, 100)
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{"error": err.Error()})
@@ -169,8 +187,10 @@ func (s *Server) flushPendingRunEvents(ctx context.Context, w http.ResponseWrite
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(w, "event: run_event\ndata: %s\n\n", payload)
-		flusher.Flush()
+		if runID == "" || e.RunID == runID {
+			fmt.Fprintf(w, "event: run_event\ndata: %s\n\n", payload)
+			flusher.Flush()
+		}
 		*watermark = e.CreatedAt
 	}
 	return nil

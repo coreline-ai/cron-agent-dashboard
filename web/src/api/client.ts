@@ -30,6 +30,7 @@ type SetTokenOptions = {
 };
 
 type SSEHandlers = {
+  onOpen?: () => void;
   onEvent: (event: string, data: string) => void;
   onError?: (error: unknown) => void;
   reconnect?: boolean;
@@ -138,7 +139,7 @@ function dispatchSSEBlock(block: string, onEvent: SSEHandlers['onEvent']) {
 }
 
 function drainSSEBuffer(buffer: string, onEvent: SSEHandlers['onEvent']) {
-  const normalized = buffer.replace(/\r\n/g, '\n');
+  const normalized = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   let cursor = 0;
   while (true) {
     const idx = normalized.indexOf('\n\n', cursor);
@@ -147,6 +148,13 @@ function drainSSEBuffer(buffer: string, onEvent: SSEHandlers['onEvent']) {
     }
     dispatchSSEBlock(normalized.slice(cursor, idx), onEvent);
     cursor = idx + 2;
+  }
+}
+
+function flushSSEBuffer(buffer: string, onEvent: SSEHandlers['onEvent']) {
+  const rest = drainSSEBuffer(buffer, onEvent);
+  if (rest.trim()) {
+    dispatchSSEBlock(rest, onEvent);
   }
 }
 
@@ -159,6 +167,7 @@ function streamSSE(path: string, handlers: SSEHandlers) {
     controller = new AbortController();
     try {
       const headers = new Headers();
+      headers.set('Accept', 'text/event-stream');
       const token = readToken();
       if (token) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -181,6 +190,7 @@ function streamSSE(path: string, handlers: SSEHandlers) {
       if (!response.body) {
         throw new Error('SSE stream response has no body');
       }
+      handlers.onOpen?.();
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -191,7 +201,7 @@ function streamSSE(path: string, handlers: SSEHandlers) {
         }
         buffer = drainSSEBuffer(buffer + decoder.decode(value, { stream: true }), handlers.onEvent);
       }
-      buffer = drainSSEBuffer(buffer + decoder.decode(), handlers.onEvent);
+      flushSSEBuffer(buffer + decoder.decode(), handlers.onEvent);
     } catch (error) {
       if (!stopped && !(error instanceof DOMException && error.name === 'AbortError')) {
         handlers.onError?.(error);

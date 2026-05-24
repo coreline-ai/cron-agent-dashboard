@@ -16,7 +16,7 @@ v0.1 안정화 단계에서 store/httpapi 리팩터, auto-chain guard, error bou
 - Unit: 65개 Go test 파일, 15개 Vitest 컴포넌트/lib 테스트 파일 (`go test -race ./...`, `pnpm --filter web test` 검증 대상)
 - 페이지: 8개+ (Home, Board, IssueDetail, Agents, AgentDetail, Autopilot, Settings, WorkspaceChains)
 - 인터랙션: 워크스페이스 스위처, 테마 토글, 모달 4종(워크스페이스/에이전트/이슈/오토파일럿), 필터/검색/뷰토글, 상태 전이 버튼, lineage graph, 댓글 멘션 자동완성
-- 백엔드: REST/SSE 68 API route(+ `/healthz`), Issue Detail fetch 기반 SSE + React Query polling fallback
+- 백엔드: REST/SSE 69 API route(+ `/healthz`), Issue Detail fetch 기반 SSE + React Query polling fallback
 - 2026-05-23 검증: `make e2e-full` 기준 52 tests 중 49 passed / 3 skipped. 아래 Phase별 체크박스는 원 계획/수동 QA 매트릭스 기록이며, 현재 구현 backlog의 source of truth는 `TODO.md`(open 구현 항목 0개)다.
 
 ### 1.3 Target State (목표 상태)

@@ -51,7 +51,7 @@ CLI 에이전트(`codex` · `claude` · `gemini`)에게 작업을 지시하고, 
 ```
 
 > [!IMPORTANT]
-> **이 프로젝트는 현재 v0.1 안정화 이후 Phase 2 핵심 기능까지 반영된 상태입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore/workspace import-export, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 19 파일 / httpapi 13 파일), **68개 API route(+ `/healthz`)**, **24개 SQLite migration**, sentinel 에러 16종, panic cooldown, heartbeat 기반 stale 회수, startup self-check 시 gopsutil 기반 orphan process 검증(평시 stale scan은 heartbeat-only), react-error-boundary, @xyflow/react 흐름 그래프, Agent Skills registry, workspace opt-in auto-chain guard(main agent PM hub 재진입 허용), chain dashboard, issue attachments, outbound webhooks, per-run worktree opt-in, SSE run_event streaming, Homebrew tap publish workflow, workspace history import materialization, worktree disk usage/GC, e2e-full CI gate까지 적용된 상태입니다. 2026-05-23 기준 `go test ./...`, `go test -race ./...`, `go vet ./...`, `pnpm --filter web build`, `pnpm --filter web test`, `make e2e-smoke`, `make e2e-full`, `govulncheck ./...`, `pnpm audit --prod`, `pnpm audit`를 통과했습니다.
+> **이 프로젝트는 현재 v0.1 안정화 이후 Phase 2 핵심 기능까지 반영된 상태입니다.** Go SQLite/API, worker/store/main 실행 연결, DB-backed Autopilot scheduler, Vite React read/write UI, Go `embed.FS` 단일 바이너리 서빙, CLI backup/restore/workspace import-export, startup self-check, Playwright browser smoke, clean clone 검증 스크립트, GitHub Release 업로드 workflow가 모두 동작합니다. 코드 분할(store 19 파일 / httpapi 13 파일), **69개 API route(+ `/healthz`)**, **24개 SQLite migration**, sentinel 에러 16종, panic cooldown, heartbeat 기반 stale 회수, startup self-check 시 gopsutil 기반 orphan process 검증(평시 stale scan은 heartbeat-only), react-error-boundary, @xyflow/react 흐름 그래프, Agent Skills registry, workspace opt-in auto-chain guard(main agent PM hub 재진입 허용), chain dashboard, issue attachments, outbound webhooks, per-run worktree opt-in, SSE run_event streaming, Homebrew tap publish workflow, workspace history import materialization, worktree disk usage/GC, e2e-full CI gate까지 적용된 상태입니다. 2026-05-23 기준 `go test ./...`, `go test -race ./...`, `go vet ./...`, `pnpm --filter web build`, `pnpm --filter web test`, `make e2e-smoke`, `make e2e-full`, `govulncheck ./...`, `pnpm audit --prod`, `pnpm audit`를 통과했습니다.
 
 > [!TIP]
 > **품질 지표 (2026-05-23 기준)** — Go production **13,097 LOC** · Web production **10,656 LOC** · 자동화 테스트/스펙 **93 파일 / 12,854 LOC**(Go test 65 · Vitest 15 · Playwright 12 + fixture 1) · `go test -race ./...` clean · TypeScript strict · sentinel 에러 16종 · single-direction migration **24개**.
@@ -291,7 +291,7 @@ Plain CSS 기반 디자인 시스템.
 - [x] 🌳 per-run worktree — workspace opt-in 동시 실행, git repo는 `git worktree add --detach`/`remove --force`, 비-git 경로는 isolated mkdir fallback
 - [x] 📤 워크스페이스 import/export — CLI `workspace-export`/`workspace-import`, HTTP export, history export + PII masking
 - [x] 🔔 외부 webhook — workspace 구독, HMAC-SHA256 서명, mask_pii, exponential retry, dead-letter 배지
-- [x] 📡 Realtime streaming — `/api/issues/{id}/events/stream` SSE + fetch-based subscriber in IssueDetailPage
+- [x] 📡 Realtime streaming — `/api/issues/{id}/events/stream` + `/api/runs/{id}/events/stream` SSE, fetch-based token auth subscriber, polling fallback
 - [x] 🍺 Homebrew tap publish — release CI가 formula를 채워 release artifact로 업로드 + secret 설정 시 opt-in tap PR 생성
 - [x] 🧹 per-run worktree 운영 관측 — 매 maintenance tick마다 `<data>/worktrees/` 사용량 측정 + `--worktree-gc-after`(기본 24h) 이상 미사용 terminal/orphan 디렉터리 GC(queued/running 보호) + Settings UI 노출
 - [x] 📥 workspace history import 복원 — `ImportOptions.IncludeHistory`로 issue/comment/run/attachment metadata rematerialize, in-flight run은 `cancelled`로 정착, `per_run_worktree` round-trip 보존
@@ -314,7 +314,7 @@ Plain CSS 기반 디자인 시스템.
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │              HTTP Server (chi router)                    │  │
-│  │  /api/*  →  REST API (68 routes)                         │  │
+│  │  /api/*  →  REST API (69 routes)                         │  │
 │  │  /*      →  embed.FS (Vite SPA + index.html fallback)    │  │
 │  └────────────────────┬─────────────────────┬───────────────┘  │
 │                       │                     │                  │
@@ -701,7 +701,7 @@ cron-agent-dashboard serve   # 마이그레이션 자동 적용
 | [⚙️ TRD](docs/TRD.md) | 기술 요구사항 — 스택 · Runtime adapter · durable queue · 워크스페이스 직렬화 |
 | [🧱 ARCHITECTURE](docs/ARCHITECTURE.md) | 컴포넌트 · 데이터 흐름 · 상태머신 (`issue.status` vs `run.status` 분리) |
 | [🗃️ DATA MODEL](docs/DATA_MODEL.md) | workspace/agent/skill/issue/comment/run/autopilot 중심 DDL · claim 쿼리 · 트랜잭션 패턴 |
-| [🔌 API](docs/API.md) | 68 API route · 멘션/auto-chain 규칙 · attachments/webhooks · identifier resolve |
+| [🔌 API](docs/API.md) | 69 API route · 멘션/auto-chain 규칙 · attachments/webhooks · identifier resolve |
 | [🎨 UX FLOW](docs/UX_FLOW.md) | 7 페이지 화면 · 배지 · 사이드바 · empty state |
 | [🔗 CHAINING](docs/CHAINING.md) | explicit-only 기본 + workspace opt-in auto-chain (depth·run·cost·dry-run 5중 가드) |
 | [🧪 MULTI AGENT LAB](docs/MULTI_AGENT_LAB.md) | `seed-lab` 기반 7개 워크스페이스 실개발 테스트 runbook |

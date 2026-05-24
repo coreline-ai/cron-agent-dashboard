@@ -860,37 +860,38 @@ dead-letter 상태의 webhook delivery를 operator가 재시도 큐로 되돌리
 | 36 | GET | `/api/issues/:id/runs` | 이슈 run 이력 |
 | 37 | GET | `/api/runs/:id/events` | run 이벤트 타임라인 |
 | 38 | GET | `/api/issues/:id/events/stream` | issue run_event SSE stream |
-| 39 | GET | `/api/runs/:id/log` | run 로그 다운로드 |
-| 40 | GET | `/api/runs/:id/log/stream` | run stdout SSE stream |
-| 41 | POST | `/api/runs/chain/:chain/cancel` | chain 단위 queued/running run 취소 |
-| 42 | POST | `/api/runs/chain/:chain/retry` | chain 내 최신 failed run 재시작 |
-| 43 | GET | `/api/workspaces/:workspace/runs` | workspace 최근 run 목록/chain dashboard feed |
-| 44 | GET | `/api/workspaces/:workspace/runs/stream` | workspace run_event wake SSE stream |
-| 45 | POST | `/api/issues/:id/attachments` | 이슈 첨부 업로드 (multipart) |
-| 46 | GET | `/api/issues/:id/attachments` | 이슈 첨부 목록 |
-| 47 | GET | `/api/attachments/:id/download` | 첨부 다운로드 |
-| 48 | GET | `/api/attachments/:id/audit` | 첨부 audit 목록 |
-| 49 | POST | `/api/attachments/:id/link-comment` | 첨부를 comment에 연결 |
-| 50 | DELETE | `/api/attachments/:id` | 첨부 삭제 |
-| 51 | GET | `/api/workspaces/:workspace/autopilot` | 룰 목록 |
-| 52 | POST | `/api/workspaces/:workspace/autopilot` | 룰 생성 |
-| 53 | PUT | `/api/autopilot/:id` | 룰 수정 |
-| 54 | DELETE | `/api/autopilot/:id` | 룰 삭제 |
-| 55 | POST | `/api/autopilot/:id/trigger` | 즉시 실행 |
-| 56 | GET | `/api/settings` | 시스템 설정 |
-| 57 | GET | `/api/usage/summary` | token/cost 사용량 요약 |
-| 58 | POST | `/api/system/backup` | DB 백업 |
-| 59 | POST | `/api/system/vacuum` | DB vacuum |
-| 60 | POST | `/api/system/cleanup-logs` | run 로그 정리 |
-| 61 | GET | `/api/workspaces/:workspace/webhooks` | webhook 목록 |
-| 62 | POST | `/api/workspaces/:workspace/webhooks` | webhook 생성 |
-| 63 | GET | `/api/webhooks/:id` | webhook 상세 |
-| 64 | PUT | `/api/webhooks/:id` | webhook 수정 |
-| 65 | DELETE | `/api/webhooks/:id` | webhook 삭제 |
-| 66 | GET | `/api/webhooks/:id/deliveries` | webhook delivery 목록 |
-| 67 | POST | `/api/webhooks/:id/deliveries/:delivery/redeliver` | webhook delivery 재전송 |
-| 68 | POST | `/api/webhooks/:id/deliveries/redeliver-failed` | webhook failed delivery 일괄 재전송 |
-| 69 | GET | `/healthz` | 헬스 체크 |
+| 39 | GET | `/api/runs/:id/events/stream` | run-scoped run_event SSE stream |
+| 40 | GET | `/api/runs/:id/log` | run 로그 다운로드 |
+| 41 | GET | `/api/runs/:id/log/stream` | run stdout SSE stream |
+| 42 | POST | `/api/runs/chain/:chain/cancel` | chain 단위 queued/running run 취소 |
+| 43 | POST | `/api/runs/chain/:chain/retry` | chain 내 최신 failed run 재시작 |
+| 44 | GET | `/api/workspaces/:workspace/runs` | workspace 최근 run 목록/chain dashboard feed |
+| 45 | GET | `/api/workspaces/:workspace/runs/stream` | workspace run_event wake SSE stream |
+| 46 | POST | `/api/issues/:id/attachments` | 이슈 첨부 업로드 (multipart) |
+| 47 | GET | `/api/issues/:id/attachments` | 이슈 첨부 목록 |
+| 48 | GET | `/api/attachments/:id/download` | 첨부 다운로드 |
+| 49 | GET | `/api/attachments/:id/audit` | 첨부 audit 목록 |
+| 50 | POST | `/api/attachments/:id/link-comment` | 첨부를 comment에 연결 |
+| 51 | DELETE | `/api/attachments/:id` | 첨부 삭제 |
+| 52 | GET | `/api/workspaces/:workspace/autopilot` | 룰 목록 |
+| 53 | POST | `/api/workspaces/:workspace/autopilot` | 룰 생성 |
+| 54 | PUT | `/api/autopilot/:id` | 룰 수정 |
+| 55 | DELETE | `/api/autopilot/:id` | 룰 삭제 |
+| 56 | POST | `/api/autopilot/:id/trigger` | 즉시 실행 |
+| 57 | GET | `/api/settings` | 시스템 설정 |
+| 58 | GET | `/api/usage/summary` | token/cost 사용량 요약 |
+| 59 | POST | `/api/system/backup` | DB 백업 |
+| 60 | POST | `/api/system/vacuum` | DB vacuum |
+| 61 | POST | `/api/system/cleanup-logs` | run 로그 정리 |
+| 62 | GET | `/api/workspaces/:workspace/webhooks` | webhook 목록 |
+| 63 | POST | `/api/workspaces/:workspace/webhooks` | webhook 생성 |
+| 64 | GET | `/api/webhooks/:id` | webhook 상세 |
+| 65 | PUT | `/api/webhooks/:id` | webhook 수정 |
+| 66 | DELETE | `/api/webhooks/:id` | webhook 삭제 |
+| 67 | GET | `/api/webhooks/:id/deliveries` | webhook delivery 목록 |
+| 68 | POST | `/api/webhooks/:id/deliveries/:delivery/redeliver` | webhook delivery 재전송 |
+| 69 | POST | `/api/webhooks/:id/deliveries/redeliver-failed` | webhook failed delivery 일괄 재전송 |
+| 70 | GET | `/healthz` | 헬스 체크 |
 
 **총괄 표는 주요 엔드포인트 요약입니다.** 실제 등록 라우트는 `internal/httpapi/handlers_*.go` 기준으로 관리합니다.
 
@@ -900,6 +901,7 @@ dead-letter 상태의 webhook delivery를 operator가 재시도 큐로 되돌리
 
 - 이슈 보드: 5초마다 GET `/api/workspaces/:workspace/issues`
 - 이슈 상세: `GET /api/issues/:id/events/stream` fetch 기반 SSE를 우선 구독해 `run_event` 수신 시 issue/comments/runs 쿼리를 invalidate
+- run 단위 구독이 필요하면 `GET /api/runs/:id/events/stream`을 사용한다. 서버는 run의 parent issue 스트림에 붙은 뒤 해당 `run_id` 이벤트만 전달한다.
 - run 로그 패널: `GET /api/runs/:id/log/stream` fetch 기반 SSE로 `chunk`/`done` 이벤트를 수신
 - workspace run feed/chain dashboard: `GET /api/workspaces/:workspace/runs/stream` fetch 기반 SSE로 `wake` 이벤트를 수신
 - SSE 연결 실패 시 fallback: `execution_status` ∈ {`queued`, `running`}일 때 3초마다 댓글 + runs 동시 fetch
@@ -956,9 +958,11 @@ run별 기술 audit timeline을 반환한다. system comment는 사용자 스레
 
 **대표 event_type**: `run_queued`, `run_claimed`, `executor_starting`, `stdout_truncated`, `cancel_requested`, `run_cancelled`, `run_completed`, `run_failed`, `run_prepare_failed`, `orphan_recovered`, `stale_recovered`.
 
-### 11.3 `GET /api/issues/:id/events/stream`
+### 11.3 `GET /api/issues/:id/events/stream` / `GET /api/runs/:id/events/stream`
 
-issue 단위 run_event를 Server-Sent Events로 스트리밍한다. 최초 연결 시 `event: hello`를 보내고, 이후 같은 issue에 속한 새 run_event를 `event: run_event` 프레임으로 전달한다. 전송은 in-memory hub가 아니라 DB cursor(`seq`) polling 기반이라 서버 재시작 후에도 다음 query에서 이어진다.
+issue 단위 run_event를 Server-Sent Events로 스트리밍한다. 최초 연결 시 `: stream open` comment frame을 보내고, 이후 같은 issue에 속한 새 run_event를 `event: run_event` 프레임으로 전달한다. 전송은 in-memory wake-up + DB cursor(`created_at`) 기반이라 서버 재시작 후에도 다음 query에서 이어진다.
+
+run 단위 variant는 `GET /api/runs/:id/events/stream`이다. 서버가 run을 먼저 조회해 parent issue wake-up channel을 구독하고, 응답 프레임은 요청한 `run_id`와 일치하는 이벤트로만 필터링한다. 두 SSE endpoint 모두 token mode에서 일반 API와 동일하게 `Authorization: Bearer <token>` 헤더가 필요하다.
 
 **Response 200**:
 - `Content-Type: text/event-stream`

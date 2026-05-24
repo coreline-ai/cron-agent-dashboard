@@ -88,7 +88,7 @@ func TestPruneStaleWorktreesRemovesOldDirsOnly(t *testing.T) {
 	}
 }
 
-func TestRunMaintenanceOnceDoesNotPruneQueuedWorktree(t *testing.T) {
+func TestRunMaintenanceOncePrunesTerminalAndOrphanWorktreesButProtectsActiveRuns(t *testing.T) {
 	ctx := t.Context()
 	st := newTestStore(t)
 	workspace, _, err := st.CreateWorkspaceWithMainAgent(ctx, store.CreateWorkspaceInput{
@@ -101,19 +101,50 @@ func TestRunMaintenanceOnceDoesNotPruneQueuedWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := st.CreateIssueWithInitialRun(ctx, workspace.ID, store.CreateIssueInput{Title: "keep me"})
+
+	_, runningRun, err := st.CreateIssueWithInitialRun(ctx, workspace.ID, store.CreateIssueInput{Title: "running stays"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed, ok, err := st.ClaimNextRun(ctx, "gc-test-worker"); err != nil {
+		t.Fatal(err)
+	} else if !ok {
+		t.Fatal("expected to claim running fixture")
+	} else if claimed.ID != runningRun.ID {
+		t.Fatalf("claimed run=%s want %s", claimed.ID, runningRun.ID)
+	}
+	_, queuedRun, err := st.CreateIssueWithInitialRun(ctx, workspace.ID, store.CreateIssueInput{Title: "queued stays"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, terminalRun, err := st.CreateIssueWithInitialRun(ctx, workspace.ID, store.CreateIssueInput{Title: "terminal prunes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE run SET status='done', exit_code=0, finished_at=? WHERE id=?`, time.Now(), terminalRun.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	dataDir := t.TempDir()
-	protectedDir := filepath.Join(dataDir, "worktrees", workspace.Slug, run.ID)
+	runningDir := filepath.Join(dataDir, "worktrees", workspace.Slug, runningRun.ID)
+	queuedDir := filepath.Join(dataDir, "worktrees", workspace.Slug, queuedRun.ID)
+	terminalDir := filepath.Join(dataDir, "worktrees", workspace.Slug, terminalRun.ID)
 	orphanDir := filepath.Join(dataDir, "worktrees", workspace.Slug, "orphan-old")
-	for _, dir := range []string{protectedDir, orphanDir} {
+	payloads := map[string]string{
+		runningDir:  "running",
+		queuedDir:   "queued",
+		terminalDir: "terminal",
+		orphanDir:   "orphan",
+	}
+	old := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	for dir, payload := range payloads {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		old := time.Now().Add(-7 * 24 * time.Hour)
+		if err := os.WriteFile(filepath.Join(dir, "payload.txt"), []byte(payload), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Chtimes(dir, old, old); err != nil {
 			t.Fatal(err)
 		}
@@ -124,19 +155,32 @@ func TestRunMaintenanceOnceDoesNotPruneQueuedWorktree(t *testing.T) {
 		AutoBackup:         false,
 		WorktreeGCAfter:    24 * time.Hour,
 		WorktreePruneGuard: st.IsRunWorktreeGCProtected,
-		Now:                func() time.Time { return time.Now() },
+		Now:                func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("RunMaintenanceOnce: %v", err)
 	}
-	if report.PrunedWorktrees != 1 {
-		t.Fatalf("PrunedWorktrees=%d want 1", report.PrunedWorktrees)
+	if report.PrunedWorktrees != 2 {
+		t.Fatalf("PrunedWorktrees=%d want 2", report.PrunedWorktrees)
 	}
-	if _, err := os.Stat(protectedDir); err != nil {
+	if _, err := os.Stat(queuedDir); err != nil {
 		t.Fatalf("queued run worktree should be protected: %v", err)
+	}
+	if _, err := os.Stat(runningDir); err != nil {
+		t.Fatalf("running run worktree should be protected: %v", err)
+	}
+	if _, err := os.Stat(terminalDir); !os.IsNotExist(err) {
+		t.Fatalf("terminal old worktree should be pruned, stat err=%v", err)
 	}
 	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
 		t.Fatalf("orphan old worktree should be pruned, stat err=%v", err)
+	}
+	if report.WorktreeDirCount != 2 {
+		t.Fatalf("WorktreeDirCount=%d want 2 protected active dirs", report.WorktreeDirCount)
+	}
+	wantBytes := int64(len("queued") + len("running"))
+	if report.WorktreeBytes != wantBytes {
+		t.Fatalf("WorktreeBytes=%d want %d", report.WorktreeBytes, wantBytes)
 	}
 }
 

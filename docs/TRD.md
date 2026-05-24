@@ -332,13 +332,13 @@ cron-agent-dashboard/
 |---|---|
 | Workspaces | 6 (list/get/create/update/delete/export) |
 | Agents / Skills | 16 (agents, activity, instructions, skills, assignments) |
-| Issues / Comments / Attachments | 25 (issues, sub-issues, comments, attachments/audit/link) |
-| Runs / Chains | 6 (issue runs, events, log, chain cancel/retry, workspace runs) |
+| Issues / Comments / Attachments | 19 (issues, sub-issues, comments, attachments/audit/link) |
+| Runs / Chains | 10 (issue runs, events, issue/run SSE, log, chain cancel/retry, workspace runs) |
 | Autopilot | 5 |
-| Webhooks | 6 |
+| Webhooks | 8 |
 | Health / Settings / Usage | 3 |
 | System actions | 3 (backup/vacuum/cleanup-logs) |
-| **총** | **64** |
+| **총** | **70 routes (API 69 + `/healthz`)** |
 
 ---
 
@@ -595,7 +595,7 @@ cron-agent-dashboard init    # 디렉토리 생성, DB 마이그레이션
 | Stdout cap | **단일 run 10MB** (확정) | Phase 0 |
 | Prompt 컨텍스트 | **truncation 4000자, 요약 없음** | Phase 0 |
 | 체이닝 정책 | **explicit-first + workspace opt-in auto-chain**. 기본 off, workspace guard(depth/run/cost/dry-run) 통과 시 agent 결과 첫 멘션 dispatch | Phase 2 |
-| stdout 스트리밍 단위 | stdout 원문은 종료 후 다운로드. run lifecycle은 issue SSE(`/api/issues/{id}/events/stream`)로 실시간 event audit 제공 | Phase 2 |
+| stdout 스트리밍 단위 | stdout 원문은 종료 후 다운로드. run lifecycle은 issue/run SSE(`/api/issues/{id}/events/stream`, `/api/runs/{id}/events/stream`)로 실시간 event audit 제공 | Phase 2 |
 | run log 압축 | gzip vs raw — 운영 디스크 사용량을 보고 필요 시 결정 | Phase 2 |
 | 워크스페이스 import/export | 구현됨. CLI import/export + HTTP export + history export/PII masking + `ImportOptions.IncludeHistory` materialization | Phase 2 |
 

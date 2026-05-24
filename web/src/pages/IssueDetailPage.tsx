@@ -51,8 +51,10 @@ export function IssueDetailPage() {
   const [commentFiles, setCommentFiles] = useState<File[]>([]);
   const [subIssueForm, setSubIssueForm] = useState({ title: '', body: '', assignee_agent_id: '' });
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [realtimeFallback, setRealtimeFallback] = useState(false);
   const runList = useMemo(() => runs.data ?? [], [runs.data]);
   const busy = issue.data?.execution_status === 'queued' || issue.data?.execution_status === 'running';
+  const issueID = issue.data?.id;
 
   const invalidateIssue = () => {
     queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
@@ -70,17 +72,38 @@ export function IssueDetailPage() {
   // helper uses fetch streaming instead of native EventSource so token-mode
   // dashboards can include the Authorization header.
   useEffect(() => {
-    if (!issue.data?.id) return undefined;
-    return apiClient.streamSSE(`/issues/${issue.data.id}/events/stream`, {
+    setRealtimeFallback(false);
+  }, [issueID]);
+
+  useEffect(() => {
+    if (!issueID) return undefined;
+    return apiClient.streamSSE(`/issues/${issueID}/events/stream`, {
       reconnect: true,
+      onOpen: () => setRealtimeFallback(false),
       onEvent: (event) => {
         if (event !== 'run_event') return;
-        queryClient.invalidateQueries({ queryKey: ['comments', issue.data?.id] });
-        queryClient.invalidateQueries({ queryKey: ['runs', issue.data?.id] });
+        queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
+        queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
         queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
-      }
+      },
+      onError: () => setRealtimeFallback(true)
     });
-  }, [issue.data?.id, queryClient, slug, identifier]);
+  }, [issueID, queryClient, slug, identifier]);
+
+  useEffect(() => {
+    if (!realtimeFallback || !issueID) return undefined;
+    const pollRealtimeFallback = () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', issueID] });
+      queryClient.invalidateQueries({ queryKey: ['runs', issueID] });
+      queryClient.invalidateQueries({ queryKey: ['issue', slug, identifier] });
+      for (const run of runList) {
+        queryClient.invalidateQueries({ queryKey: ['run-events', run.id] });
+      }
+    };
+    pollRealtimeFallback();
+    const interval = window.setInterval(pollRealtimeFallback, 3_000);
+    return () => window.clearInterval(interval);
+  }, [realtimeFallback, issueID, queryClient, slug, identifier, runList]);
 
   const addComment = useMutation({
     mutationFn: async () => {
@@ -225,6 +248,11 @@ export function IssueDetailPage() {
       />
 
       {issue.isError ? <MutationErrorAlert error={issue.error} title="이슈 로드 실패" /> : null}
+      {realtimeFallback ? (
+        <p className="muted-copy" role="status">
+          실시간 업데이트 연결이 불안정해 3초마다 자동 새로고침으로 전환했습니다. 연결이 복구되면 다시 실시간으로 반영됩니다.
+        </p>
+      ) : null}
 
       <ReviewBanner
         issue={issue.data}

@@ -22,16 +22,18 @@ function formatCostMicros(value?: number) {
 }
 
 function formatBytes(value?: number) {
-  if (!value) {
-    return '0 B';
+  const n = value ?? 0;
+  if (n < 1024) {
+    return `${n} B`;
   }
-  if (value < 1024) {
-    return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let scaled = n / 1024;
+  let unit = units[0];
+  for (let i = 1; i < units.length && scaled >= 1024; i += 1) {
+    scaled /= 1024;
+    unit = units[i];
   }
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${scaled.toFixed(1)} ${unit}`;
 }
 
 function formatDurationSeconds(value?: number) {
@@ -50,19 +52,42 @@ function formatDurationSeconds(value?: number) {
   return `${seconds}초`;
 }
 
-function formatWorktreeUsage(m?: { worktree_bytes?: string; worktree_dir_count?: string; worktree_pruned_last_pass?: string; worktree_measured_at?: string }) {
-  const at = m?.worktree_measured_at?.trim();
+type WorktreeMaintenance = {
+  interval_seconds?: number;
+  worktree_gc_after_seconds?: number;
+  worktree_bytes?: string;
+  worktree_dir_count?: string;
+  worktree_pruned_last_pass?: string;
+  worktree_measured_at?: string;
+};
+
+function formatTimestamp(value?: string) {
+  const at = value?.trim();
   if (!at) {
     return '아직 측정되지 않음';
   }
-  const dirs = Number(m?.worktree_dir_count ?? 0);
-  if (dirs === 0) {
-    return '디렉터리 없음 (모두 정리됨)';
+  return `${at.slice(0, 19).replace('T', ' ')} UTC`;
+}
+
+function getWorktreeStats(m?: WorktreeMaintenance) {
+  return {
+    measuredAt: m?.worktree_measured_at?.trim() ?? '',
+    dirCount: Number(m?.worktree_dir_count ?? 0),
+    bytes: Number(m?.worktree_bytes ?? 0),
+    prunedLastPass: Number(m?.worktree_pruned_last_pass ?? 0)
+  };
+}
+
+function formatWorktreeUsage(m?: WorktreeMaintenance) {
+  const stats = getWorktreeStats(m);
+  if (!stats.measuredAt) {
+    return '아직 측정되지 않음';
   }
-  const bytes = Number(m?.worktree_bytes ?? 0);
-  const pruned = Number(m?.worktree_pruned_last_pass ?? 0);
-  const prunedSuffix = pruned > 0 ? ` · 직전 GC ${pruned}개 정리` : '';
-  return `${dirs}개 디렉터리 · ${formatBytes(bytes)}${prunedSuffix}`;
+  if (stats.dirCount === 0) {
+    return '0개 · 0 B (모두 정리됨)';
+  }
+  const prunedSuffix = stats.prunedLastPass > 0 ? ` · 직전 GC ${stats.prunedLastPass}개 정리` : '';
+  return `${stats.dirCount}개 · ${formatBytes(stats.bytes)}${prunedSuffix}`;
 }
 
 function formatLastLogCleanup(m?: { last_log_cleanup_at?: string; last_log_cleanup_files?: string; last_log_cleanup_bytes?: string }) {
@@ -233,10 +258,11 @@ export function SettingsPage() {
           <dt>worktree 디스크</dt>
           <dd>{formatWorktreeUsage(data?.maintenance)}</dd>
           <dt>worktree GC</dt>
-          <dd>{data?.maintenance?.worktree_gc_after_seconds ? `${formatDurationSeconds(data.maintenance.worktree_gc_after_seconds)} 이상 미사용 디렉터리 자동 정리` : 'OFF'}</dd>
+          <dd>{data?.maintenance?.worktree_gc_after_seconds ? `${formatDurationSeconds(data.maintenance.worktree_gc_after_seconds)} 이상 미사용 terminal/orphan 디렉터리 정리` : 'OFF · 사용량 측정만 수행'}</dd>
           <dt>마이그레이션 실패</dt>
           <dd>{data?.migration_fail_count ? `${data.migration_fail_count}건 이력 있음 · 로그/DB 확인 권장` : '없음'}</dd>
         </dl>
+        <WorktreeMaintenanceCard maintenance={data?.maintenance} />
       </article>
 
       <article className="panel settings-card read-only-note">
@@ -387,6 +413,30 @@ export function SettingsPage() {
   );
 }
 
+function WorktreeMaintenanceCard({ maintenance }: { maintenance?: WorktreeMaintenance }) {
+  const stats = getWorktreeStats(maintenance);
+  const gcEnabled = Boolean(maintenance?.worktree_gc_after_seconds);
+  return (
+    <section className="setting-action">
+      <div className="setting-copy">
+        <strong>Per-run worktree 디스크 / GC</strong>
+        <p>Settings API에 기록된 마지막 maintenance pass 기준입니다. queued/running run의 worktree는 GC 대상에서 보호됩니다.</p>
+      </div>
+      <dl className="detail-list settings-detail-list">
+        <dt>현재 사용량</dt>
+        <dd>{stats.measuredAt ? `${stats.dirCount}개 디렉터리 · ${formatBytes(stats.bytes)}` : '아직 측정되지 않음'}</dd>
+        <dt>마지막 측정</dt>
+        <dd>{formatTimestamp(maintenance?.worktree_measured_at)}</dd>
+        <dt>직전 GC 결과</dt>
+        <dd>{stats.measuredAt ? `${stats.prunedLastPass}개 디렉터리 정리` : '아직 실행되지 않음'}</dd>
+        <dt>GC 정책</dt>
+        <dd>{gcEnabled ? `${formatDurationSeconds(maintenance?.worktree_gc_after_seconds)} 이상 미사용 terminal/orphan 디렉터리 정리` : 'OFF · 삭제 없이 사용량만 측정'}</dd>
+        <dt>주기</dt>
+        <dd>{maintenance?.interval_seconds ? `maintenance interval ${formatDurationSeconds(maintenance.interval_seconds)}` : '서버 기본값'}</dd>
+      </dl>
+    </section>
+  );
+}
 
 function UsageCard({ title, usage, loading = false }: { title: string; usage?: { run_count: number; measured_run_count: number; total_tokens: number; total_cost_micros: number; input_tokens: number; output_tokens: number }; loading?: boolean }) {
   return (
