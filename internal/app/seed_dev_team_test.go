@@ -39,11 +39,13 @@ func TestSeedDevTeamCreatesSevenAgentsEightSkillsAndAssignments(t *testing.T) {
 	for _, agent := range result.Agents {
 		agentsByName[agent.Name] = agent
 	}
-	if !agentsByName["Lead"].IsMain || agentsByName["Lead"].Runtime != "claude" {
-		t.Fatalf("Lead should be main claude agent: %#v", agentsByName["Lead"])
+	if !agentsByName["Lead"].IsMain || agentsByName["Lead"].Runtime != "codex" {
+		t.Fatalf("Lead should be main codex agent: %#v", agentsByName["Lead"])
 	}
-	if agentsByName["Designer"].Runtime != "gemini" || agentsByName["Backend"].Runtime != "codex" {
-		t.Fatalf("unexpected role runtimes: %#v", agentsByName)
+	for _, name := range []string{"Lead", "Designer", "Backend", "Frontend", "DB", "QA", "DevOps"} {
+		if agentsByName[name].Runtime != "codex" {
+			t.Fatalf("%s should use codex runtime (project default): %#v", name, agentsByName[name])
+		}
 	}
 
 	leadSkills, err := st.ListAgentSkills(ctx, agentsByName["Lead"].ID)

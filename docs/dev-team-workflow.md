@@ -34,13 +34,15 @@ HTTP 진입점 (옵션 A가 내부적으로 호출): `POST /api/system/seed-dev-
 
 | Agent | Runtime | 역할 |
 |---|---|---|
-| `@Lead` | claude | hub PM, 작업 분해, 순차 멘션, QA verdict 기반 종료 |
-| `@Designer` | gemini | UX spec, 레이아웃, 디자인 토큰 |
+| `@Lead` | codex | hub PM, 작업 분해, 순차 멘션, QA verdict 기반 종료 |
+| `@Designer` | codex | UX spec, 레이아웃, 디자인 토큰 |
 | `@Backend` | codex | API, 비즈니스 로직, Go 테스트 |
 | `@Frontend` | codex | React UI, build/test |
 | `@DB` | codex | migration, schema, idempotency |
-| `@QA` | claude | 회귀 테스트, `## QA-PASS` / `## QA-FAIL` verdict |
+| `@QA` | codex | 회귀 테스트, `## QA-PASS` / `## QA-FAIL` verdict |
 | `@DevOps` | codex | CI, release, deployment automation |
+
+> 7개 역할 모두 codex로 통일되어 있습니다 — 프로젝트 기본 코딩 런타임이자 다른 워크스페이스(seed-lab 8종 + 일반 워크스페이스)와 동일한 컨벤션입니다. `codex exec --cd <working_dir>` 모드는 working_dir 안에서 파일 쓰기를 기본 허용하므로 hub-PM 패턴(Lead가 멘션으로 위임)도 실제 코딩(Backend/Frontend가 파일 수정)도 권한 게이트 없이 동작합니다.
 
 ## Skill 구성
 

@@ -160,12 +160,12 @@ func ensureDevTeamSkills(ctx context.Context, st *store.Store, workspaceID strin
 
 func devTeamAgentSpecs() []devTeamAgentSpec {
 	return []devTeamAgentSpec{
-		{Name: "Lead", Runtime: "claude", Summary: "hub PM — 작업 분해, 순차 멘션, QA verdict 기반 종료", Tags: "dev-team,lead,hub", IsMain: true, Instructions: devTeamLeadInstructions()},
-		{Name: "Designer", Runtime: "gemini", Summary: "UI/UX spec, layout, design token 결정", Tags: "dev-team,design", Instructions: devTeamWorkerInstructions("Designer", "UI/UX 스펙과 디자인 토큰을 markdown으로 작성합니다.")},
+		{Name: "Lead", Runtime: "codex", Summary: "hub PM — 작업 분해, 순차 멘션, QA verdict 기반 종료", Tags: "dev-team,lead,hub", IsMain: true, Instructions: devTeamLeadInstructions()},
+		{Name: "Designer", Runtime: "codex", Summary: "UI/UX spec, layout, design token 결정", Tags: "dev-team,design", Instructions: devTeamWorkerInstructions("Designer", "UI/UX 스펙과 디자인 토큰을 markdown으로 작성합니다.")},
 		{Name: "Backend", Runtime: "codex", Summary: "API, 비즈니스 로직, Go 테스트", Tags: "dev-team,backend", Instructions: devTeamWorkerInstructions("Backend", "API 엔드포인트와 Go 비즈니스 로직을 구현하고 Go 테스트를 실행합니다.")},
 		{Name: "Frontend", Runtime: "codex", Summary: "React UI 구현, build/test", Tags: "dev-team,frontend", Instructions: devTeamWorkerInstructions("Frontend", "React/TypeScript UI를 구현하고 pnpm build/test를 실행합니다.")},
 		{Name: "DB", Runtime: "codex", Summary: "migration, schema, idempotency", Tags: "dev-team,database", Instructions: devTeamWorkerInstructions("DB", "forward-only migration과 데이터 모델 변경을 검증합니다.")},
-		{Name: "QA", Runtime: "claude", Summary: "회귀 테스트와 QA-PASS/FAIL verdict", Tags: "dev-team,qa", Instructions: devTeamWorkerInstructions("QA", "회귀 테스트를 실행하고 ## QA-PASS 또는 ## QA-FAIL verdict를 남깁니다.")},
+		{Name: "QA", Runtime: "codex", Summary: "회귀 테스트와 QA-PASS/FAIL verdict", Tags: "dev-team,qa", Instructions: devTeamWorkerInstructions("QA", "회귀 테스트를 실행하고 ## QA-PASS 또는 ## QA-FAIL verdict를 남깁니다.")},
 		{Name: "DevOps", Runtime: "codex", Summary: "CI, release, deployment automation", Tags: "dev-team,devops", Instructions: devTeamWorkerInstructions("DevOps", "CI workflow, release smoke, 배포 자동화 변경을 검증합니다.")},
 	}
 }

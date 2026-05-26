@@ -44,7 +44,16 @@ func AllocateRunWorktree(dataDir, workspaceSlug, runID, workingDir string) (path
 	if strings.TrimSpace(runID) == "" {
 		return "", nopWorktreeCleanup, fmt.Errorf("runID empty: %w", ErrWorktreeInvalidInput)
 	}
-	path = filepath.Join(dataDir, "worktrees", workspaceSlug, runID)
+	// Worker adapters (notably codex `exec --cd`) chdir into cmd.Dir first and
+	// then resolve --cd from there, so a relative worktree path nests into
+	// itself ("No such file or directory (os error 2)"). Always hand back an
+	// absolute path so the adapter sees the same cwd regardless of how the
+	// server was launched (e.g. `--data-dir .tmp/dev-data`).
+	absDataDir, absErr := filepath.Abs(dataDir)
+	if absErr != nil {
+		return "", nopWorktreeCleanup, fmt.Errorf("worktree: resolve dataDir abs: %w", absErr)
+	}
+	path = filepath.Join(absDataDir, "worktrees", workspaceSlug, runID)
 
 	if shouldUseGitWorktree(workingDir) {
 		gitPath, gitCleanup, gitErr := allocateGitWorktree(workingDir, path)

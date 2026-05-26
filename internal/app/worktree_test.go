@@ -64,6 +64,34 @@ func TestAllocateRunWorktreeIsIdempotentBeforeCleanup(t *testing.T) {
 	}
 }
 
+func TestAllocateRunWorktreeReturnsAbsolutePathForRelativeDataDir(t *testing.T) {
+	// Workers that chdir into cmd.Dir before adapters resolve their own --cd
+	// (notably codex) double-nest a relative path and fail with "No such file
+	// or directory (os error 2)". Always handing back an absolute path keeps
+	// the contract independent of how the server was launched (e.g.
+	// `--data-dir .tmp/dev-data`).
+	tmp := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir tmp: %v", err)
+	}
+	if err := os.Mkdir("rel-data", 0o700); err != nil {
+		t.Fatalf("mkdir rel-data: %v", err)
+	}
+	path, cleanup, err := AllocateRunWorktree("rel-data", "ws", "run-rel", "")
+	if err != nil {
+		t.Fatalf("allocate: %v", err)
+	}
+	t.Cleanup(func() { _ = cleanup() })
+	if !filepath.IsAbs(path) {
+		t.Fatalf("worktree path is not absolute: %q", path)
+	}
+}
+
 func TestAllocateRunWorktreeRejectsEmptyInputs(t *testing.T) {
 	cases := []struct {
 		name    string
