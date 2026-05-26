@@ -19,7 +19,11 @@ func TestCodexAdapterBuildCommand(t *testing.T) {
 	}
 	// --json pins the JSONL output contract so ParseCodexJSONL can extract
 	// agent_message text and turn.completed usage from the structured stream.
-	wantArgs := []string{"codex-test", "exec", "--json", "--model", "gpt-5.4", "--cd", "/tmp/workspace", "-"}
+	// --sandbox workspace-write lets workers actually create/modify files
+	// inside --cd; the codex default is read-only and silently blocks
+	// apply_patch, which manifests as BUILD-FAIL "writing is blocked by
+	// read-only sandbox" comments and an empty working_dir.
+	wantArgs := []string{"codex-test", "exec", "--json", "--sandbox", "workspace-write", "--model", "gpt-5.4", "--cd", "/tmp/workspace", "-"}
 	if !reflect.DeepEqual(cmd.Args, wantArgs) {
 		t.Fatalf("args=%#v, want %#v", cmd.Args, wantArgs)
 	}

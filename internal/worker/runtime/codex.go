@@ -22,7 +22,16 @@ func (a CodexAdapter) BuildCommand(ctx context.Context, run RunContext) (*exec.C
 	// structured metrics stream ParseCodexJSONL relies on; without it, codex
 	// stdout interleaves human-readable text with the agent message and the
 	// dashboard would have to keep post-stripping MCP diagnostics by regex.
-	args := []string{"exec", "--json"}
+	//
+	// --sandbox workspace-write lets the agent create and edit files inside
+	// --cd (the worktree or workspace working_dir). The codex default is
+	// read-only, which silently refuses apply_patch with "writing is blocked
+	// by read-only sandbox" — that surfaces in the dev-team chain as
+	// BUILD-FAIL Designer/Frontend runs that produce no files. The worker
+	// already scopes the cwd to a workspace-owned directory, so giving codex
+	// write access to that directory only is the minimal change that lets
+	// hub-PM chains actually deliver artifacts.
+	args := []string{"exec", "--json", "--sandbox", "workspace-write"}
 	if run.AgentModel != "" {
 		args = append(args, "--model", run.AgentModel)
 	}
