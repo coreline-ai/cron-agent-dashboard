@@ -189,8 +189,14 @@ func devTeamWorkerInstructions(name, responsibility string) string {
 - Lead가 지시한 범위만 수행합니다.
 - 변경 전후 git status --short를 확인합니다.
 - 가능한 가장 좁은 테스트부터 실행하고 결과를 보고합니다.
-- 완료 댓글은 ## RESULT: <CODE> 헤더로 시작합니다.
-- 추가 조정이 필요하면 마지막 줄에 @Lead 로 보고합니다.`, name, responsibility))
+
+**체인 종결 규칙 — 위반 시 chain이 끊기고 다음 worker가 dispatch되지 않습니다:**
+- 완료 댓글은 반드시 ## RESULT: <CODE> 헤더로 시작합니다 (PLAN/BUILD-PASS/BUILD-FAIL/QA-PASS/QA-FAIL).
+- 본문 마지막에는 반드시 정확한 @mention 토큰 한 개를 단독 줄로 적습니다.
+  예: 마지막 줄이 정확히 "@DB" 또는 "@Backend" 또는 "@QA" 또는 "@Lead".
+  "DB 담당자가 ..." 같은 텍스트는 auto-chain dispatcher가 인식하지 못합니다.
+- 다음 worker가 누군지 spec 또는 Lead 지시에서 명확하지 않으면 "@Lead" 로 돌립니다.
+- 한 댓글에 @mention은 1개만 사용합니다 (첫 mention만 dispatch됨).`, name, responsibility))
 }
 
 func devTeamSkillSpecs() []devTeamSkillSpec {
